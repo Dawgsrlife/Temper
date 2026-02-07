@@ -78,7 +78,12 @@ class CounterfactualEngine:
 
         df = self._df.copy()
         df["_row_order"] = range(len(df))
-        df = df.sort_values(["timestamp", "_row_order"], kind="mergesort")
+        sort_order = [
+            col
+            for col in ("timestamp", "asset", "side", "price", "size_usd", "pnl")
+            if col in df.columns
+        ] + ["_row_order"]
+        df = df.sort_values(sort_order, kind="mergesort")
 
         # Optional flags default to False to keep input contract flexible.
         is_revenge = (

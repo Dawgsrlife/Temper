@@ -1,0 +1,82 @@
+{
+  "artifact_hashes": {
+    "counterfactual.csv": "77e2bcb949f2effc71ec86dd096903b371f7bb1bd6e591ddfc2b265e4303078d",
+    "data_quality.json": "db6a5be0af7d2aa291a2fb64e27030780f3ddbdf61f63b7f7f70dc17037888c6",
+    "flagged.csv": "5b56c373e056d6ecf00d8f949a369ad0a9d5d18bb327626c5378f6f273e3bf5c",
+    "normalized.csv": "2892dacec02d9e53229c8a06067ca8af09abeec6e93aa40b218d3edef1e6f15f",
+    "policy_report.txt": "cb6fb727a0ade1b104a785653321c2904498a353c5c46f417c4824a727f893b9",
+    "review.json": "03e5d16889e7616694a0aff778b53d784099f427416182e49a08c632af64f183"
+  },
+  "data_quality": {
+    "columns": [
+      "timestamp",
+      "asset",
+      "side",
+      "quantity",
+      "entry_price",
+      "exit_price",
+      "profit_loss"
+    ],
+    "metrics": {
+      "duplicate_timestamp_count": 0,
+      "duplicate_timestamp_pct": 0.0,
+      "missing_asset_count": 142,
+      "missing_asset_pct": 1.4200000000000002,
+      "nat_timestamp_count": 0,
+      "nat_timestamp_pct": 0.0,
+      "nonpositive_price_count": 50,
+      "nonpositive_price_pct": 0.5,
+      "nonpositive_size_usd_count": 0,
+      "nonpositive_size_usd_pct": 0.0,
+      "out_of_order_rows_count": 5027,
+      "out_of_order_rows_pct": 50.27,
+      "pnl_non_numeric_coercions_count": 0,
+      "pnl_non_numeric_coercions_pct": 0.0,
+      "rows": 10000
+    },
+    "quality_flags": {
+      "has_warnings": true
+    },
+    "rows": 10000,
+    "source_columns": {
+      "asset": "asset",
+      "pnl": "profit_loss",
+      "price": "entry_price",
+      "size": "quantity",
+      "timestamp": "timestamp"
+    },
+    "warnings": [
+      "1.42% rows have missing/empty asset.",
+      "0.50% rows have nonpositive price.",
+      "50.27% rows are out of timestamp order."
+    ]
+  },
+  "input": "/Users/vishnu/Documents/Temper/backend/outputs/calm_fuzzed.csv",
+  "k_repeat": 1,
+  "out_dir": "/Users/vishnu/Documents/Temper/backend/outputs/fuzz_pack",
+  "recommended_daily_max_loss": 11683.565175304653,
+  "rows": 10000,
+  "rows_per_second": 5090.89981837517,
+  "seed": 42,
+  "stage_seconds": {
+    "counterfactual": 0.0057318749895785,
+    "data_quality": 0.007793124997988343,
+    "detect": 0.0037829159991815686,
+    "load_and_repeat": 0.0046896249987185,
+    "normalize": 0.01298491598572582,
+    "review": 0.011622916004853323,
+    "risk_recommend": 0.005113124992931262,
+    "write_artifacts": 1.8933156249986496
+  },
+  "summary": {
+    "actual_total_pnl": -598.6270006729628,
+    "blocked_bias_count": 38,
+    "blocked_risk_count": 0,
+    "cost_of_bias": 0.0,
+    "delta_pnl": -40.01233924719054,
+    "outcome": "RESIGN",
+    "simulated_total_pnl": -638.6393399201534
+  },
+  "total_seconds": 1.96428929202375,
+  "used_daily_max_loss": 11683.565175304653
+}
