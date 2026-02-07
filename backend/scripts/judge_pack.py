@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -17,6 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from app.counterfactual import CounterfactualEngine
 from app.data_quality import evaluate_data_quality
 from app.detective import BiasDetective, BiasThresholds
+from app.job_store import JobRecord, LocalJobStore, file_sha256
 from app.normalizer import DataNormalizer
 from app.review import apply_trade_grades, build_trade_review
 from app.risk import (
@@ -168,6 +170,7 @@ def main() -> int:
     parser.add_argument("--daily_max_loss", type=float, default=None, help="Override daily max loss.")
     parser.add_argument("--k_repeat", type=int, default=1, help="Repeat input K times in-memory.")
     parser.add_argument("--seed", type=int, default=42, help="Optional seed (reserved).")
+    parser.add_argument("--user_id", default=None, help="Optional user id for job history.")
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[2]
@@ -181,6 +184,7 @@ def main() -> int:
 
     stage_seconds: dict[str, float] = {}
     t0 = time.perf_counter()
+    input_sha = file_sha256(input_path)
 
     raw_start = time.perf_counter()
     raw = pd.read_csv(input_path)
@@ -237,6 +241,7 @@ def main() -> int:
     review_path = out_dir / "review.json"
     policy_path = out_dir / "policy_report.txt"
     quality_path = out_dir / "data_quality.json"
+    job_path = out_dir / "job.json"
     metrics_path = out_dir / "runtime_metrics.json"
 
     _write_csv(normalized, normalized_path)
@@ -297,8 +302,53 @@ def main() -> int:
     }
     metrics_path.write_text(json.dumps(runtime_metrics, indent=2, sort_keys=True) + "\n")
 
+    existing_created_at = None
+    if job_path.exists():
+        try:
+            existing_created_at = json.loads(job_path.read_text()).get("created_at")
+        except Exception:
+            existing_created_at = None
+    created_at = (
+        str(existing_created_at)
+        if existing_created_at
+        else datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    )
+    engine_version = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    job_id = out_dir.name
+    job_record = JobRecord(
+        job_id=job_id,
+        user_id=args.user_id,
+        created_at=created_at,
+        engine_version=engine_version,
+        input_sha256=input_sha,
+        status="COMPLETED",
+        artifacts={
+            "normalized.csv": str(normalized_path),
+            "flagged.csv": str(flagged_path),
+            "counterfactual.csv": str(counterfactual_path),
+            "review.json": str(review_path),
+            "policy_report.txt": str(policy_path),
+            "data_quality.json": str(quality_path),
+            "runtime_metrics.json": str(metrics_path),
+        },
+        summary={
+            "outcome": str(summary.get("outcome", "")),
+            "delta_pnl": float(summary.get("delta_pnl", 0.0)),
+            "cost_of_bias": float(summary.get("cost_of_bias", 0.0)),
+            "badge_counts": review.get("badge_counts", {}),
+        },
+    )
+    LocalJobStore(root / "backend" / "outputs").write(job_record, job_dir=out_dir)
+
     print(f"Wrote judge pack to: {out_dir}")
     print(f"rows={len(counterfactual)} total_seconds={total_seconds:.4f}")
+    print(f"job_id={job_id} user_id={args.user_id or '-'}")
     print("artifact hashes:")
     for name, digest in runtime_metrics["artifact_hashes"].items():
         print(f"  {name}: {digest}")
