@@ -14,6 +14,8 @@ Detected Biases:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+from numbers import Integral, Real
 from typing import TypedDict
 
 import pandas as pd
@@ -50,6 +52,36 @@ class BiasThresholds:
     # Loss Aversion
     loss_aversion_duration_multiplier: float = 8.0
     loss_aversion_loss_to_win_multiplier: float = 4.0
+
+    def __post_init__(self) -> None:
+        int_fields = (
+            "revenge_time_window_minutes",
+            "revenge_baseline_window_trades",
+            "overtrading_window_hours",
+            "overtrading_trade_threshold",
+        )
+        positive_real_fields = (
+            "revenge_size_multiplier",
+            "revenge_min_prev_loss_abs",
+            "revenge_rolling_median_multiplier",
+            "loss_aversion_duration_multiplier",
+            "loss_aversion_loss_to_win_multiplier",
+        )
+
+        for field_name in int_fields:
+            value = getattr(self, field_name)
+            if not isinstance(value, Integral) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"{field_name} must be a positive integer")
+
+        for field_name in positive_real_fields:
+            value = getattr(self, field_name)
+            if (
+                not isinstance(value, Real)
+                or isinstance(value, bool)
+                or not math.isfinite(float(value))
+                or float(value) <= 0.0
+            ):
+                raise ValueError(f"{field_name} must be a finite positive number")
 
 
 class BiasDetective:
@@ -99,7 +131,7 @@ class BiasDetective:
         self._result_df: pd.DataFrame | None = None
 
     def _validate_input(self, df: pd.DataFrame) -> None:
-        """Ensure required columns exist."""
+        """Ensure required columns and ordering contracts exist."""
         required = {"timestamp", "asset", "price", "size_usd", "side", "pnl"}
         missing = required - set(df.columns)
         if missing:
@@ -107,6 +139,31 @@ class BiasDetective:
 
         if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
             raise ValueError("'timestamp' column must be datetime64 dtype")
+
+        if df["timestamp"].isna().any():
+            raise ValueError("'timestamp' column must not contain NaT values")
+
+        sort_columns = [
+            col
+            for col in (
+                "timestamp",
+                "asset",
+                "side",
+                "price",
+                "size_usd",
+                "pnl",
+                "balance",
+            )
+            if col in df.columns
+        ]
+        expected_index = df.sort_values(
+            sort_columns, ascending=True, kind="mergesort"
+        ).index
+        if not expected_index.equals(df.index):
+            raise ValueError(
+                "Input must be pre-sorted deterministically by "
+                f"{sort_columns} before bias detection."
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Revenge Trading Detection
@@ -183,30 +240,15 @@ class BiasDetective:
         Returns:
             Boolean Series where True = overtrading flagged
         """
-        # Ensure sorted by timestamp (should already be, but defensive)
-        df_sorted = df.sort_values("timestamp").reset_index(drop=True)
-
-        # Create a count column for rolling
-        df_sorted["_trade_count"] = 1
-
-        # Set timestamp as index for time-based rolling
-        df_indexed = df_sorted.set_index("timestamp")
-
         # Rolling count over 1-hour window
         window_str = f"{self.thresholds.overtrading_window_hours}h"
-        rolling_count = (
-            df_indexed["_trade_count"]
-            .rolling(window_str, min_periods=1)
-            .sum()
-        )
+        rolling_count = pd.Series(1.0, index=df["timestamp"]).rolling(
+            window_str, min_periods=1
+        ).sum()
 
         # Flag if exceeds threshold
-        is_overtrading = rolling_count > self.thresholds.overtrading_trade_threshold
-
-        # Reset index to align with original DataFrame
-        is_overtrading = is_overtrading.reset_index(drop=True)
-
-        return is_overtrading
+        is_overtrading = (rolling_count > self.thresholds.overtrading_trade_threshold).to_numpy()
+        return pd.Series(is_overtrading, index=df.index, dtype=bool)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Loss Aversion Detection

@@ -7,6 +7,9 @@ This module is designed for backend batch/background execution at 200k+ rows.
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
 import pandas as pd
 
 from app.risk import recommend_daily_max_loss
@@ -44,8 +47,8 @@ class CounterfactualEngine:
         resolved_daily_max_loss = (
             recommend_daily_max_loss(df) if daily_max_loss is None else float(daily_max_loss)
         )
-        if resolved_daily_max_loss <= 0:
-            raise ValueError("daily_max_loss must be > 0")
+        if not math.isfinite(resolved_daily_max_loss) or resolved_daily_max_loss <= 0:
+            raise ValueError("daily_max_loss must be a finite value > 0")
 
         self._df = df.copy()
         self.daily_max_loss = resolved_daily_max_loss
@@ -59,6 +62,41 @@ class CounterfactualEngine:
 
         if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
             raise ValueError("'timestamp' column must be datetime64 dtype")
+
+        if df["timestamp"].isna().any():
+            raise ValueError("'timestamp' column must not contain NaT values")
+
+        pnl_numeric = pd.to_numeric(df["pnl"], errors="coerce")
+        if pnl_numeric.isna().any() or not np.isfinite(pnl_numeric.to_numpy()).all():
+            raise ValueError("'pnl' column must contain only finite numeric values")
+
+    def _validate_outputs(self, df: pd.DataFrame) -> None:
+        required_out = (
+            "simulated_pnl",
+            "simulated_equity",
+            "simulated_daily_pnl",
+            "is_blocked_bias",
+            "is_blocked_risk",
+            "blocked_reason",
+            "checkmated_day",
+        )
+        if df[list(required_out)].isna().any().any():
+            raise ValueError("Counterfactual output contains NaN values in required columns")
+
+        allowed_reasons = {"NONE", "BIAS", "DAILY_MAX_LOSS"}
+        reasons = set(df["blocked_reason"].unique())
+        if not reasons.issubset(allowed_reasons):
+            raise ValueError("Counterfactual output contains invalid blocked_reason values")
+
+        blocked = df["blocked_reason"] != "NONE"
+        if not (df.loc[blocked, "simulated_pnl"] == 0.0).all():
+            raise ValueError("blocked_reason invariant failed: blocked rows must have simulated_pnl=0")
+
+        if not (df["is_blocked_bias"] == df["blocked_reason"].eq("BIAS")).all():
+            raise ValueError("is_blocked_bias must align with blocked_reason=BIAS")
+
+        if not (df["is_blocked_risk"] == df["blocked_reason"].eq("DAILY_MAX_LOSS")).all():
+            raise ValueError("is_blocked_risk must align with blocked_reason=DAILY_MAX_LOSS")
 
     def run(self) -> tuple[pd.DataFrame, dict[str, float | int | str]]:
         """
@@ -157,6 +195,7 @@ class CounterfactualEngine:
 
         # Preserve caller row order while keeping timeline-correct simulation math.
         df = df.sort_values("_row_order", kind="mergesort").drop(columns=["_row_order"])
+        self._validate_outputs(df)
 
         self._result_df = df
         self._summary = summary

@@ -13,7 +13,7 @@ def _synthetic_df(seed: int, rows: int = 600) -> pd.DataFrame:
     offsets = rng.integers(0, 60 * 24 * 8, size=rows)
     timestamps = start + pd.to_timedelta(offsets, unit="m")
 
-    return pd.DataFrame(
+    df = pd.DataFrame(
         {
             "timestamp": timestamps,
             "asset": rng.choice(["AAPL", "TSLA", "NVDA", "AMZN"], size=rows),
@@ -23,6 +23,10 @@ def _synthetic_df(seed: int, rows: int = 600) -> pd.DataFrame:
             "pnl": rng.normal(0.0, 700.0, size=rows),
         }
     )
+    return df.sort_values(
+        ["timestamp", "asset", "side", "price", "size_usd", "pnl"],
+        kind="mergesort",
+    ).reset_index(drop=True)
 
 
 def test_invariants_on_synthetic_property_sets() -> None:

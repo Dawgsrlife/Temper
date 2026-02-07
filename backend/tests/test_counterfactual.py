@@ -224,3 +224,71 @@ def test_judge_fixtures_pipeline_contract() -> None:
             out1["simulated_equity"], out2["simulated_equity"], check_names=False
         )
         assert summary1 == summary2
+
+
+def test_counterfactual_rejects_nat_timestamp() -> None:
+    df = pd.DataFrame(
+        {
+            "timestamp": _ts(
+                [
+                    "2026-01-01 09:30:00",
+                    "2026-01-01 09:31:00",
+                ]
+            ),
+            "pnl": [10.0, -20.0],
+            "is_revenge": [False, False],
+            "is_overtrading": [False, False],
+        }
+    )
+    df.loc[1, "timestamp"] = pd.NaT
+
+    try:
+        CounterfactualEngine(df, daily_max_loss=1000.0).run()
+        assert False, "Expected ValueError when timestamp contains NaT."
+    except ValueError as exc:
+        assert "must not contain NaT" in str(exc)
+
+
+def test_counterfactual_rejects_nan_pnl() -> None:
+    df = pd.DataFrame(
+        {
+            "timestamp": _ts(
+                [
+                    "2026-01-01 09:30:00",
+                    "2026-01-01 09:31:00",
+                ]
+            ),
+            "pnl": [10.0, float("nan")],
+            "is_revenge": [False, False],
+            "is_overtrading": [False, False],
+        }
+    )
+
+    try:
+        CounterfactualEngine(df, daily_max_loss=1000.0).run()
+        assert False, "Expected ValueError when pnl contains NaN."
+    except ValueError as exc:
+        assert "finite numeric values" in str(exc)
+
+
+def test_counterfactual_requires_positive_finite_daily_max_loss() -> None:
+    df = pd.DataFrame(
+        {
+            "timestamp": _ts(
+                [
+                    "2026-01-01 09:30:00",
+                    "2026-01-01 09:31:00",
+                ]
+            ),
+            "pnl": [10.0, -20.0],
+            "is_revenge": [False, False],
+            "is_overtrading": [False, False],
+        }
+    )
+
+    for invalid in [0.0, -1.0, float("nan"), float("inf"), float("-inf")]:
+        try:
+            CounterfactualEngine(df, daily_max_loss=invalid)
+            assert False, f"Expected ValueError for invalid daily_max_loss={invalid!r}."
+        except ValueError as exc:
+            assert "finite value > 0" in str(exc)
