@@ -22,8 +22,12 @@ class CounterfactualEngine:
     - is_loss_aversion (bool, optional -> ignored for blocking)
 
     Output:
-    - DataFrame with simulated_pnl and simulated_equity
-    - Summary dict with cost_of_bias and outcome
+    - DataFrame with:
+      simulated_pnl, simulated_equity, simulated_daily_pnl,
+      is_blocked_bias, is_blocked_risk, blocked_reason, checkmated_day
+    - Summary dict with:
+      actual_total_pnl, simulated_total_pnl, cost_of_bias,
+      blocked_bias_count, blocked_risk_count, outcome
     """
 
     REQUIRED_COLUMNS: tuple[str, ...] = ("timestamp", "pnl")
@@ -32,16 +36,16 @@ class CounterfactualEngine:
         self,
         df: pd.DataFrame,
         *,
-        daily_max_loss_absolute: float = -500.0,
+        daily_max_loss: float = 1000.0,
     ) -> None:
         self._validate_input(df)
-        if daily_max_loss_absolute > 0:
-            raise ValueError("daily_max_loss_absolute must be <= 0")
+        if daily_max_loss <= 0:
+            raise ValueError("daily_max_loss must be > 0")
 
         self._df = df.copy()
-        self.daily_max_loss_absolute = float(daily_max_loss_absolute)
+        self.daily_max_loss = float(daily_max_loss)
         self._result_df: pd.DataFrame | None = None
-        self._summary: dict[str, float | str] | None = None
+        self._summary: dict[str, float | int | str] | None = None
 
     def _validate_input(self, df: pd.DataFrame) -> None:
         missing = set(self.REQUIRED_COLUMNS) - set(df.columns)
@@ -51,7 +55,7 @@ class CounterfactualEngine:
         if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
             raise ValueError("'timestamp' column must be datetime64 dtype")
 
-    def run(self) -> tuple[pd.DataFrame, dict[str, float | str]]:
+    def run(self) -> tuple[pd.DataFrame, dict[str, float | int | str]]:
         """
         Run the counterfactual simulation.
 
@@ -90,28 +94,50 @@ class CounterfactualEngine:
         daily_running_pnl = pre_simulated_pnl.groupby(trade_day, sort=False).cumsum()
 
         # Breach trade is allowed; only rows after first breach in same day are blocked.
-        breached = pre_keep & daily_running_pnl.le(self.daily_max_loss_absolute)
+        daily_loss_floor = -self.daily_max_loss
+        breached = pre_keep & daily_running_pnl.le(daily_loss_floor)
         breach_rank = breached.groupby(trade_day, sort=False).cumsum()
         first_breach = breached & breach_rank.eq(1)
-        blocked_after_breach = breach_rank.ge(1) & ~first_breach
+        blocked_after_breach = pre_keep & breach_rank.ge(1) & ~first_breach
 
         keep_trade = pre_keep & ~blocked_after_breach
 
+        df["is_blocked_bias"] = blocked_by_bias
+        df["is_blocked_risk"] = blocked_after_breach
+        df["blocked_reason"] = "NONE"
+        df.loc[df["is_blocked_bias"], "blocked_reason"] = "BIAS"
+        df.loc[df["is_blocked_risk"], "blocked_reason"] = "DAILY_MAX_LOSS"
+
+        day_has_breach = breached.groupby(trade_day, sort=False).transform("any")
+        df["checkmated_day"] = day_has_breach.astype(bool)
+
         df["simulated_pnl"] = df["pnl"].where(keep_trade, 0.0)
+        df["simulated_daily_pnl"] = df["simulated_pnl"].groupby(
+            trade_day, sort=False
+        ).cumsum()
         df["simulated_equity"] = df["simulated_pnl"].cumsum()
 
         actual_total = float(df["pnl"].sum())
         simulated_total = float(df["simulated_pnl"].sum())
-        cost_of_bias = simulated_total - actual_total
+        cost_of_bias = actual_total - simulated_total
 
-        outcome = "unchanged"
-        if cost_of_bias > 0:
-            outcome = "improved"
-        elif cost_of_bias < 0:
-            outcome = "worse"
+        any_checkmated = bool(day_has_breach.any())
+        delta = simulated_total - actual_total
+        if any_checkmated:
+            outcome = "CHECKMATED"
+        elif delta > 1e-12:
+            outcome = "WINNER"
+        elif abs(delta) <= 1e-12:
+            outcome = "DRAW"
+        else:
+            outcome = "RESIGN"
 
-        summary: dict[str, float | str] = {
+        summary: dict[str, float | int | str] = {
+            "actual_total_pnl": actual_total,
+            "simulated_total_pnl": simulated_total,
             "cost_of_bias": cost_of_bias,
+            "blocked_bias_count": int(df["is_blocked_bias"].sum()),
+            "blocked_risk_count": int(df["is_blocked_risk"].sum()),
             "outcome": outcome,
         }
 
