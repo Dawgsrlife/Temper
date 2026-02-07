@@ -84,6 +84,70 @@ No backward transitions.
 
 ## 2. Endpoint Contracts
 
+## 2.1b POST `/jobs/from-uploadthing`
+Create a job from an Uploadthing-hosted CSV via verified file key.
+
+- Inputs:
+  - `user_id` (required)
+  - `file_key` (required, accepts alias `uploadthing_file_key`)
+  - `original_filename` (optional)
+  - `run_async` (optional, default `true`)
+- Required header:
+  - `X-Uploadthing-Signature: <hex hmac sha256>`
+  - Signature payload: `"{user_id}:{file_key}:{original_filename_or_empty}"`
+- Error on invalid signature:
+  - `401` with `error.code = "INVALID_UPLOADTHING_SIGNATURE"`
+
+Frontend/server call example:
+
+```bash
+SIG="$(printf "%s" "user_123:ut_file_abc:trades.csv" | openssl dgst -sha256 -hmac "$UPLOADTHING_SECRET" -binary | xxd -p -c 256)"
+
+curl -X POST "http://127.0.0.1:8000/jobs/from-uploadthing" \
+  -H "Content-Type: application/json" \
+  -H "X-Uploadthing-Signature: ${SIG}" \
+  -d '{
+    "user_id":"user_123",
+    "file_key":"ut_file_abc",
+    "original_filename":"trades.csv",
+    "run_async":true
+  }'
+```
+
+## 2.1c POST `/jobs/{job_id}/coach`
+Generate post-hoc coaching guidance via Vertex AI (Gemini). Does not alter deterministic engine outputs.
+
+- Query params:
+  - `force` (optional, default `false`)
+- Preconditions:
+  - job must exist
+  - job `execution_status` must be `COMPLETED`
+- Failure codes:
+  - `404 JOB_NOT_FOUND`
+  - `409 JOB_NOT_READY`
+  - `502 COACH_GENERATION_FAILED`
+
+Coach generation example:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/jobs/<JOB_ID>/coach?force=false"
+```
+
+## 2.1d GET `/jobs/{job_id}/coach`
+Read generated coach artifact.
+
+- Success: `200` with `data.coach`
+- Failure codes:
+  - `404 JOB_NOT_FOUND`
+  - `404 COACH_NOT_FOUND`
+  - `409 COACH_FAILED` (returns stored `data.coach_error`)
+
+Coach fetch example:
+
+```bash
+curl "http://127.0.0.1:8000/jobs/<JOB_ID>/coach"
+```
+
 ## 2.1 POST `/jobs`
 Create a new analysis job. Non-blocking by default; client polls job endpoints.
 

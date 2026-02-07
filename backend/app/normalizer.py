@@ -255,22 +255,10 @@ class DataNormalizer:
         if nat_count > 0:
             total = len(df)
             pct = (nat_count / total) * 100
-            if pct > 5:  # More than 5% failed = likely format issue
-                raise ValueError(
-                    f"Timestamp parsing failed for {nat_count}/{total} rows ({pct:.1f}%). "
-                    f"Consider specifying timestamp_format explicitly."
-                )
-            self._emit_warning(
-                code="residual_nat_timestamps",
-                message=(
-                    "Some timestamps could not be parsed but remained within tolerated "
-                    "failure threshold."
-                ),
-                details={
-                    "nat_count": int(nat_count),
-                    "total_rows": int(total),
-                    "nat_pct": round(float(pct), 4),
-                },
+            raise ValueError(
+                "Timestamp parsing failed: "
+                f"{nat_count}/{total} rows ({pct:.2f}%) contain invalid timestamps. "
+                "Fix timestamp format before analysis."
             )
 
         return df
