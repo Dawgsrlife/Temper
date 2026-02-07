@@ -1,102 +1,169 @@
 @import "tailwindcss";
 
+/* 
+  Temper Branding Palette
+  Primary: #06D6A0 (Teal), #F9C74F (Check/Gold), #EF476F (Danger/Red)
+  Backgrounds: #0B0B16 (Base), #1E1E2F (Card), #232336 (Input)
+*/
+
 @theme {
-  /* ── Surface palette ───────────────────────────── */
-  --color-background: oklch(0.13 0.004 260);
-  --color-foreground: oklch(0.93 0.005 260);
-  --color-surface-0: oklch(0.15 0.004 260);
-  --color-surface-1: oklch(0.17 0.006 260);
-  --color-surface-2: oklch(0.20 0.006 260);
-  --color-muted: oklch(0.28 0.006 260);
-  --color-muted-foreground: oklch(0.58 0.01 260);
-  --color-border: oklch(0.24 0.008 260);
-  --color-border-subtle: oklch(0.20 0.006 260);
-  --color-accent: oklch(0.62 0.14 250);
-  --color-accent-foreground: oklch(0.98 0.01 250);
-  --color-card: oklch(0.16 0.005 260);
-  --color-card-foreground: oklch(0.93 0.005 260);
+  --color-temper-bg: #0B0B16;
+  --color-temper-surface: #1E1E2F;
+  --color-temper-subtle: #232336;
+  --color-temper-border: #2F2F42;
+  --color-temper-text: #F9FAFB;
+  --color-temper-muted: #9CA3AF;
 
-  /* ── Decision label palette ───────────────────── */
-  --color-brilliant: oklch(0.72 0.14 195);
-  --color-excellent: oklch(0.72 0.16 150);
-  --color-good: oklch(0.68 0.10 150);
-  --color-book: oklch(0.64 0.10 250);
-  --color-inaccuracy: oklch(0.74 0.14 85);
-  --color-mistake: oklch(0.66 0.14 55);
-  --color-blunder: oklch(0.58 0.18 28);
-  --color-missed: oklch(0.52 0.02 260);
+  --color-temper-teal: #06D6A0;
+  --color-temper-teal-hover: #05956F;
+  --color-temper-gold: #F9C74F;
+  --color-temper-red: #EF476F;
+  --color-temper-blue: #3B82F6;
 
-  /* ── Semantic ─────────────────────────────────── */
-  --color-positive: oklch(0.70 0.14 150);
-  --color-negative: oklch(0.58 0.18 28);
+  --color-bias-overtrading: #F97316;
+  --color-bias-revenge: #EF476F;
+  --color-bias-lossaversion: #8B5CF6;
+  --color-bias-fomo: #3B82F6;
+  --color-bias-greed: #22C55E;
 
-  --radius-lg: 12px;
-  --radius-md: 8px;
-  --radius-sm: 6px;
+  --font-inter: 'Inter', system-ui, sans-serif;
+  --font-coach: 'Baloo 2', system-ui, sans-serif;
 }
 
-/* ── Base ──────────────────────────────────────── */
-
-* {
-  border-color: var(--color-border-subtle);
+/* Base Styles */
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-temper-bg);
+  color: var(--color-temper-text);
+  font-family: var(--font-inter);
+  @apply antialiased;
 }
 
-/* ── Scrollbar ─────────────────────────────────── */
-
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--color-muted); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--color-muted-foreground); }
-
-/* ── Animations ────────────────────────────────── */
-
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Coach Font */
+.font-coach {
+  font-family: var(--font-coach);
 }
 
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Glassmorphism Utilities */
+.glass {
+  background: rgba(30, 30, 47, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(47, 47, 66, 0.7);
 }
 
-@keyframes slide-down {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
+.glass-subtle {
+  background: rgba(35, 35, 54, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(47, 47, 66, 0.5);
 }
 
-.animate-in {
-  animation: fade-in 0.4s ease-out both;
+.glass-card {
+  background: linear-gradient(135deg, rgba(30, 30, 47, 0.9) 0%, rgba(11, 11, 22, 0.8) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
 }
 
-.animate-slide-up {
-  animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+/* Gradient Backgrounds */
+.gradient-hero {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(6, 214, 160, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 70% 80%, rgba(239, 71, 111, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 60%);
 }
 
-.animate-slide-down {
-  animation: slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+.gradient-glow-teal {
+  box-shadow: 0 0 60px rgba(6, 214, 160, 0.3), inset 0 0 60px rgba(6, 214, 160, 0.05);
 }
 
-/* Stagger delays */
-.delay-1 { animation-delay: 50ms; }
-.delay-2 { animation-delay: 100ms; }
-.delay-3 { animation-delay: 150ms; }
-.delay-4 { animation-delay: 200ms; }
-.delay-5 { animation-delay: 250ms; }
-.delay-6 { animation-delay: 300ms; }
-
-/* ── Tabular nums for data ─────────────────────── */
-
-.tabular {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
+.gradient-glow-red {
+  box-shadow: 0 0 40px rgba(239, 71, 111, 0.25);
 }
 
+/* Text Gradients */
+.text-gradient-teal {
+  background: linear-gradient(135deg, #06D6A0 0%, #05956F 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Utility Animations */
+@keyframes pulse-glow-teal {
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px rgba(6, 214, 160, 0.4);
+  }
+
+  50% {
+    box-shadow: 0 0 20px rgba(6, 214, 160, 0.7);
+  }
+}
+
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-pulse-glow-teal {
+  animation: pulse-glow-teal 2s infinite;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.05) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Scrollbar Customization */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-temper-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-temper-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-temper-muted);
+}
+
+/* Selection */
+::selection {
+  background: rgba(6, 214, 160, 0.3);
+  color: #F9FAFB;
+}
