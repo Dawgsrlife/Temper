@@ -44,13 +44,15 @@ DEFAULT_COLUMN_MAPPING: dict[str, str] = {
 # Judge fixture format mapping.
 # Note: quantity is renamed to size_qty_proxy first, then size_usd is
 # derived as quantity * price to preserve downstream schema requirements.
-JUDGE_COLUMN_MAPPING: dict[str, str] = {
+JUDGE_COLUMN_MAPPING_REQUIRED: dict[str, str] = {
     "timestamp": "timestamp",
     "asset": "asset",
     "entry_price": "price",
     "quantity": "size_qty_proxy",
     "side": "side",
     "profit_loss": "pnl",
+}
+JUDGE_COLUMN_MAPPING_OPTIONAL: dict[str, str] = {
     "balance": "balance",
 }
 
@@ -143,8 +145,12 @@ class DataNormalizer:
             self._resolved_mapping = DEFAULT_COLUMN_MAPPING
             return self._resolved_mapping
 
-        if set(JUDGE_COLUMN_MAPPING.keys()).issubset(source_cols):
-            self._resolved_mapping = JUDGE_COLUMN_MAPPING
+        if set(JUDGE_COLUMN_MAPPING_REQUIRED.keys()).issubset(source_cols):
+            mapping = dict(JUDGE_COLUMN_MAPPING_REQUIRED)
+            for source_col, target_col in JUDGE_COLUMN_MAPPING_OPTIONAL.items():
+                if source_col in source_cols:
+                    mapping[source_col] = target_col
+            self._resolved_mapping = mapping
             return self._resolved_mapping
 
         if set(self.REQUIRED_COLUMNS).issubset(source_cols):
