@@ -41,6 +41,17 @@ DEFAULT_COLUMN_MAPPING: dict[str, str] = {
     "Closed PnL": "pnl",
 }
 
+# Judge fixture format mapping.
+# Note: quantity is mapped into size_usd to preserve existing downstream schema.
+JUDGE_COLUMN_MAPPING: dict[str, str] = {
+    "timestamp": "timestamp",
+    "asset": "asset",
+    "entry_price": "price",
+    "quantity": "size_usd",
+    "side": "side",
+    "profit_loss": "pnl",
+}
+
 
 class DataNormalizer:
     """
@@ -93,12 +104,13 @@ class DataNormalizer:
                       Default True for international format.
         """
         self.source = Path(source) if not str(source).startswith("http") else source
-        self.column_mapping = column_mapping or DEFAULT_COLUMN_MAPPING
+        self.column_mapping = column_mapping
         self.timestamp_format = timestamp_format
         self.dayfirst = dayfirst
 
         self._raw_df: pd.DataFrame | None = None
         self._normalized_df: pd.DataFrame | None = None
+        self._resolved_mapping: dict[str, str] | None = None
 
     def _load_raw(self) -> pd.DataFrame:
         """Load raw data from source. Cached after first call."""
@@ -106,18 +118,53 @@ class DataNormalizer:
             self._raw_df = pd.read_csv(self.source)
         return self._raw_df
 
-    def _validate_source_columns(self, df: pd.DataFrame) -> None:
+    def _resolve_column_mapping(self, df: pd.DataFrame) -> dict[str, str]:
+        """
+        Resolve mapping based on explicit mapping or known source schemas.
+
+        Priority:
+        1. Explicit mapping passed by caller
+        2. Hyperliquid schema
+        3. Judge fixture schema
+        4. Already-normalized schema (identity mapping)
+        """
+        if self._resolved_mapping is not None:
+            return self._resolved_mapping
+
+        if self.column_mapping is not None:
+            self._resolved_mapping = self.column_mapping
+            return self._resolved_mapping
+
+        source_cols = set(df.columns)
+        if set(DEFAULT_COLUMN_MAPPING.keys()).issubset(source_cols):
+            self._resolved_mapping = DEFAULT_COLUMN_MAPPING
+            return self._resolved_mapping
+
+        if set(JUDGE_COLUMN_MAPPING.keys()).issubset(source_cols):
+            self._resolved_mapping = JUDGE_COLUMN_MAPPING
+            return self._resolved_mapping
+
+        if set(self.REQUIRED_COLUMNS).issubset(source_cols):
+            self._resolved_mapping = {col: col for col in self.REQUIRED_COLUMNS}
+            return self._resolved_mapping
+
+        raise ValueError(
+            "Unable to resolve column mapping from source columns. "
+            f"Available columns: {list(df.columns)}"
+        )
+
+    def _validate_source_columns(self, df: pd.DataFrame, mapping: dict[str, str]) -> None:
         """Ensure all mapped source columns exist in the dataframe."""
-        missing = set(self.column_mapping.keys()) - set(df.columns)
+        missing = set(mapping.keys()) - set(df.columns)
         if missing:
             raise ValueError(
                 f"Source data missing required columns: {missing}. "
                 f"Available columns: {list(df.columns)}"
             )
 
-    def _rename_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _rename_columns(self, df: pd.DataFrame, mapping: dict[str, str]) -> pd.DataFrame:
         """Rename columns according to the mapping. Vectorized via pandas."""
-        return df.rename(columns=self.column_mapping)
+        return df.rename(columns=mapping)
 
     def _select_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Select only the standardized columns we need."""
@@ -195,9 +242,10 @@ class DataNormalizer:
 
         # Pipeline: load → validate → rename → select → parse → coerce → sort
         df = self._load_raw()
-        self._validate_source_columns(df)
+        mapping = self._resolve_column_mapping(df)
+        self._validate_source_columns(df, mapping)
 
-        df = self._rename_columns(df)
+        df = self._rename_columns(df, mapping)
         df = self._select_columns(df)
         df = self._parse_timestamp(df)
         df = self._coerce_numeric(df)
