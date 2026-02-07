@@ -11,8 +11,11 @@ const baloo = Baloo_2({
 });
 
 export const metadata: Metadata = {
-  title: 'Temper - Trading Discipline Coach',
-  description: 'Review your trading day like a chess game. Spot tilt, revenge trading, and improve your discipline.',
+  title: 'Temper - Trading Psychology Coach',
+  description: 'Review your trading sessions. Spot tilt and revenge patterns. Build discipline.',
+  icons: {
+    icon: '/Temper_logo.ico',
+  },
 };
 
 export default function RootLayout({

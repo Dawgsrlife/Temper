@@ -10,127 +10,119 @@ export default function DashboardPage() {
     const container = useRef<HTMLDivElement>(null);
 
     useGSAP(() => {
-        gsap.from('.reveal', {
-            opacity: 0,
-            y: 20,
-            stagger: 0.08,
-            duration: 0.8,
-            ease: 'power3.out',
-        });
+        const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+
+        tl.from('.header-content', { y: 20, opacity: 0, duration: 0.6 })
+            .from('.stat-card', { y: 30, opacity: 0, stagger: 0.1, duration: 0.5 }, '-=0.3')
+            .from('.session-item', { y: 20, opacity: 0, stagger: 0.08, duration: 0.4 }, '-=0.2');
     }, { scope: container });
 
     const stats = [
-        { label: 'Temper Score', value: '78', icon: Shield, color: 'text-temper-teal', trend: '+4.2%' },
-        { label: 'Decision ELO', value: '1265', icon: TrendingUp, color: 'text-temper-gold', trend: '+15' },
-        { label: 'Tilt Frequency', value: '12%', icon: AlertTriangle, color: 'text-temper-red', trend: '-5%', good: true },
+        { label: 'Discipline Score', value: '78', icon: Shield, color: 'temper-teal', trend: '+4 pts' },
+        { label: 'Win Rate', value: '62%', icon: TrendingUp, color: 'temper-gold', trend: '+8%' },
+        { label: 'Tilt Events', value: '3', icon: AlertTriangle, color: 'temper-red', trend: '-2 this week' },
     ];
 
     const sessions = [
-        { id: 'demo', date: 'Today, 2:30 PM', score: 72, pnl: '+$195.00', bias: 'Revenge Trading', trades: 6 },
-        { id: 'session-124', date: 'Yesterday, 9:30 AM', score: 88, pnl: '+$450.00', bias: 'FOMO', trades: 12 },
-        { id: 'session-125', date: 'May 13, 10:00 AM', score: 45, pnl: '-$850.00', bias: 'Tilt', trades: 24 },
-        { id: 'session-126', date: 'May 12, 9:30 AM', score: 92, pnl: '+$120.00', bias: 'None', trades: 4 },
+        { id: 'demo', date: 'Today', time: '2:30 PM', score: 72, pnl: '+$195', trades: 6, label: 'Revenge Pattern' },
+        { id: '124', date: 'Yesterday', time: '9:30 AM', score: 88, pnl: '+$450', trades: 12, label: 'Clean Session' },
+        { id: '125', date: 'May 13', time: '10:00 AM', score: 45, pnl: '-$850', trades: 24, label: 'Tilt' },
+        { id: '126', date: 'May 12', time: '9:30 AM', score: 92, pnl: '+$120', trades: 4, label: 'Textbook' },
     ];
 
     return (
-        <div ref={container} className="min-h-screen bg-gradient-to-br from-temper-bg via-temper-bg to-temper-surface/30 p-8 md:p-12">
-            <div className="mx-auto max-w-6xl space-y-12">
+        <div ref={container} className="px-6 py-8 md:px-10 md:py-10 lg:px-12">
+            <div className="mx-auto max-w-5xl space-y-10">
                 {/* Header */}
-                <header className="reveal flex flex-col gap-6 border-b border-temper-border/30 pb-8 md:flex-row md:items-end md:justify-between">
-                    <div className="space-y-2">
-                        <div className="inline-flex items-center gap-2 rounded-full bg-temper-teal/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-temper-teal ring-1 ring-temper-teal/20">
-                            <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-temper-teal" />
-                            System Online
-                        </div>
-                        <h1 className="font-coach text-5xl font-bold italic tracking-tight text-temper-text md:text-6xl">
+                <header className="header-content flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="space-y-1">
+                        <p className="text-xs font-medium uppercase tracking-wider text-temper-teal">
                             Dashboard
+                        </p>
+                        <h1 className="text-3xl font-medium tracking-tight text-temper-text md:text-4xl">
+                            Overview
                         </h1>
                     </div>
                     <Link
                         href="/dashboard/upload"
-                        className="group flex items-center gap-4 rounded-2xl bg-temper-surface px-6 py-4 ring-1 ring-temper-border/50 transition-all hover:ring-temper-teal/30"
+                        className="group flex items-center gap-3 rounded-xl bg-temper-surface px-5 py-3 ring-1 ring-temper-border/30 transition-all hover:ring-temper-teal/40"
                     >
-                        <span className="text-sm font-bold uppercase tracking-widest text-temper-muted group-hover:text-temper-text">
-                            Upload Session
+                        <span className="text-sm font-medium text-temper-muted group-hover:text-temper-text">
+                            New Session
                         </span>
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-temper-teal/10 transition-transform group-hover:rotate-90">
-                            <Plus className="h-5 w-5 text-temper-teal" />
-                        </div>
+                        <Plus className="h-4 w-4 text-temper-teal" />
                     </Link>
                 </header>
 
-                {/* Stats */}
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                {/* Stats Grid */}
+                <div className="grid gap-4 sm:grid-cols-3">
                     {stats.map((stat) => (
                         <div
                             key={stat.label}
-                            className="reveal group rounded-3xl bg-temper-surface/60 p-8 ring-1 ring-temper-border/30 backdrop-blur-xl transition-all hover:ring-temper-teal/20"
+                            className="stat-card group rounded-2xl bg-temper-surface/60 p-6 ring-1 ring-temper-border/20 transition-all hover:ring-temper-border/40"
                         >
-                            <div className="mb-6 flex items-start justify-between">
-                                <div className={`rounded-2xl bg-temper-subtle p-3 ${stat.color} ring-1 ring-temper-border/30 transition-colors group-hover:bg-temper-teal/10`}>
-                                    <stat.icon className="h-5 w-5" />
+                            <div className="mb-4 flex items-center justify-between">
+                                <div className={`rounded-xl bg-${stat.color}/10 p-2.5`}>
+                                    <stat.icon className={`h-4 w-4 text-${stat.color}`} />
                                 </div>
-                                <div className="h-2 w-2 rounded-full bg-temper-teal/20 transition-colors group-hover:bg-temper-teal" />
                             </div>
-                            <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-temper-muted">
+                            <p className="mb-1 text-xs font-medium uppercase tracking-wider text-temper-muted">
                                 {stat.label}
                             </p>
-                            <p className={`font-mono text-4xl font-bold tracking-tight ${stat.color}`}>
+                            <p className="text-3xl font-semibold tracking-tight text-temper-text">
                                 {stat.value}
                             </p>
-                            <p className={`mt-2 text-xs font-semibold ${stat.good ? 'text-temper-teal' : 'text-temper-muted'}`}>
-                                {stat.trend} vs last week
-                            </p>
+                            <p className="mt-2 text-xs text-temper-muted">{stat.trend}</p>
                         </div>
                     ))}
                 </div>
 
-                {/* Sessions */}
-                <section className="space-y-6">
-                    <div className="reveal flex items-center justify-between border-b border-temper-border/30 pb-4">
-                        <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-temper-muted">
+                {/* Sessions List */}
+                <section className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-sm font-medium uppercase tracking-wider text-temper-muted">
                             Recent Sessions
                         </h2>
                         <Link
                             href="/dashboard/sessions"
-                            className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-temper-muted transition-colors hover:text-temper-teal"
+                            className="flex items-center gap-1.5 text-xs font-medium text-temper-muted transition-colors hover:text-temper-teal"
                         >
-                            View All <ArrowUpRight className="h-3 w-3" />
+                            View all <ArrowUpRight className="h-3 w-3" />
                         </Link>
                     </div>
 
-                    <div className="reveal overflow-hidden rounded-3xl bg-temper-surface/40 ring-1 ring-temper-border/30 backdrop-blur-xl">
-                        {sessions.map((session, i) => {
+                    <div className="divide-y divide-temper-border/10 overflow-hidden rounded-2xl bg-temper-surface/40 ring-1 ring-temper-border/20">
+                        {sessions.map((session) => {
                             const scoreColor =
-                                session.score >= 80 ? 'text-temper-teal' : session.score >= 60 ? 'text-temper-gold' : 'text-temper-red';
+                                session.score >= 80 ? 'text-temper-teal bg-temper-teal/10' :
+                                    session.score >= 60 ? 'text-temper-gold bg-temper-gold/10' :
+                                        'text-temper-red bg-temper-red/10';
                             const pnlColor = session.pnl.startsWith('+') ? 'text-temper-teal' : 'text-temper-red';
 
                             return (
                                 <Link
                                     key={session.id}
                                     href={`/dashboard/sessions/${session.id}`}
-                                    className={`group flex items-center justify-between p-6 transition-colors hover:bg-temper-subtle/50 ${i !== sessions.length - 1 ? 'border-b border-temper-border/20' : ''
-                                        }`}
+                                    className="session-item group flex items-center justify-between p-5 transition-colors hover:bg-temper-subtle/40"
                                 >
                                     <div className="flex items-center gap-4">
-                                        <div
-                                            className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-temper-subtle font-mono text-lg font-bold ring-1 ring-temper-border/30 ${scoreColor}`}
-                                        >
+                                        <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-sm font-semibold ${scoreColor}`}>
                                             {session.score}
                                         </div>
                                         <div>
-                                            <p className="flex items-center gap-2 font-medium text-temper-text transition-colors group-hover:text-temper-teal">
-                                                {session.date}
-                                                <ArrowUpRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                                            <p className="flex items-center gap-2 text-sm font-medium text-temper-text">
+                                                {session.date} <span className="text-temper-muted">·</span> <span className="text-temper-muted">{session.time}</span>
                                             </p>
                                             <p className="text-xs text-temper-muted">
-                                                {session.trades} trades • {session.bias}
+                                                {session.trades} trades · {session.label}
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <p className={`font-mono font-semibold ${pnlColor}`}>{session.pnl}</p>
-                                        <p className="text-xs text-temper-muted">P&L</p>
+                                    <div className="flex items-center gap-4">
+                                        <span className={`font-mono text-sm font-medium ${pnlColor}`}>
+                                            {session.pnl}
+                                        </span>
+                                        <ArrowUpRight className="h-4 w-4 text-temper-muted opacity-0 transition-opacity group-hover:opacity-100" />
                                     </div>
                                 </Link>
                             );

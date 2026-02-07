@@ -6,6 +6,7 @@ import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 if (typeof window !== 'undefined') {
     gsap.registerPlugin(ScrollTrigger);
@@ -16,10 +17,10 @@ export default function LandingPage() {
     const heroRef = useRef<HTMLDivElement>(null);
 
     useGSAP(() => {
-        // Hero parallax - content fades as you scroll
+        // Hero content fade on scroll
         if (heroRef.current) {
             gsap.to('.hero-content', {
-                yPercent: -30,
+                yPercent: -20,
                 opacity: 0,
                 ease: 'none',
                 scrollTrigger: {
@@ -34,21 +35,34 @@ export default function LandingPage() {
         // Reveal animations
         gsap.utils.toArray<HTMLElement>('.reveal').forEach((el) => {
             gsap.from(el, {
-                y: 60,
+                y: 40,
                 opacity: 0,
-                duration: 1,
+                duration: 0.8,
                 ease: 'power3.out',
                 scrollTrigger: {
                     trigger: el,
-                    start: 'top 85%',
+                    start: 'top 90%',
                     toggleActions: 'play none none reverse',
                 },
             });
         });
+
+        // Stagger feature cards
+        gsap.from('.feature-card', {
+            y: 60,
+            opacity: 0,
+            duration: 0.8,
+            stagger: 0.15,
+            ease: 'power3.out',
+            scrollTrigger: {
+                trigger: '.features-grid',
+                start: 'top 80%',
+            },
+        });
     }, { scope: containerRef });
 
     return (
-        <div ref={containerRef} className="bg-temper-bg text-temper-text selection:bg-temper-teal/30 selection:text-white">
+        <div ref={containerRef} className="bg-temper-bg text-temper-text">
             {/* Fixed Video Background */}
             <div className="fixed inset-0 z-0">
                 <video
@@ -59,20 +73,20 @@ export default function LandingPage() {
                     preload="auto"
                     className="h-full w-full object-cover"
                 >
-                    <source src="/assets/12676876_1920_1080_30fps.mp4" type="video/mp4" />
+                    <source src="/assets/4990245-hd_1920_1080_30fps.mp4" type="video/mp4" />
                 </video>
-                <div className="absolute inset-0 bg-gradient-to-b from-temper-bg/70 via-temper-bg/50 to-temper-bg" />
+                <div className="absolute inset-0 bg-gradient-to-b from-temper-bg/80 via-temper-bg/60 to-temper-bg" />
             </div>
 
             {/* Fixed Header */}
-            <header className="fixed left-0 right-0 top-0 z-50 px-8 py-6 md:px-12">
+            <header className="fixed left-0 right-0 top-0 z-50 px-6 py-5 md:px-12">
                 <div className="mx-auto flex max-w-7xl items-center justify-between">
-                    <Link href="/" className="font-coach text-2xl font-bold text-temper-teal">
+                    <Link href="/" className="font-coach text-xl font-bold tracking-tight text-temper-text">
                         Temper
                     </Link>
                     <Link
                         href="/login"
-                        className="bg-temper-teal px-8 py-3 text-xs font-black uppercase tracking-[0.2em] text-temper-bg transition-all duration-300 hover:bg-white hover:text-temper-bg"
+                        className="rounded-lg bg-temper-teal px-6 py-2.5 text-xs font-semibold uppercase tracking-wider text-temper-bg transition-all duration-300 hover:bg-white"
                     >
                         Get Started
                     </Link>
@@ -81,141 +95,151 @@ export default function LandingPage() {
 
             {/* Main content */}
             <main className="relative z-10">
-                {/* Hero Section */}
-                <section ref={heroRef} className="relative flex min-h-screen items-center justify-center px-8 pt-24">
-                    <div className="hero-content w-full max-w-5xl text-center">
-                        <h1 className="mb-8 font-coach text-[12vw] font-black uppercase leading-[0.85] tracking-tighter md:text-[10vw]">
-                            Trade <br />
-                            <span className="font-serif italic font-normal lowercase text-temper-teal">
-                                Smarter
-                            </span>{' '}
+                {/* Hero Section - Minimal */}
+                <section ref={heroRef} className="relative flex min-h-screen items-center justify-center px-6 pt-20">
+                    <div className="hero-content w-full max-w-4xl text-center">
+                        <h1 className="mb-6 text-5xl font-medium leading-[1.1] tracking-tight md:text-7xl lg:text-8xl">
+                            Review your trades.
                             <br />
-                            Not Harder
+                            <span className="text-temper-teal">Build discipline.</span>
                         </h1>
-                        <p className="mx-auto mb-12 max-w-xl text-sm font-bold uppercase tracking-[0.25em] leading-relaxed text-temper-muted md:text-base">
-                            Review your trading day like a chess game. <br />
-                            Spot tilt. Build discipline. Master psychology.
+                        <p className="mx-auto mb-10 max-w-lg text-base leading-relaxed text-temper-muted md:text-lg">
+                            Temper analyzes your trading sessions to identify emotional patterns
+                            and help you make better decisions.
                         </p>
-                        <div className="flex justify-center gap-4">
+                        <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
                             <Link
                                 href="/dashboard/sessions/demo"
-                                className="group flex items-center gap-3 bg-temper-teal px-10 py-5 text-xs font-black uppercase tracking-[0.15em] text-temper-bg shadow-[6px_6px_0px_0px_rgba(255,255,255,0.1)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[10px_10px_0px_0px_rgba(6,214,160,0.3)]"
+                                className="group flex items-center gap-2 rounded-lg bg-temper-teal px-8 py-4 text-sm font-semibold text-temper-bg transition-all duration-300 hover:bg-white"
                             >
-                                Try Demo Review
+                                Try Demo
                                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                            </Link>
+                            <Link
+                                href="/login"
+                                className="rounded-lg border border-temper-border px-8 py-4 text-sm font-semibold text-temper-text transition-all duration-300 hover:border-temper-muted hover:bg-temper-surface/50"
+                            >
+                                Sign In
                             </Link>
                         </div>
                     </div>
+                </section>
 
-                    {/* Scroll indicator */}
-                    <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 flex-col items-center gap-3">
-                        <div className="h-8 w-px animate-bounce bg-temper-muted/30" />
+                {/* Features Section */}
+                <section className="relative bg-temper-bg px-6 py-32 md:px-12">
+                    <div className="mx-auto max-w-6xl">
+                        <div className="reveal mb-16 text-center">
+                            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-temper-teal">
+                                How it works
+                            </p>
+                            <h2 className="text-3xl font-medium tracking-tight md:text-4xl lg:text-5xl">
+                                Simple. Effective. Honest.
+                            </h2>
+                        </div>
+
+                        <div className="features-grid grid gap-6 md:grid-cols-3">
+                            {[
+                                {
+                                    step: '01',
+                                    title: 'Upload',
+                                    description: 'Import your trade history from any broker. CSV format supported.',
+                                },
+                                {
+                                    step: '02',
+                                    title: 'Analyze',
+                                    description: 'Our algorithm identifies revenge sequences, FOMO entries, and discipline breaks.',
+                                },
+                                {
+                                    step: '03',
+                                    title: 'Improve',
+                                    description: 'Review each decision with annotations showing what went wrong and why.',
+                                },
+                            ].map((feature) => (
+                                <div
+                                    key={feature.step}
+                                    className="feature-card group rounded-2xl bg-temper-surface/50 p-8 ring-1 ring-temper-border/30 transition-all duration-300 hover:bg-temper-surface hover:ring-temper-teal/30"
+                                >
+                                    <div className="mb-6 text-xs font-semibold uppercase tracking-widest text-temper-teal">
+                                        {feature.step}
+                                    </div>
+                                    <h3 className="mb-3 text-xl font-medium">{feature.title}</h3>
+                                    <p className="text-sm leading-relaxed text-temper-muted">
+                                        {feature.description}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </section>
 
-                {/* Feature Section */}
-                <section className="relative min-h-screen bg-temper-bg/95 px-8 py-32 backdrop-blur-sm md:px-12">
-                    <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-16 lg:grid-cols-2 lg:gap-24">
-                        <div className="space-y-8">
-                            <div className="reveal text-[10px] font-black uppercase tracking-[0.3em] text-temper-teal">
-                                01 — Psychology Analysis
+                {/* Product Preview Section */}
+                <section className="relative bg-temper-surface px-6 py-32 md:px-12">
+                    <div className="mx-auto max-w-6xl">
+                        <div className="grid items-center gap-16 lg:grid-cols-2">
+                            <div className="space-y-6">
+                                <p className="reveal text-xs font-semibold uppercase tracking-widest text-temper-teal">
+                                    Session Review
+                                </p>
+                                <h2 className="reveal text-3xl font-medium leading-tight tracking-tight md:text-4xl">
+                                    Every trade.
+                                    <br />
+                                    Every decision.
+                                    <br />
+                                    Annotated.
+                                </h2>
+                                <p className="reveal max-w-md text-base leading-relaxed text-temper-muted">
+                                    See exactly where discipline broke down. Each trade is labeled
+                                    with its psychological context—was it planned, reactive, or revenge?
+                                </p>
+                                <Link
+                                    href="/dashboard/sessions/demo"
+                                    className="reveal inline-flex items-center gap-2 text-sm font-semibold text-temper-teal transition-colors hover:text-white"
+                                >
+                                    View demo session
+                                    <ArrowRight className="h-4 w-4" />
+                                </Link>
                             </div>
-                            <h2 className="reveal font-coach text-5xl font-black uppercase leading-[0.9] tracking-tighter md:text-6xl lg:text-7xl">
-                                Raw <br />
-                                <span className="text-temper-teal">Trades</span> to <br />
-                                Insight
-                            </h2>
-                            <p className="reveal max-w-md text-base font-medium leading-relaxed text-temper-muted md:text-lg">
-                                Upload your trade log. Our algorithm detects revenge sequences,
-                                emotional entries, and discipline breaks — labeling each decision
-                                as BRILLIANT, MISTAKE, or BLUNDER.
-                            </p>
-                        </div>
-                        <div className="reveal relative hidden lg:block">
-                            <div className="aspect-[4/3] overflow-hidden border-2 border-temper-border bg-temper-surface/50">
-                                <img
-                                    src="/assets/pexels-alphatradezone-5833747.jpg"
+                            <div className="reveal relative overflow-hidden rounded-2xl bg-temper-bg ring-1 ring-temper-border/30">
+                                <Image
+                                    src="/assets/pexels-robert-clark-504241532-21036037.jpg"
                                     alt="Trading Analysis"
-                                    className="h-full w-full object-cover opacity-80"
+                                    width={800}
+                                    height={600}
+                                    className="h-auto w-full object-cover opacity-80"
                                 />
                             </div>
-                            <div className="absolute -bottom-6 -left-6 flex h-24 w-24 items-center justify-center border-2 border-temper-border bg-temper-teal shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                                <span className="text-4xl">🧠</span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                {/* Second Feature */}
-                <section className="relative min-h-screen bg-temper-surface px-8 py-32 md:px-12">
-                    <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-16 lg:grid-cols-2 lg:gap-24">
-                        <div className="reveal relative order-2 hidden lg:order-1 lg:block">
-                            <div className="aspect-[4/3] overflow-hidden border-2 border-temper-border bg-temper-bg/50 grayscale">
-                                <img
-                                    src="/assets/pexels-markusspiske-11026521.jpg"
-                                    alt="Trade Review"
-                                    className="h-full w-full object-cover opacity-70"
-                                />
-                            </div>
-                            <div className="absolute -right-6 -top-6 flex h-24 w-24 items-center justify-center border-2 border-temper-teal bg-temper-gold shadow-[4px_4px_0px_0px_rgba(6,214,160,0.5)]">
-                                <span className="text-4xl">♟️</span>
-                            </div>
-                        </div>
-                        <div className="order-1 space-y-8 lg:order-2">
-                            <div className="reveal text-[10px] font-black uppercase tracking-[0.3em] text-temper-gold">
-                                02 — Game Review
-                            </div>
-                            <h2 className="reveal font-coach text-5xl font-black uppercase leading-[0.9] tracking-tighter md:text-6xl lg:text-7xl">
-                                Replay <br />
-                                <span className="text-temper-gold">Every</span> <br />
-                                Decision
-                            </h2>
-                            <p className="reveal max-w-md text-base font-medium leading-relaxed text-temper-muted md:text-lg">
-                                Step through your session like a chess game. See what
-                                your P&L would have been if you followed your rules.
-                                The disciplined path, visualized.
-                            </p>
                         </div>
                     </div>
                 </section>
 
                 {/* CTA Section */}
-                <section className="relative flex min-h-screen flex-col bg-temper-teal">
-                    <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-8 py-24 text-center">
-                        <div className="reveal z-10 max-w-4xl space-y-10">
-                            <h2 className="font-coach text-6xl font-black uppercase leading-[0.8] tracking-tighter text-temper-bg md:text-7xl lg:text-[8vw]">
-                                Master <br />
-                                Your Mind
-                            </h2>
-                            <div className="mx-auto h-1 w-24 bg-temper-bg" />
-                            <p className="mx-auto max-w-xl text-lg font-bold uppercase tracking-widest text-temper-bg/70 md:text-xl">
-                                Stop losing to yourself. Start building trading discipline today.
-                            </p>
-                            <div className="flex justify-center pt-6">
-                                <Link
-                                    href="/login"
-                                    className="bg-temper-bg px-12 py-6 text-sm font-black uppercase tracking-[0.2em] text-temper-teal shadow-[8px_8px_0px_0px_rgba(255,255,255,0.3)] transition-all duration-300 hover:bg-white hover:text-temper-bg"
-                                >
-                                    Start Free
-                                </Link>
-                            </div>
-                        </div>
-                        {/* Background text */}
-                        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none text-[30vw] font-black uppercase leading-none text-temper-bg/5">
-                            T
-                        </div>
+                <section className="relative bg-temper-teal px-6 py-24 md:px-12">
+                    <div className="mx-auto max-w-4xl text-center">
+                        <h2 className="reveal mb-6 text-3xl font-medium tracking-tight text-temper-bg md:text-4xl lg:text-5xl">
+                            Stop losing to yourself.
+                        </h2>
+                        <p className="reveal mx-auto mb-10 max-w-lg text-base text-temper-bg/70">
+                            Most traders fail not because of bad strategy, but because of bad psychology.
+                            Fix the root cause.
+                        </p>
+                        <Link
+                            href="/login"
+                            className="reveal inline-block rounded-lg bg-temper-bg px-10 py-4 text-sm font-semibold text-temper-teal transition-all duration-300 hover:bg-white"
+                        >
+                            Start Free
+                        </Link>
                     </div>
-
-                    {/* Footer */}
-                    <footer className="border-t border-temper-bg/10 px-8 py-8">
-                        <div className="mx-auto flex max-w-6xl items-center justify-between">
-                            <span className="font-coach text-lg font-bold text-temper-bg">Temper</span>
-                            <span className="text-xs font-bold uppercase tracking-widest text-temper-bg/50">
-                                © {new Date().getFullYear()} All rights reserved
-                            </span>
-                        </div>
-                    </footer>
                 </section>
+
+                {/* Footer */}
+                <footer className="border-t border-temper-border/20 bg-temper-bg px-6 py-8">
+                    <div className="mx-auto flex max-w-6xl items-center justify-between">
+                        <span className="font-coach text-lg font-bold text-temper-text">Temper</span>
+                        <span className="text-xs text-temper-muted">
+                            © {new Date().getFullYear()} All rights reserved
+                        </span>
+                    </div>
+                </footer>
             </main>
         </div>
     );

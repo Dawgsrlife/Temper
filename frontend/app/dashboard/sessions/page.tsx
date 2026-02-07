@@ -4,57 +4,47 @@ import { useRef } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import Link from 'next/link';
-import { ArrowUpRight, Filter, Search } from 'lucide-react';
+import { ArrowUpRight, Search } from 'lucide-react';
 
 export default function SessionsPage() {
     const container = useRef<HTMLDivElement>(null);
 
     useGSAP(() => {
-        gsap.from('.reveal', {
-            opacity: 0,
-            y: 20,
-            stagger: 0.05,
-            duration: 0.7,
-            ease: 'power3.out',
-        });
+        const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+        tl.from('.page-header', { y: 20, opacity: 0, duration: 0.5 })
+            .from('.session-card', { y: 30, opacity: 0, stagger: 0.08, duration: 0.4 }, '-=0.2');
     }, { scope: container });
 
     const sessions = [
-        { id: 'demo', date: 'Today, 2:30 PM', score: 72, pnl: '+$195.00', bias: 'Revenge Trading', trades: 6 },
-        { id: 'session-124', date: 'Yesterday, 9:30 AM', score: 88, pnl: '+$450.00', bias: 'FOMO', trades: 12 },
-        { id: 'session-125', date: 'May 13, 10:00 AM', score: 45, pnl: '-$850.00', bias: 'Tilt', trades: 24 },
-        { id: 'session-126', date: 'May 12, 9:30 AM', score: 92, pnl: '+$120.00', bias: 'None', trades: 4 },
-        { id: 'session-127', date: 'May 11, 11:00 AM', score: 67, pnl: '+$85.00', bias: 'Overtrading', trades: 18 },
-        { id: 'session-128', date: 'May 10, 9:30 AM', score: 81, pnl: '+$320.00', bias: 'None', trades: 8 },
+        { id: 'demo', date: 'Today', time: '2:30 PM', score: 72, pnl: '+$195', trades: 6, label: 'Revenge Pattern' },
+        { id: '124', date: 'Yesterday', time: '9:30 AM', score: 88, pnl: '+$450', trades: 12, label: 'Clean Session' },
+        { id: '125', date: 'May 13', time: '10:00 AM', score: 45, pnl: '-$850', trades: 24, label: 'Tilt' },
+        { id: '126', date: 'May 12', time: '9:30 AM', score: 92, pnl: '+$120', trades: 4, label: 'Textbook' },
+        { id: '127', date: 'May 11', time: '11:00 AM', score: 67, pnl: '+$85', trades: 18, label: 'Overtrading' },
+        { id: '128', date: 'May 10', time: '9:30 AM', score: 81, pnl: '+$320', trades: 8, label: 'Good Discipline' },
     ];
 
     return (
-        <div ref={container} className="min-h-screen bg-gradient-to-br from-temper-bg via-temper-bg to-temper-surface/30 p-8 md:p-12">
-            <div className="mx-auto max-w-6xl space-y-10">
+        <div ref={container} className="px-6 py-8 md:px-10 md:py-10 lg:px-12">
+            <div className="mx-auto max-w-5xl space-y-8">
                 {/* Header */}
-                <header className="reveal space-y-2 border-b border-temper-border/30 pb-8">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-temper-teal">
-                        Review History
+                <header className="page-header space-y-1">
+                    <p className="text-xs font-medium uppercase tracking-wider text-temper-teal">
+                        History
                     </p>
-                    <h1 className="font-coach text-5xl font-bold italic tracking-tight text-temper-text">
+                    <h1 className="text-3xl font-medium tracking-tight text-temper-text">
                         Sessions
                     </h1>
                 </header>
 
-                {/* Filters */}
-                <div className="reveal flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="relative">
-                        <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-temper-muted" />
-                        <input
-                            type="text"
-                            placeholder="Search sessions..."
-                            className="w-full rounded-2xl bg-temper-surface/60 py-3 pl-12 pr-4 text-sm text-temper-text placeholder:text-temper-muted ring-1 ring-temper-border/30 focus:outline-none focus:ring-temper-teal/50 sm:w-72"
-                        />
-                    </div>
-                    <button className="flex items-center gap-2 rounded-xl bg-temper-surface/60 px-4 py-3 text-xs font-bold uppercase tracking-widest text-temper-muted ring-1 ring-temper-border/30 transition-colors hover:text-temper-text">
-                        <Filter className="h-4 w-4" />
-                        Filter
-                    </button>
+                {/* Search */}
+                <div className="page-header relative">
+                    <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-temper-muted" />
+                    <input
+                        type="text"
+                        placeholder="Search sessions..."
+                        className="w-full rounded-xl bg-temper-surface/60 py-3 pl-11 pr-4 text-sm text-temper-text placeholder:text-temper-muted ring-1 ring-temper-border/20 focus:outline-none focus:ring-temper-teal/40 sm:max-w-xs"
+                    />
                 </div>
 
                 {/* Sessions Grid */}
@@ -70,27 +60,27 @@ export default function SessionsPage() {
                             <Link
                                 key={session.id}
                                 href={`/dashboard/sessions/${session.id}`}
-                                className="reveal group relative overflow-hidden rounded-3xl bg-temper-surface/50 p-6 ring-1 ring-temper-border/30 backdrop-blur-xl transition-all hover:ring-temper-teal/30"
+                                className="session-card group relative overflow-hidden rounded-2xl bg-temper-surface/50 p-5 ring-1 ring-temper-border/20 transition-all hover:bg-temper-surface hover:ring-temper-border/40"
                             >
-                                <div className="mb-6 flex items-start justify-between">
-                                    <div className={`flex h-14 w-14 items-center justify-center rounded-2xl font-mono text-xl font-bold ${scoreColor}`}>
+                                <div className="mb-5 flex items-start justify-between">
+                                    <div className={`flex h-11 w-11 items-center justify-center rounded-xl text-sm font-semibold ${scoreColor}`}>
                                         {session.score}
                                     </div>
-                                    <ArrowUpRight className="h-4 w-4 text-temper-muted opacity-0 transition-all group-hover:opacity-100" />
+                                    <ArrowUpRight className="h-4 w-4 text-temper-muted opacity-0 transition-opacity group-hover:opacity-100" />
                                 </div>
                                 <div className="space-y-1">
-                                    <p className="font-medium text-temper-text transition-colors group-hover:text-temper-teal">
-                                        {session.date}
+                                    <p className="text-sm font-medium text-temper-text">
+                                        {session.date} · {session.time}
                                     </p>
                                     <p className="text-xs text-temper-muted">
-                                        {session.trades} trades • {session.bias}
+                                        {session.trades} trades · {session.label}
                                     </p>
                                 </div>
-                                <div className="mt-4 pt-4 border-t border-temper-border/20">
-                                    <p className={`font-mono text-lg font-semibold ${pnlColor}`}>{session.pnl}</p>
+                                <div className="mt-4 border-t border-temper-border/10 pt-4">
+                                    <span className={`font-mono text-lg font-semibold ${pnlColor}`}>
+                                        {session.pnl}
+                                    </span>
                                 </div>
-                                {/* Hover bar */}
-                                <div className="absolute bottom-0 left-0 right-0 h-1 origin-left scale-x-0 bg-temper-teal transition-transform duration-500 group-hover:scale-x-100" />
                             </Link>
                         );
                     })}

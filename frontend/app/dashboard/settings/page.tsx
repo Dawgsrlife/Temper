@@ -3,125 +3,133 @@
 import { useRef, useState } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
-import { User, Bell, Shield, Moon, ChevronRight, LucideIcon } from 'lucide-react';
+import { User, Bell, Shield, Moon, Eye, Trash2 } from 'lucide-react';
 
-type SettingItem = {
-    icon: LucideIcon;
-    label: string;
-    description: string;
-    toggle?: boolean;
-    value?: boolean;
-    onChange?: (value: boolean) => void;
-};
-
-type SettingGroup = {
+interface SettingItem {
+    id: string;
     title: string;
+    description: string;
+    enabled: boolean;
+}
+
+interface SettingGroup {
+    title: string;
+    icon: typeof User;
     items: SettingItem[];
-};
+}
 
 export default function SettingsPage() {
     const container = useRef<HTMLDivElement>(null);
-    const [notifications, setNotifications] = useState(true);
-    const [darkMode, setDarkMode] = useState(true);
+
+    const [settings, setSettings] = useState<SettingGroup[]>([
+        {
+            title: 'Notifications',
+            icon: Bell,
+            items: [
+                { id: 'email', title: 'Email Alerts', description: 'Daily discipline reports and tilt warnings', enabled: true },
+                { id: 'browser', title: 'Browser Notifications', description: 'Real-time alerts when reviewing sessions', enabled: false },
+            ],
+        },
+        {
+            title: 'Privacy',
+            icon: Shield,
+            items: [
+                { id: 'analytics', title: 'Usage Analytics', description: 'Help improve Temper with anonymous data', enabled: true },
+                { id: 'share', title: 'Share Sessions', description: 'Allow sharing session reviews with others', enabled: false },
+            ],
+        },
+        {
+            title: 'Appearance',
+            icon: Eye,
+            items: [
+                { id: 'dark', title: 'Dark Mode', description: 'Always use dark theme', enabled: true },
+                { id: 'compact', title: 'Compact View', description: 'Reduce spacing for denser layouts', enabled: false },
+            ],
+        },
+    ]);
 
     useGSAP(() => {
-        gsap.from('.reveal', {
-            opacity: 0,
-            y: 20,
-            stagger: 0.08,
-            duration: 0.7,
-            ease: 'power3.out',
-        });
+        const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+        tl.from('.page-header', { y: 20, opacity: 0, duration: 0.5 })
+            .from('.settings-group', { y: 30, opacity: 0, stagger: 0.1, duration: 0.4 }, '-=0.2');
     }, { scope: container });
 
-    const settingGroups: SettingGroup[] = [
-        {
-            title: 'Account',
-            items: [
-                { icon: User, label: 'Profile', description: 'Manage your account details' },
-                { icon: Shield, label: 'Privacy', description: 'Control your data and visibility' },
-            ],
-        },
-        {
-            title: 'Preferences',
-            items: [
-                { icon: Bell, label: 'Notifications', description: 'Session alerts and reminders', toggle: true, value: notifications, onChange: setNotifications },
-                { icon: Moon, label: 'Dark Mode', description: 'Toggle dark theme', toggle: true, value: darkMode, onChange: setDarkMode },
-            ],
-        },
-    ];
+    const toggleSetting = (groupIndex: number, itemId: string) => {
+        setSettings(prev => {
+            const newSettings = [...prev];
+            const group = newSettings[groupIndex];
+            const itemIndex = group.items.findIndex(i => i.id === itemId);
+            if (itemIndex !== -1) {
+                group.items[itemIndex].enabled = !group.items[itemIndex].enabled;
+            }
+            return newSettings;
+        });
+    };
 
     return (
-        <div ref={container} className="min-h-screen bg-gradient-to-br from-temper-bg via-temper-bg to-temper-surface/30 p-8 md:p-12">
-            <div className="mx-auto max-w-3xl space-y-10">
+        <div ref={container} className="px-6 py-8 md:px-10 md:py-10 lg:px-12">
+            <div className="mx-auto max-w-2xl space-y-10">
                 {/* Header */}
-                <header className="reveal space-y-2 border-b border-temper-border/30 pb-8">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-temper-teal">
-                        Configuration
+                <header className="page-header space-y-1">
+                    <p className="text-xs font-medium uppercase tracking-wider text-temper-teal">
+                        Preferences
                     </p>
-                    <h1 className="font-coach text-5xl font-bold italic tracking-tight text-temper-text">
+                    <h1 className="text-3xl font-medium tracking-tight text-temper-text">
                         Settings
                     </h1>
                 </header>
 
                 {/* Settings Groups */}
-                <div className="space-y-10">
-                    {settingGroups.map((group) => (
-                        <section key={group.title} className="space-y-4">
-                            <h2 className="reveal text-xs font-bold uppercase tracking-[0.2em] text-temper-muted">
+                {settings.map((group, groupIndex) => (
+                    <section key={group.title} className="settings-group space-y-3">
+                        <div className="flex items-center gap-2.5">
+                            <group.icon className="h-4 w-4 text-temper-teal" />
+                            <h2 className="text-sm font-medium uppercase tracking-wider text-temper-muted">
                                 {group.title}
                             </h2>
-                            <div className="reveal overflow-hidden rounded-3xl bg-temper-surface/50 ring-1 ring-temper-border/30 backdrop-blur-xl">
-                                {group.items.map((item, i) => (
-                                    <div
-                                        key={item.label}
-                                        className={`flex items-center justify-between p-6 transition-colors hover:bg-temper-subtle/30 ${i !== group.items.length - 1 ? 'border-b border-temper-border/20' : ''
+                        </div>
+
+                        <div className="divide-y divide-temper-border/10 overflow-hidden rounded-2xl bg-temper-surface/50 ring-1 ring-temper-border/20">
+                            {group.items.map((item) => (
+                                <div
+                                    key={item.id}
+                                    className="flex items-center justify-between p-5"
+                                >
+                                    <div className="space-y-0.5">
+                                        <p className="text-sm font-medium text-temper-text">{item.title}</p>
+                                        <p className="text-xs text-temper-muted">{item.description}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => toggleSetting(groupIndex, item.id)}
+                                        className={`relative h-6 w-11 rounded-full transition-colors ${item.enabled ? 'bg-temper-teal' : 'bg-temper-subtle'
                                             }`}
                                     >
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-temper-subtle ring-1 ring-temper-border/30">
-                                                <item.icon className="h-5 w-5 text-temper-muted" />
-                                            </div>
-                                            <div>
-                                                <p className="font-medium text-temper-text">{item.label}</p>
-                                                <p className="text-xs text-temper-muted">{item.description}</p>
-                                            </div>
-                                        </div>
-                                        {item.toggle ? (
-                                            <button
-                                                onClick={() => item.onChange?.(!item.value)}
-                                                className={`relative h-7 w-12 rounded-full transition-colors ${item.value ? 'bg-temper-teal' : 'bg-temper-subtle'
-                                                    }`}
-                                            >
-                                                <div
-                                                    className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${item.value ? 'translate-x-6' : 'translate-x-1'
-                                                        }`}
-                                                />
-                                            </button>
-                                        ) : (
-                                            <ChevronRight className="h-5 w-5 text-temper-muted" />
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </section>
-                    ))}
-                </div>
+                                        <span
+                                            className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${item.enabled ? 'left-6' : 'left-1'
+                                                }`}
+                                        />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                ))}
 
                 {/* Danger Zone */}
-                <section className="space-y-4">
-                    <h2 className="reveal text-xs font-bold uppercase tracking-[0.2em] text-temper-red">
-                        Danger Zone
-                    </h2>
-                    <div className="reveal rounded-3xl bg-temper-red/5 p-6 ring-1 ring-temper-red/20">
+                <section className="settings-group space-y-3">
+                    <div className="flex items-center gap-2.5">
+                        <Trash2 className="h-4 w-4 text-temper-red" />
+                        <h2 className="text-sm font-medium uppercase tracking-wider text-temper-muted">
+                            Danger Zone
+                        </h2>
+                    </div>
+                    <div className="rounded-2xl bg-temper-red/5 p-5 ring-1 ring-temper-red/20">
                         <div className="flex items-center justify-between">
-                            <div>
-                                <p className="font-medium text-temper-text">Delete Account</p>
-                                <p className="text-xs text-temper-muted">
-                                    Permanently delete your account and all data
-                                </p>
+                            <div className="space-y-0.5">
+                                <p className="text-sm font-medium text-temper-text">Delete Account</p>
+                                <p className="text-xs text-temper-muted">Permanently delete all sessions and data</p>
                             </div>
-                            <button className="rounded-xl bg-temper-red/10 px-4 py-2 text-xs font-bold uppercase tracking-widest text-temper-red transition-colors hover:bg-temper-red hover:text-white">
+                            <button className="rounded-lg bg-temper-red/10 px-4 py-2 text-xs font-medium text-temper-red transition-colors hover:bg-temper-red/20">
                                 Delete
                             </button>
                         </div>
