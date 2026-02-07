@@ -38,8 +38,8 @@ class BiasThresholds:
 
     # Revenge Trading
     revenge_time_window_minutes: int = 15
-    revenge_size_multiplier: float = 3.0  # tuned on judge archetype ranking
-    revenge_min_prev_loss_abs: float = 100.0
+    revenge_size_multiplier: float = 2.5  # tuned on judge archetype ranking
+    revenge_min_prev_loss_abs: float = 400.0
     revenge_rolling_median_multiplier: float = 2.0
     revenge_baseline_window_trades: int = 50
 
