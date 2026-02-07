@@ -1,0 +1,16 @@
+{
+    "name": "temper-monorepo",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Temper – Behavioral trading journal and discipline coach",
+    "scripts": {
+        "dev": "concurrently -n frontend,backend -c cyan,magenta \"npm run dev:frontend\" \"npm run dev:backend\"",
+        "dev:frontend": "cd frontend && npm run dev",
+        "dev:backend": "cd backend && source venv/bin/activate 2>/dev/null || true && uvicorn app.main:app --reload --port 8000",
+        "install:all": "cd frontend && npm install && cd ../backend && pip install -r requirements.txt",
+        "setup": "cp .env.example .env && npm run install:all && cd backend && python -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.2"
+    }
+}
