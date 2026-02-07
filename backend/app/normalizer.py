@@ -42,12 +42,13 @@ DEFAULT_COLUMN_MAPPING: dict[str, str] = {
 }
 
 # Judge fixture format mapping.
-# Note: quantity is mapped into size_usd to preserve existing downstream schema.
+# Note: quantity is renamed to size_qty_proxy first, then size_usd is
+# derived as quantity * price to preserve downstream schema requirements.
 JUDGE_COLUMN_MAPPING: dict[str, str] = {
     "timestamp": "timestamp",
     "asset": "asset",
     "entry_price": "price",
-    "quantity": "size_usd",
+    "quantity": "size_qty_proxy",
     "side": "side",
     "profit_loss": "pnl",
 }
@@ -171,6 +172,25 @@ class DataNormalizer:
         available = [col for col in self.REQUIRED_COLUMNS if col in df.columns]
         return df[available].copy()
 
+    def _ensure_size_usd(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Ensure size_usd exists for downstream detectors.
+
+        If source has no explicit USD size but includes quantity + price,
+        derive a deterministic proxy: size_usd = quantity * price.
+        """
+        if "size_usd" in df.columns:
+            return df
+
+        if {"size_qty_proxy", "price"}.issubset(df.columns):
+            qty = pd.to_numeric(df["size_qty_proxy"], errors="coerce")
+            px = pd.to_numeric(df["price"], errors="coerce")
+            df["size_usd"] = (qty * px).fillna(0.0)
+            return df
+
+        df["size_usd"] = 0.0
+        return df
+
     def _parse_timestamp(self, df: pd.DataFrame) -> pd.DataFrame:
         """Convert timestamp column to proper datetime. Vectorized."""
         if "timestamp" not in df.columns:
@@ -246,6 +266,7 @@ class DataNormalizer:
         self._validate_source_columns(df, mapping)
 
         df = self._rename_columns(df, mapping)
+        df = self._ensure_size_usd(df)
         df = self._select_columns(df)
         df = self._parse_timestamp(df)
         df = self._coerce_numeric(df)

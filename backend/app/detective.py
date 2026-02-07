@@ -38,14 +38,14 @@ class BiasThresholds:
 
     # Revenge Trading
     revenge_time_window_minutes: int = 15
-    revenge_size_multiplier: float = 2.0  # 2x size increase = escalation
+    revenge_size_multiplier: float = 4.0  # stricter escalation filter
 
     # Overtrading
     overtrading_window_hours: int = 1
     overtrading_trade_threshold: int = 200  # Tuned for HFT/scalping
 
     # Loss Aversion
-    loss_aversion_duration_multiplier: float = 1.5
+    loss_aversion_duration_multiplier: float = 8.0
 
 
 class BiasDetective:
@@ -115,7 +115,7 @@ class BiasDetective:
         Criteria:
         1. Previous trade was a loss (pnl < 0)
         2. Current trade within 15 minutes of previous trade
-        3. Current size_usd > 1.25x previous size_usd
+        3. Current size_usd > threshold * previous size_usd
 
         Implementation: Fully vectorized using .shift(1)
 
@@ -200,7 +200,7 @@ class BiasDetective:
         Criteria:
         1. Calculate holding duration per asset (time between trades)
         2. Compute median duration of winning trades
-        3. Flag losses where duration > 1.5x median win duration
+        3. Flag losses where duration > threshold * median win duration
 
         Implementation: Vectorized groupby + diff for per-asset durations
 

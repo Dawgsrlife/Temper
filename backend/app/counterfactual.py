@@ -26,7 +26,7 @@ class CounterfactualEngine:
       simulated_pnl, simulated_equity, simulated_daily_pnl,
       is_blocked_bias, is_blocked_risk, blocked_reason, checkmated_day
     - Summary dict with:
-      actual_total_pnl, simulated_total_pnl, cost_of_bias,
+      actual_total_pnl, simulated_total_pnl, delta_pnl, cost_of_bias,
       blocked_bias_count, blocked_risk_count, outcome
     """
 
@@ -119,15 +119,15 @@ class CounterfactualEngine:
 
         actual_total = float(df["pnl"].sum())
         simulated_total = float(df["simulated_pnl"].sum())
-        cost_of_bias = actual_total - simulated_total
+        delta_pnl = simulated_total - actual_total
+        cost_of_bias = max(0.0, delta_pnl)
 
         any_checkmated = bool(day_has_breach.any())
-        delta = simulated_total - actual_total
         if any_checkmated:
             outcome = "CHECKMATED"
-        elif delta > 1e-12:
+        elif delta_pnl > 1e-12:
             outcome = "WINNER"
-        elif abs(delta) <= 1e-12:
+        elif abs(delta_pnl) <= 1e-12:
             outcome = "DRAW"
         else:
             outcome = "RESIGN"
@@ -135,6 +135,7 @@ class CounterfactualEngine:
         summary: dict[str, float | int | str] = {
             "actual_total_pnl": actual_total,
             "simulated_total_pnl": simulated_total,
+            "delta_pnl": delta_pnl,
             "cost_of_bias": cost_of_bias,
             "blocked_bias_count": int(df["is_blocked_bias"].sum()),
             "blocked_risk_count": int(df["is_blocked_risk"].sum()),
