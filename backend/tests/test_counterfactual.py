@@ -48,7 +48,8 @@ def test_daily_max_loss_breach_trade_allowed_then_block_same_day_and_reset_next_
     assert summary["outcome"] == "CHECKMATED"
     assert summary["actual_total_pnl"] == -40.0
     assert summary["simulated_total_pnl"] == -90.0
-    assert summary["cost_of_bias"] == 50.0
+    assert summary["delta_pnl"] == -50.0
+    assert summary["cost_of_bias"] == 0.0
 
 
 def test_bias_blocking_happens_before_daily_loss_logic() -> None:
@@ -99,6 +100,44 @@ def test_missing_flag_columns_default_to_false() -> None:
     assert summary["blocked_risk_count"] == 0
 
 
+def test_cost_metric_sign_behavior() -> None:
+    better_df = pd.DataFrame(
+        {
+            "timestamp": _ts(
+                [
+                    "2026-01-01 09:30:00",
+                    "2026-01-01 09:31:00",
+                    "2026-01-01 09:32:00",
+                ]
+            ),
+            "pnl": [-200.0, 10.0, 15.0],
+            "is_revenge": [True, False, False],
+            "is_overtrading": [False, False, False],
+        }
+    )
+    _, better_summary = CounterfactualEngine(better_df, daily_max_loss=1000.0).run()
+    assert better_summary["delta_pnl"] > 0
+    assert better_summary["cost_of_bias"] == better_summary["delta_pnl"]
+
+    worse_df = pd.DataFrame(
+        {
+            "timestamp": _ts(
+                [
+                    "2026-01-01 09:30:00",
+                    "2026-01-01 09:31:00",
+                    "2026-01-01 09:32:00",
+                ]
+            ),
+            "pnl": [20.0, -200.0, 10.0],
+            "is_revenge": [False, False, False],
+            "is_overtrading": [False, False, False],
+        }
+    )
+    _, worse_summary = CounterfactualEngine(worse_df, daily_max_loss=100.0).run()
+    assert worse_summary["delta_pnl"] < 0
+    assert worse_summary["cost_of_bias"] == 0.0
+
+
 def test_judge_fixtures_pipeline_contract() -> None:
     root = Path(__file__).resolve().parents[2]
     datasets_dir = root / "trading_datasets"
@@ -121,6 +160,7 @@ def test_judge_fixtures_pipeline_contract() -> None:
     expected_summary_keys = {
         "actual_total_pnl",
         "simulated_total_pnl",
+        "delta_pnl",
         "cost_of_bias",
         "blocked_bias_count",
         "blocked_risk_count",
