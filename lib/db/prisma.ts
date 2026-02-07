@@ -1,0 +1,22 @@
+import { PrismaClient } from "@/prisma/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+function createPrismaClient() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is not set");
+  }
+  const adapter = new PrismaPg({ connectionString });
+  return new PrismaClient({ adapter });
+}
+
+const globalForPrisma = globalThis as unknown as { _prisma?: PrismaClient };
+
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, prop: string | symbol) {
+    if (!globalForPrisma._prisma) {
+      globalForPrisma._prisma = createPrismaClient();
+    }
+    return Reflect.get(globalForPrisma._prisma, prop);
+  },
+});

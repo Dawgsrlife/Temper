@@ -1,0 +1,112 @@
+// ─────────────────────────────────────────────────────────────
+// Temper – Prisma Schema (v7)
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client"
+  output   = "../prisma/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── User ──────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tradeSets TradeSet[]
+  eloState  DecisionElo?
+  baseline  UserBaseline?
+  reports   TemperReport[]
+}
+
+// ── Trade ingestion ───────────────────────────────────────────
+
+model TradeSet {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName  String
+  rawCsv    String   @db.Text
+  createdAt DateTime @default(now())
+
+  sessions Session[]
+
+  @@index([userId])
+}
+
+// ── Session (one day of trading) ──────────────────────────────
+
+model Session {
+  id         String   @id @default(cuid())
+  tradeSetId String
+  tradeSet   TradeSet @relation(fields: [tradeSetId], references: [id], onDelete: Cascade)
+  userId     String
+  date       String   // YYYY-MM-DD
+  tradesJson Json     // Trade[] — enriched trade objects
+  aggregates Json     // Session aggregate stats (totalPnl, winRate, etc.)
+  createdAt  DateTime @default(now())
+
+  report TemperReport?
+
+  @@index([userId, date])
+}
+
+// ── Analysis report ───────────────────────────────────────────
+
+model TemperReport {
+  id           String   @id @default(cuid())
+  sessionId    String   @unique
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date         String   // YYYY-MM-DD
+  biasScores   Json     // BiasScores
+  biasDetails  Json     // BiasDetail[]
+  decisions    Json     // DecisionEvent[]
+  temperScore  Json     // TemperScore
+  eloBefore    Float
+  eloAfter     Float
+  eloDelta     Float
+  replayResult Json     // DisciplinedSessionResult
+  coachFacts   Json     // CoachFactsPayload
+  createdAt    DateTime @default(now())
+
+  @@index([userId, date])
+}
+
+// ── Persistent ELO state ──────────────────────────────────────
+
+model DecisionElo {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating         Float    @default(1200)
+  peakRating     Float    @default(1200)
+  sessionsPlayed Int      @default(0)
+  history        Json     @default("[]") // { date: string; rating: number; delta: number }[]
+  updatedAt      DateTime @updatedAt
+}
+
+// ── User baseline (rolling averages) ─────────────────────────
+
+model UserBaseline {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avgTradesPerDay      Float    @default(10)
+  avgPositionSize      Float    @default(100)
+  avgDailyPnl          Float    @default(0)
+  avgWinRate           Float    @default(0.5)
+  avgHoldingTimeMs     Float    @default(300000)
+  avgWinHoldingTimeMs  Float    @default(300000)
+  avgLossHoldingTimeMs Float    @default(300000)
+  sessionsCount        Int      @default(0)
+  updatedAt            DateTime @updatedAt
+}
