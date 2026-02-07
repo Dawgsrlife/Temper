@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from app.risk import recommend_daily_max_loss
+
 
 class CounterfactualEngine:
     """
@@ -36,14 +38,17 @@ class CounterfactualEngine:
         self,
         df: pd.DataFrame,
         *,
-        daily_max_loss: float = 1000.0,
+        daily_max_loss: float | None = None,
     ) -> None:
         self._validate_input(df)
-        if daily_max_loss <= 0:
+        resolved_daily_max_loss = (
+            recommend_daily_max_loss(df) if daily_max_loss is None else float(daily_max_loss)
+        )
+        if resolved_daily_max_loss <= 0:
             raise ValueError("daily_max_loss must be > 0")
 
         self._df = df.copy()
-        self.daily_max_loss = float(daily_max_loss)
+        self.daily_max_loss = resolved_daily_max_loss
         self._result_df: pd.DataFrame | None = None
         self._summary: dict[str, float | int | str] | None = None
 
@@ -139,6 +144,7 @@ class CounterfactualEngine:
             "cost_of_bias": cost_of_bias,
             "blocked_bias_count": int(df["is_blocked_bias"].sum()),
             "blocked_risk_count": int(df["is_blocked_risk"].sum()),
+            "daily_max_loss_used": self.daily_max_loss,
             "outcome": outcome,
         }
 

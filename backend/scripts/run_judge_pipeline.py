@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import os
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.counterfactual import CounterfactualEngine
 from app.detective import BiasDetective
 from app.normalizer import DataNormalizer
+from app.risk import recommend_daily_max_loss
 
 
 def pct(value: float) -> str:
@@ -27,12 +29,23 @@ def main() -> None:
     print("Judge CSV Pipeline Metrics")
     print("=" * 72)
 
+    daily_max_loss_override = os.getenv("DAILY_MAX_LOSS")
+    daily_max_loss_override_value = (
+        float(daily_max_loss_override) if daily_max_loss_override else None
+    )
+
     for name in files:
         path = datasets_dir / name
 
         normalized = DataNormalizer(source=path, dayfirst=False).normalize()
         flagged = BiasDetective(normalized).detect()
-        simulated, summary = CounterfactualEngine(flagged, daily_max_loss=1000.0).run()
+        recommended_daily_max_loss = recommend_daily_max_loss(normalized)
+        daily_max_loss = (
+            daily_max_loss_override_value
+            if daily_max_loss_override_value is not None
+            else recommended_daily_max_loss
+        )
+        simulated, summary = CounterfactualEngine(flagged, daily_max_loss=daily_max_loss).run()
 
         any_bias = (
             flagged["is_revenge"] | flagged["is_overtrading"] | flagged["is_loss_aversion"]
@@ -58,6 +71,11 @@ def main() -> None:
             f"simulated={summary['simulated_total_pnl']:.6f}, "
             f"delta={summary['delta_pnl']:.6f}, "
             f"cost_of_bias={summary['cost_of_bias']:.6f}"
+        )
+        print(
+            "daily_max_loss: "
+            f"recommended={recommended_daily_max_loss:.6f}, "
+            f"used={summary['daily_max_loss_used']:.6f}"
         )
         print(f"checkmated_days: {checkmated_days}")
         print(f"outcome: {summary['outcome']}")

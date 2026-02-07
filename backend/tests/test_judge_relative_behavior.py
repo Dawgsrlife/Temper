@@ -25,8 +25,6 @@ def test_judge_relative_ordering() -> None:
         "revenge_trader": _rates_for_dataset(datasets_dir / "revenge_trader.csv"),
     }
 
-    tol = 1e-9
-
     assert rates["overtrader"]["overtrading"] > max(
         rates["calm_trader"]["overtrading"],
         rates["loss_averse_trader"]["overtrading"],
@@ -37,8 +35,8 @@ def test_judge_relative_ordering() -> None:
         rates["loss_averse_trader"]["revenge"],
         rates["overtrader"]["revenge"],
     )
-    assert rates["loss_averse_trader"]["loss_aversion"] >= max(
+    assert rates["loss_averse_trader"]["loss_aversion"] > max(
         rates["calm_trader"]["loss_aversion"],
         rates["overtrader"]["loss_aversion"],
         rates["revenge_trader"]["loss_aversion"],
-    ) - tol
+    )

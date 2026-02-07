@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import os
 
 import pandas as pd
 
@@ -10,6 +11,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from app.counterfactual import CounterfactualEngine
 from app.detective import BiasDetective
 from app.normalizer import DataNormalizer
+from app.risk import recommend_daily_max_loss
 
 
 def _pnl_stats(series: pd.Series) -> dict[str, float]:
@@ -38,7 +40,10 @@ def main() -> None:
         "overtrader.csv",
         "revenge_trader.csv",
     ]
-    daily_max_loss = 1000.0
+    daily_max_loss_override = os.getenv("DAILY_MAX_LOSS")
+    daily_max_loss_override_value = (
+        float(daily_max_loss_override) if daily_max_loss_override else None
+    )
 
     print("Judge Dataset Diagnostics")
     print("=" * 88)
@@ -48,6 +53,12 @@ def main() -> None:
 
         normalized = DataNormalizer(source=path, dayfirst=False).normalize()
         flagged = BiasDetective(normalized).detect()
+        recommended_daily_max_loss = recommend_daily_max_loss(normalized)
+        daily_max_loss = (
+            daily_max_loss_override_value
+            if daily_max_loss_override_value is not None
+            else recommended_daily_max_loss
+        )
         simulated, summary = CounterfactualEngine(
             flagged, daily_max_loss=daily_max_loss
         ).run()
@@ -152,6 +163,8 @@ def main() -> None:
             f"simulated_total_pnl={_fmt_float(float(summary['simulated_total_pnl']))}, "
             f"delta_pnl={_fmt_float(float(summary['delta_pnl']))}, "
             f"cost_of_bias={_fmt_float(float(summary['cost_of_bias']))}, "
+            f"daily_max_loss_recommended={_fmt_float(recommended_daily_max_loss)}, "
+            f"daily_max_loss_used={_fmt_float(float(summary['daily_max_loss_used']))}, "
             f"outcome={summary['outcome']}"
         )
 

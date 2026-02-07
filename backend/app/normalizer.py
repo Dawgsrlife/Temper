@@ -51,6 +51,7 @@ JUDGE_COLUMN_MAPPING: dict[str, str] = {
     "quantity": "size_qty_proxy",
     "side": "side",
     "profit_loss": "pnl",
+    "balance": "balance",
 }
 
 
@@ -82,6 +83,7 @@ class DataNormalizer:
         "side",
         "pnl",
     )
+    OPTIONAL_COLUMNS: tuple[str, ...] = ("balance",)
 
     def __init__(
         self,
@@ -169,7 +171,9 @@ class DataNormalizer:
 
     def _select_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Select only the standardized columns we need."""
-        available = [col for col in self.REQUIRED_COLUMNS if col in df.columns]
+        required_available = [col for col in self.REQUIRED_COLUMNS if col in df.columns]
+        optional_available = [col for col in self.OPTIONAL_COLUMNS if col in df.columns]
+        available = required_available + optional_available
         return df[available].copy()
 
     def _ensure_size_usd(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -219,7 +223,7 @@ class DataNormalizer:
 
     def _coerce_numeric(self, df: pd.DataFrame) -> pd.DataFrame:
         """Ensure numeric columns are proper floats. Vectorized."""
-        numeric_cols = ["price", "size_usd", "pnl"]
+        numeric_cols = ["price", "size_usd", "pnl", "balance"]
 
         for col in numeric_cols:
             if col in df.columns:
