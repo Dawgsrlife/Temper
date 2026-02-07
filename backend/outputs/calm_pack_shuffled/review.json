@@ -1,0 +1,261 @@
+{
+  "bias_rates": {
+    "any_bias_rate": 0.0465,
+    "loss_aversion_rate": 0.0431,
+    "overtrading_rate": 0.0,
+    "revenge_rate": 0.0037
+  },
+  "derived_stats": {
+    "any_bias_rate_pct": 4.65,
+    "daily_max_loss_used": 11683.565175304653,
+    "loss_aversion_rate_pct": 4.31,
+    "loss_to_win_ratio": 0.9783925455797717,
+    "median_loss_abs_pnl": 103.16133662109952,
+    "median_minutes_between_trades": 1.0,
+    "median_post_loss_size_multiplier": 0.9622856505766305,
+    "median_win_pnl": 105.43961836909602,
+    "near_daily_limit_trade_count": 84,
+    "overtrading_rate_pct": 0.0,
+    "revenge_rate_pct": 0.37,
+    "trade_count": 10000,
+    "trades_per_hour_p95": 60.0
+  },
+  "headline": "WINNER",
+  "recommendations": [
+    "Bias-impacted trades: 4.65% across 10000 trades.",
+    "84 trades occurred near 80% of daily loss limit (11683.57); reduce size as drawdown deepens."
+  ],
+  "scoreboard": {
+    "blocked_bias_count": 37,
+    "blocked_risk_count": 0,
+    "cost_of_bias": 98.37747897877307,
+    "delta_pnl": 98.37747897877307
+  },
+  "top_moments": [
+    {
+      "actual_pnl": -531.2117546101672,
+      "asset": "AMZN",
+      "bias_tags": "revenge=true,overtrading=false,loss_aversion=true",
+      "blocked_reason": "BIAS",
+      "critical_line": [
+        {
+          "actual_pnl": -121.85444798391472,
+          "asset": "TSLA",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -3,
+          "simulated_pnl": -121.85444798391472,
+          "timestamp": "2025-03-02T18:04:00"
+        },
+        {
+          "actual_pnl": 190.5834436785676,
+          "asset": "GOOG",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -2,
+          "simulated_pnl": 190.5834436785676,
+          "timestamp": "2025-03-02T18:05:00"
+        },
+        {
+          "actual_pnl": -419.44945155697314,
+          "asset": "AMZN",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -1,
+          "simulated_pnl": -419.44945155697314,
+          "timestamp": "2025-03-02T18:06:00"
+        },
+        {
+          "actual_pnl": -531.2117546101672,
+          "asset": "AMZN",
+          "blocked_reason": "BIAS",
+          "is_focus": true,
+          "offset": 0,
+          "simulated_pnl": 0.0,
+          "timestamp": "2025-03-02T18:07:00"
+        },
+        {
+          "actual_pnl": -0.6983816958709212,
+          "asset": "NFLX",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 1,
+          "simulated_pnl": -0.6983816958709212,
+          "timestamp": "2025-03-02T18:08:00"
+        },
+        {
+          "actual_pnl": 29.526683307933126,
+          "asset": "AAPL",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 2,
+          "simulated_pnl": 29.526683307933126,
+          "timestamp": "2025-03-02T18:09:00"
+        },
+        {
+          "actual_pnl": 48.46876681615686,
+          "asset": "AAPL",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 3,
+          "simulated_pnl": 48.46876681615686,
+          "timestamp": "2025-03-02T18:10:00"
+        }
+      ],
+      "impact": 531.2117546101672,
+      "label": "MEGA_BLUNDER",
+      "simulated_pnl": 0.0,
+      "timestamp": "2025-03-02T18:07:00"
+    },
+    {
+      "actual_pnl": -520.9658812725315,
+      "asset": "TSLA",
+      "bias_tags": "revenge=true,overtrading=false,loss_aversion=true",
+      "blocked_reason": "BIAS",
+      "critical_line": [
+        {
+          "actual_pnl": -215.448544456347,
+          "asset": "NVDA",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -3,
+          "simulated_pnl": -215.448544456347,
+          "timestamp": "2025-03-04T14:16:00"
+        },
+        {
+          "actual_pnl": 652.3759992824466,
+          "asset": "MSFT",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -2,
+          "simulated_pnl": 652.3759992824466,
+          "timestamp": "2025-03-04T14:17:00"
+        },
+        {
+          "actual_pnl": -418.8932502629468,
+          "asset": "NFLX",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -1,
+          "simulated_pnl": -418.8932502629468,
+          "timestamp": "2025-03-04T14:18:00"
+        },
+        {
+          "actual_pnl": -520.9658812725315,
+          "asset": "TSLA",
+          "blocked_reason": "BIAS",
+          "is_focus": true,
+          "offset": 0,
+          "simulated_pnl": 0.0,
+          "timestamp": "2025-03-04T14:19:00"
+        },
+        {
+          "actual_pnl": 36.94358570961049,
+          "asset": "AMZN",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 1,
+          "simulated_pnl": 36.94358570961049,
+          "timestamp": "2025-03-04T14:20:00"
+        },
+        {
+          "actual_pnl": -89.94406000708841,
+          "asset": "TSLA",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 2,
+          "simulated_pnl": -89.94406000708841,
+          "timestamp": "2025-03-04T14:21:00"
+        },
+        {
+          "actual_pnl": 315.93363495227186,
+          "asset": "AAPL",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 3,
+          "simulated_pnl": 315.93363495227186,
+          "timestamp": "2025-03-04T14:22:00"
+        }
+      ],
+      "impact": 520.9658812725315,
+      "label": "MEGA_BLUNDER",
+      "simulated_pnl": 0.0,
+      "timestamp": "2025-03-04T14:19:00"
+    },
+    {
+      "actual_pnl": -509.5323960896394,
+      "asset": "AMZN",
+      "bias_tags": "revenge=true,overtrading=false,loss_aversion=true",
+      "blocked_reason": "BIAS",
+      "critical_line": [
+        {
+          "actual_pnl": -244.6965559133164,
+          "asset": "NVDA",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -3,
+          "simulated_pnl": -244.6965559133164,
+          "timestamp": "2025-03-05T15:22:00"
+        },
+        {
+          "actual_pnl": -274.77367934695576,
+          "asset": "MSFT",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -2,
+          "simulated_pnl": -274.77367934695576,
+          "timestamp": "2025-03-05T15:23:00"
+        },
+        {
+          "actual_pnl": -570.8755625901182,
+          "asset": "GOOG",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": -1,
+          "simulated_pnl": -570.8755625901182,
+          "timestamp": "2025-03-05T15:24:00"
+        },
+        {
+          "actual_pnl": -509.5323960896394,
+          "asset": "AMZN",
+          "blocked_reason": "BIAS",
+          "is_focus": true,
+          "offset": 0,
+          "simulated_pnl": 0.0,
+          "timestamp": "2025-03-05T15:25:00"
+        },
+        {
+          "actual_pnl": -94.2591823135026,
+          "asset": "AMZN",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 1,
+          "simulated_pnl": -94.2591823135026,
+          "timestamp": "2025-03-05T15:26:00"
+        },
+        {
+          "actual_pnl": 151.8209369102724,
+          "asset": "MSFT",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 2,
+          "simulated_pnl": 151.8209369102724,
+          "timestamp": "2025-03-05T15:27:00"
+        },
+        {
+          "actual_pnl": 7.895352956156785,
+          "asset": "AMZN",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 3,
+          "simulated_pnl": 7.895352956156785,
+          "timestamp": "2025-03-05T15:28:00"
+        }
+      ],
+      "impact": 509.5323960896394,
+      "label": "BLUNDER",
+      "simulated_pnl": 0.0,
+      "timestamp": "2025-03-05T15:25:00"
+    }
+  ]
+}

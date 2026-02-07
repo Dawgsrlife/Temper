@@ -1,0 +1,36 @@
+{
+  "artifact_hashes": {
+    "counterfactual.csv": "464115b27005b97b3cfd0adc33810777ae32a383f5998856080764769268c03a",
+    "flagged.csv": "fbdf6c8b8b5e0907db1066a44105e36d5f4bd31b98905580bdd7d926ae2ca9d1",
+    "normalized.csv": "bc22667c5586e811e73df5529c6b708de9c622390e662e9f21f6421cda189a02",
+    "policy_report.txt": "ed46cf3add991175f7674f7724459c4c6c5eafbbfe341979a0536c02d0c31666",
+    "review.json": "a3f3ed0fe45f09ce98befb06fdf8fe28c1c784c05562db34bd200fbaeae2d5c0"
+  },
+  "input": "/Users/vishnu/Documents/Temper/backend/outputs/calm_trader_shuffled.csv",
+  "k_repeat": 1,
+  "out_dir": "/Users/vishnu/Documents/Temper/backend/outputs/calm_pack_shuffled",
+  "recommended_daily_max_loss": 11683.565175304653,
+  "rows": 10000,
+  "rows_per_second": 3204.035161873477,
+  "seed": 42,
+  "stage_seconds": {
+    "counterfactual": 0.006033084006048739,
+    "detect": 0.0041046249971259385,
+    "load_and_repeat": 0.005008125008316711,
+    "normalize": 0.016180625010747463,
+    "review": 0.010656458005541936,
+    "risk_recommend": 0.006480250012828037,
+    "write_artifacts": 3.049726708995877
+  },
+  "summary": {
+    "actual_total_pnl": -598.6270006729628,
+    "blocked_bias_count": 37,
+    "blocked_risk_count": 0,
+    "cost_of_bias": 98.37747897877307,
+    "delta_pnl": 98.37747897877307,
+    "outcome": "WINNER",
+    "simulated_total_pnl": -500.24952169418975
+  },
+  "total_seconds": 3.121064375009155,
+  "used_daily_max_loss": 11683.565175304653
+}

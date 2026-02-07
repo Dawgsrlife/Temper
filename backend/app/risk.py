@@ -47,7 +47,12 @@ def recommend_daily_max_loss(
 
     working = df.copy()
     working["_row_order"] = range(len(working))
-    working = working.sort_values(["timestamp", "_row_order"], kind="mergesort")
+    sort_order = [
+        col
+        for col in ("timestamp", "asset", "side", "price", "size_usd", "pnl")
+        if col in working.columns
+    ] + ["_row_order"]
+    working = working.sort_values(sort_order, kind="mergesort")
 
     day = working["timestamp"].dt.floor("D")
     day_total_pnl = working.groupby(day, sort=False)["pnl"].sum()

@@ -254,7 +254,22 @@ class DataNormalizer:
 
     def _sort_chronologically(self, df: pd.DataFrame) -> pd.DataFrame:
         """Sort by timestamp ascending. Vectorized via pandas sort."""
-        return df.sort_values("timestamp", ascending=True).reset_index(drop=True)
+        sort_order = [
+            col
+            for col in (
+                "timestamp",
+                "asset",
+                "side",
+                "price",
+                "size_usd",
+                "pnl",
+                "balance",
+            )
+            if col in df.columns
+        ]
+        return df.sort_values(sort_order, ascending=True, kind="mergesort").reset_index(
+            drop=True
+        )
 
     def normalize(self) -> pd.DataFrame:
         """
