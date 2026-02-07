@@ -233,7 +233,8 @@ class BiasDetective:
 
         Criteria:
         - Count trades in rolling 1-hour window
-        - Flag if count > 10 trades per hour
+        - Flag when rolling count exceeds configured
+          `BiasThresholds.overtrading_trade_threshold` (default: 200)
 
         Implementation: Vectorized rolling window count
 
