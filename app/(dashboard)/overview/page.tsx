@@ -9,25 +9,49 @@ import Link from "next/link";
 export default async function OverviewPage() {
   const userId = "demo-user";
 
-  const reports = await db.temperReport.findMany({
-    where: { userId },
-    orderBy: { date: "desc" },
-    take: 30,
-    select: {
-      id: true,
-      sessionId: true,
-      date: true,
-      temperScore: true,
-      eloBefore: true,
-      eloAfter: true,
-      eloDelta: true,
-      biasScores: true,
-    },
-  });
+  type ReportData = {
+    id: string;
+    sessionId: string;
+    date: Date | string;
+    temperScore: unknown;
+    eloBefore: number;
+    eloAfter: number;
+    eloDelta: number;
+    biasScores: unknown;
+  };
 
-  const eloState = await db.decisionElo.findUnique({
-    where: { userId },
-  });
+  let reports: ReportData[] = [];
+  let eloState: {
+    rating: number;
+    peakRating: number;
+    sessionsPlayed: number;
+  } | null = null;
+
+  try {
+    [reports, eloState] = await Promise.all([
+      db.temperReport.findMany({
+        where: { userId },
+        orderBy: { date: "desc" },
+        take: 30,
+        select: {
+          id: true,
+          sessionId: true,
+          date: true,
+          temperScore: true,
+          eloBefore: true,
+          eloAfter: true,
+          eloDelta: true,
+          biasScores: true,
+        },
+      }),
+      db.decisionElo.findUnique({
+        where: { userId },
+      }),
+    ]);
+  } catch (error) {
+    console.error("Database query failed:", error);
+    // Fall through to empty state
+  }
 
   if (reports.length === 0) {
     return (
@@ -47,12 +71,16 @@ export default async function OverviewPage() {
 
   const latestReport = reports[0];
   const temperScore = (latestReport.temperScore as { value: number }).value;
+  const latestDate =
+    typeof latestReport.date === "string"
+      ? latestReport.date
+      : latestReport.date.toISOString();
 
   const eloHistory = reports
     .slice()
     .reverse()
     .map((r) => ({
-      date: r.date,
+      date: typeof r.date === "string" ? r.date : r.date.toISOString(),
       rating: r.eloAfter,
     }));
 
@@ -64,7 +92,7 @@ export default async function OverviewPage() {
 
       {/* Top metrics */}
       <div className="animate-slide-up mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <TemperScoreCard score={temperScore} date={latestReport.date} />
+        <TemperScoreCard score={temperScore} date={latestDate} />
 
         <div className="rounded-lg border border-border bg-surface-1 p-5">
           <div className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">
@@ -94,7 +122,7 @@ export default async function OverviewPage() {
             {latestReport.eloDelta.toFixed(1)}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            ELO delta &middot; {latestReport.date}
+            ELO delta &middot; {latestDate}
           </div>
         </div>
       </div>
@@ -110,7 +138,7 @@ export default async function OverviewPage() {
       {/* Bias breakdown */}
       <section className="animate-slide-up delay-3 mb-10">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Bias Breakdown &mdash; {latestReport.date}
+          Bias Breakdown &mdash; {latestDate}
         </h2>
         <BiasBreakdown
           scores={latestReport.biasScores as Record<string, number>}
@@ -123,29 +151,33 @@ export default async function OverviewPage() {
           Recent Sessions
         </h2>
         <div className="space-y-1">
-          {reports.map((r) => (
-            <Link
-              key={r.id}
-              href={`/sessions/${r.sessionId}`}
-              className="flex items-center justify-between rounded-md border border-border bg-surface-1 px-4 py-3 text-sm transition-colors hover:bg-surface-2"
-            >
-              <span className="font-medium">{r.date}</span>
-              <div className="flex items-center gap-5 text-xs">
-                <span className="tabular text-muted-foreground">
-                  Score {(r.temperScore as { value: number }).value}
-                </span>
-                <span
-                  className={`tabular font-medium ${
-                    r.eloDelta >= 0 ? "text-positive" : "text-negative"
-                  }`}
-                >
-                  {r.eloDelta >= 0 ? "+" : ""}
-                  {r.eloDelta.toFixed(1)} ELO
-                </span>
-                <span className="text-muted-foreground">&rarr;</span>
-              </div>
-            </Link>
-          ))}
+          {reports.map((r) => {
+            const dateStr =
+              typeof r.date === "string" ? r.date : r.date.toISOString();
+            return (
+              <Link
+                key={r.id}
+                href={`/sessions/${r.sessionId}`}
+                className="flex items-center justify-between rounded-md border border-border bg-surface-1 px-4 py-3 text-sm transition-colors hover:bg-surface-2"
+              >
+                <span className="font-medium">{dateStr}</span>
+                <div className="flex items-center gap-5 text-xs">
+                  <span className="tabular text-muted-foreground">
+                    Score {(r.temperScore as { value: number }).value}
+                  </span>
+                  <span
+                    className={`tabular font-medium ${
+                      r.eloDelta >= 0 ? "text-positive" : "text-negative"
+                    }`}
+                  >
+                    {r.eloDelta >= 0 ? "+" : ""}
+                    {r.eloDelta.toFixed(1)} ELO
+                  </span>
+                  <span className="text-muted-foreground">&rarr;</span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </section>
     </div>

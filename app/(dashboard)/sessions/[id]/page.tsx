@@ -19,10 +19,16 @@ export default async function SessionReviewPage({
 }) {
   const { id } = await params;
 
-  const session = await db.session.findUnique({
-    where: { id },
-    include: { report: true },
-  });
+  let session;
+  try {
+    session = await db.session.findUnique({
+      where: { id },
+      include: { report: true },
+    });
+  } catch (error) {
+    console.error("Database query failed:", error);
+    notFound();
+  }
 
   if (!session || !session.report) {
     notFound();
