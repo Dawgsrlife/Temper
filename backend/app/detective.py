@@ -38,7 +38,10 @@ class BiasThresholds:
 
     # Revenge Trading
     revenge_time_window_minutes: int = 15
-    revenge_size_multiplier: float = 4.0  # stricter escalation filter
+    revenge_size_multiplier: float = 3.0  # tuned on judge archetype ranking
+    revenge_min_prev_loss_abs: float = 100.0
+    revenge_rolling_median_multiplier: float = 2.0
+    revenge_baseline_window_trades: int = 50
 
     # Overtrading
     overtrading_window_hours: int = 1
@@ -46,6 +49,7 @@ class BiasThresholds:
 
     # Loss Aversion
     loss_aversion_duration_multiplier: float = 8.0
+    loss_aversion_loss_to_win_multiplier: float = 4.0
 
 
 class BiasDetective:
@@ -127,20 +131,35 @@ class BiasDetective:
         prev_timestamp = df["timestamp"].shift(1)
         prev_size = df["size_usd"].shift(1)
 
-        # Condition 1: Previous trade was a loss
-        prev_was_loss = prev_pnl < 0
+        # Condition 1: Previous trade was a meaningful loss
+        prev_was_loss = prev_pnl <= -self.thresholds.revenge_min_prev_loss_abs
 
         # Condition 2: Current trade within time window of previous
         time_diff = (df["timestamp"] - prev_timestamp).dt.total_seconds() / 60
         within_window = time_diff <= self.thresholds.revenge_time_window_minutes
 
-        # Condition 3: Current size > multiplier * previous size
-        size_increased = df["size_usd"] > (
-            self.thresholds.revenge_size_multiplier * prev_size
+        # Condition 3: Current size > multiplier * previous size (only valid if prev > 0)
+        prev_size_positive = prev_size > 0
+        size_multiplier = df["size_usd"] / prev_size.where(prev_size_positive)
+        size_increased = size_multiplier >= self.thresholds.revenge_size_multiplier
+
+        # Condition 4: Current size is also large vs recent baseline
+        rolling_median = df["size_usd"].rolling(
+            self.thresholds.revenge_baseline_window_trades,
+            min_periods=5,
+        ).median()
+        escalated_vs_baseline = df["size_usd"] >= (
+            self.thresholds.revenge_rolling_median_multiplier * rolling_median
         )
 
         # All conditions must be true
-        is_revenge = prev_was_loss & within_window & size_increased
+        is_revenge = (
+            prev_was_loss
+            & within_window
+            & prev_size_positive
+            & size_increased
+            & escalated_vs_baseline
+        )
 
         # First row can't be revenge (no previous trade)
         is_revenge = is_revenge.fillna(False)
@@ -193,9 +212,9 @@ class BiasDetective:
     # Loss Aversion Detection
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _detect_loss_aversion(self, df: pd.DataFrame) -> pd.Series:
+    def _detect_loss_aversion_holding_time(self, df: pd.DataFrame) -> pd.Series:
         """
-        Detect loss aversion: holding losers longer than winners.
+        Detect loss aversion via holding-time asymmetry.
 
         Criteria:
         1. Calculate holding duration per asset (time between trades)
@@ -243,6 +262,40 @@ class BiasDetective:
         is_loss_aversion = is_loss_aversion.reindex(df.index).fillna(False)
 
         return is_loss_aversion
+
+    def _detect_loss_aversion_payoff_proxy(self, df: pd.DataFrame) -> pd.Series:
+        """
+        Detect loss aversion via payoff asymmetry when holding-time data is absent.
+
+        Criteria:
+        - Compute median winning pnl
+        - Flag losses with magnitude > multiplier * median winning pnl
+
+        This proxy is deterministic and uses only single-trade close data.
+        """
+        wins = df.loc[df["pnl"] > 0, "pnl"]
+        if wins.dropna().empty:
+            return pd.Series(False, index=df.index)
+
+        median_win = float(wins.median())
+        if median_win <= 0:
+            return pd.Series(False, index=df.index)
+
+        loss_threshold = self.thresholds.loss_aversion_loss_to_win_multiplier * median_win
+        is_loss_aversion = (df["pnl"] < 0) & (df["pnl"].abs() > loss_threshold)
+        return is_loss_aversion.fillna(False)
+
+    def _detect_loss_aversion(self, df: pd.DataFrame) -> pd.Series:
+        """
+        Detect loss aversion using the best available signal.
+
+        - If entry/exit timestamps are available: holding-time detector.
+        - Otherwise: payoff-asymmetry proxy.
+        """
+        has_entry_exit = {"entry_timestamp", "exit_timestamp"}.issubset(df.columns)
+        if has_entry_exit:
+            return self._detect_loss_aversion_holding_time(df)
+        return self._detect_loss_aversion_payoff_proxy(df)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public API
@@ -312,9 +365,13 @@ class BiasDetective:
             "thresholds": {
                 "revenge_time_window_minutes": self.thresholds.revenge_time_window_minutes,
                 "revenge_size_multiplier": self.thresholds.revenge_size_multiplier,
+                "revenge_min_prev_loss_abs": self.thresholds.revenge_min_prev_loss_abs,
+                "revenge_rolling_median_multiplier": self.thresholds.revenge_rolling_median_multiplier,
+                "revenge_baseline_window_trades": self.thresholds.revenge_baseline_window_trades,
                 "overtrading_window_hours": self.thresholds.overtrading_window_hours,
                 "overtrading_trade_threshold": self.thresholds.overtrading_trade_threshold,
                 "loss_aversion_duration_multiplier": self.thresholds.loss_aversion_duration_multiplier,
+                "loss_aversion_loss_to_win_multiplier": self.thresholds.loss_aversion_loss_to_win_multiplier,
             },
         }
 

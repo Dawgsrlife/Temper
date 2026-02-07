@@ -100,6 +100,39 @@ def test_missing_flag_columns_default_to_false() -> None:
     assert summary["blocked_risk_count"] == 0
 
 
+def test_counterfactual_invariants() -> None:
+    df = pd.DataFrame(
+        {
+            "timestamp": _ts(
+                [
+                    "2026-01-01 09:30:00",
+                    "2026-01-01 09:31:00",
+                    "2026-01-01 09:32:00",
+                    "2026-01-01 09:33:00",
+                    "2026-01-02 09:30:00",
+                ]
+            ),
+            "pnl": [10.0, -120.0, 20.0, 15.0, 5.0],
+            "is_revenge": [False, False, False, False, False],
+            "is_overtrading": [False, False, False, False, False],
+        }
+    )
+
+    out, _ = CounterfactualEngine(df, daily_max_loss=100.0).run()
+
+    blocked = out["blocked_reason"] != "NONE"
+    unblocked = out["blocked_reason"] == "NONE"
+    assert (out.loc[blocked, "simulated_pnl"] == 0.0).all()
+    assert (out.loc[unblocked, "simulated_pnl"] == out.loc[unblocked, "pnl"]).all()
+
+    # Breach trade is allowed: first day breach row must not be risk-blocked.
+    day = out["timestamp"].dt.floor("D")
+    breach_rows = out[(out["simulated_daily_pnl"] <= -100.0) & (out["simulated_pnl"] != 0)]
+    if not breach_rows.empty:
+        first_breach_idx = breach_rows.index.min()
+        assert out.loc[first_breach_idx, "is_blocked_risk"] == False
+
+
 def test_cost_metric_sign_behavior() -> None:
     better_df = pd.DataFrame(
         {
@@ -164,6 +197,7 @@ def test_judge_fixtures_pipeline_contract() -> None:
         "cost_of_bias",
         "blocked_bias_count",
         "blocked_risk_count",
+        "daily_max_loss_used",
         "outcome",
     }
 

@@ -8,8 +8,10 @@ import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+from app.counterfactual import CounterfactualEngine
 from app.detective import BiasDetective, BiasThresholds
 from app.normalizer import DataNormalizer
+from app.risk import recommend_daily_max_loss
 
 
 def _rates(df: pd.DataFrame, thresholds: BiasThresholds) -> dict[str, float]:
@@ -21,7 +23,10 @@ def _rates(df: pd.DataFrame, thresholds: BiasThresholds) -> dict[str, float]:
     }
 
 
-def _score(rates: dict[str, dict[str, float]]) -> tuple[int, float, float, float, float]:
+def _score(
+    rates: dict[str, dict[str, float]],
+    calm_checkmated_days: int,
+) -> tuple[int, float, bool, bool, bool]:
     over_margin = rates["overtrader"]["overtrading"] - max(
         rates["calm_trader"]["overtrading"],
         rates["loss_averse_trader"]["overtrading"],
@@ -37,9 +42,17 @@ def _score(rates: dict[str, dict[str, float]]) -> tuple[int, float, float, float
         rates["overtrader"]["loss_aversion"],
         rates["revenge_trader"]["loss_aversion"],
     )
-    violations = int(over_margin <= 0) + int(revenge_margin <= 0) + int(loss_margin <= 0)
-    total_margin = over_margin + revenge_margin + loss_margin
-    return violations, total_margin, over_margin, revenge_margin, loss_margin
+    over_ok = over_margin > 0
+    revenge_ok = revenge_margin > 0
+    loss_ok = loss_margin > 0
+
+    score = (
+        (2.0 if over_ok else 0.0)
+        + (2.0 if revenge_ok else 0.0)
+        + (2.0 if loss_ok else 0.0)
+        - float(calm_checkmated_days)
+    )
+    return calm_checkmated_days, score, over_ok, revenge_ok, loss_ok
 
 
 def _fmt(v: float) -> str:
@@ -63,41 +76,64 @@ def main() -> None:
 
     base = BiasThresholds()
     candidates: list[dict[str, object]] = []
+    recommended_calm_daily_max_loss = recommend_daily_max_loss(datasets["calm_trader"])
 
     for revenge_window in [2, 5, 10, 15]:
         for revenge_mult in [2.0, 2.5, 3.0, 4.0, 5.0]:
-            for loss_mult in [1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0]:
+            for loss_mult in [2.0, 3.0, 4.0, 5.0, 6.0, 8.0]:
                 for over_threshold in [80, 120, 160, 200]:
                     th = replace(
                         base,
                         revenge_time_window_minutes=revenge_window,
                         revenge_size_multiplier=revenge_mult,
                         overtrading_trade_threshold=over_threshold,
-                        loss_aversion_duration_multiplier=loss_mult,
+                        loss_aversion_loss_to_win_multiplier=loss_mult,
                     )
                     rates = {name: _rates(df, th) for name, df in datasets.items()}
-                    violations, total_margin, over_margin, revenge_margin, loss_margin = _score(
-                        rates
+                    calm_flagged = BiasDetective(
+                        datasets["calm_trader"], thresholds=th
+                    ).detect()
+                    calm_simulated, _ = CounterfactualEngine(
+                        calm_flagged, daily_max_loss=recommended_calm_daily_max_loss
+                    ).run()
+                    calm_checkmated_days = int(
+                        calm_simulated.groupby(
+                            calm_simulated["timestamp"].dt.floor("D"), sort=False
+                        )["checkmated_day"].any().sum()
+                    )
+
+                    checkmates, score, over_ok, revenge_ok, loss_ok = _score(
+                        rates, calm_checkmated_days
                     )
 
                     candidates.append(
                         {
                             "thresholds": th,
-                            "violations": violations,
-                            "total_margin": total_margin,
-                            "over_margin": over_margin,
-                            "revenge_margin": revenge_margin,
-                            "loss_margin": loss_margin,
+                            "score": score,
+                            "calm_checkmated_days": checkmates,
+                            "over_ok": over_ok,
+                            "revenge_ok": revenge_ok,
+                            "loss_ok": loss_ok,
                             "rates": rates,
                         }
                     )
 
-    best = sorted(candidates, key=lambda c: (c["violations"], -c["total_margin"]))[:10]
+    best = sorted(candidates, key=lambda c: c["score"], reverse=True)[:10]
 
     print("Bias Threshold Calibration (Judge CSVs)")
     print("=" * 88)
     print(f"total_candidates={len(candidates)}")
-    print("ranking rule: overtrader(overtrading) max, revenge_trader(revenge) max, loss_averse(loss_aversion) max")
+    print(
+        "scoring: +2 overtrading-order, +2 revenge-order, +2 loss-aversion-order, "
+        "-1 per calm checkmated day"
+    )
+    print(
+        "ranking rule: overtrader(overtrading) max, revenge_trader(revenge) max, "
+        "loss_averse(loss_aversion) max"
+    )
+    print(
+        f"calm_daily_max_loss_used_for_penalty={recommended_calm_daily_max_loss:.6f}"
+    )
     print("")
 
     for i, row in enumerate(best, start=1):
@@ -109,14 +145,15 @@ def main() -> None:
             f"revenge_window={th.revenge_time_window_minutes}m, "
             f"revenge_size_mult={th.revenge_size_multiplier}, "
             f"overtrading_threshold={th.overtrading_trade_threshold}, "
-            f"loss_aversion_mult={th.loss_aversion_duration_multiplier}"
+            f"loss_aversion_mult={th.loss_aversion_loss_to_win_multiplier}"
         )
         print(
-            "margins: "
-            f"over={row['over_margin']:.6f}, "
-            f"revenge={row['revenge_margin']:.6f}, "
-            f"loss_aversion={row['loss_margin']:.6f}, "
-            f"violations={row['violations']}"
+            "score: "
+            f"value={row['score']:.2f}, "
+            f"over_ok={row['over_ok']}, "
+            f"revenge_ok={row['revenge_ok']}, "
+            f"loss_ok={row['loss_ok']}, "
+            f"calm_checkmated_days={row['calm_checkmated_days']}"
         )
         print(
             "rates: "
