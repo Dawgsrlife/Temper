@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import tempfile
 import time
@@ -59,14 +60,26 @@ def _wait_for_terminal(client: TestClient, job_id: str, timeout_seconds: float =
     assert False, f"job {job_id} did not reach terminal status; last={last}"
 
 
+def _load_review_and_counterfactual_rows(outputs_dir: Path, job_id: str) -> tuple[dict, list[dict]]:
+    job_dir = outputs_dir / job_id
+    review = json.loads((job_dir / "review.json").read_text())
+    with (job_dir / "counterfactual.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    return review, rows
+
+
+def _calm_csv_slice(rows: int = 150) -> str:
+    source = Path(__file__).resolve().parents[2] / "trading_datasets" / "calm_trader.csv"
+    lines = source.read_text(encoding="utf-8").splitlines()
+    if rows < 1:
+        raise ValueError("rows must be >= 1")
+    return "\n".join([lines[0], *lines[1 : 1 + rows]]) + "\n"
+
+
 def test_successful_lifecycle() -> None:
     client, tmp, original_outputs = _client_with_temp_outputs()
     try:
-        csv = (
-            "timestamp,asset,price,size_usd,side,pnl\n"
-            "2026-01-01T09:30:00,BTC,100000,1000,Buy,10\n"
-            "2026-01-01T09:31:00,BTC,100100,1200,Sell,-5\n"
-        )
+        csv = _calm_csv_slice()
         create = client.post(
             "/jobs",
             files={"file": ("valid.csv", csv, "text/csv")},
@@ -189,13 +202,7 @@ def test_summary_size_bound_and_key_presence() -> None:
 def test_determinism_across_identical_uploads() -> None:
     client, tmp, original_outputs = _client_with_temp_outputs()
     try:
-        csv = (
-            "timestamp,asset,price,size_usd,side,pnl\n"
-            "2026-01-01T09:30:00,BTC,100000,1000,Buy,10\n"
-            "2026-01-01T09:31:00,BTC,100100,1200,Sell,-5\n"
-            "2026-01-01T09:32:00,ETH,2000,1400,Buy,2\n"
-            "2026-01-01T09:33:00,ETH,2010,1300,Sell,-1\n"
-        )
+        csv = _calm_csv_slice()
 
         create_a = client.post(
             "/jobs",
@@ -601,11 +608,7 @@ def test_coach_happy_path_writes_artifact_updates_supabase_and_get_returns_paylo
     fake_supabase = _FakeSupabaseStore()
     try:
         main_module._supabase_store = lambda: fake_supabase
-        csv = (
-            "timestamp,asset,price,size_usd,side,pnl\n"
-            "2026-01-01T09:30:00,BTC,100000,1000,Buy,10\n"
-            "2026-01-01T09:31:00,BTC,100100,1200,Sell,-5\n"
-        )
+        csv = _calm_csv_slice()
         create = client.post(
             "/jobs",
             files={"file": ("coach_source.csv", csv, "text/csv")},
@@ -615,6 +618,12 @@ def test_coach_happy_path_writes_artifact_updates_supabase_and_get_returns_paylo
         job_id = create.json()["job"]["job_id"]
         terminal = _wait_for_terminal(client, job_id)
         assert terminal["job"]["execution_status"] == "COMPLETED"
+        outputs_dir = Path(tmp.name) / "outputs"
+        review_payload, counterfactual_rows = _load_review_and_counterfactual_rows(outputs_dir, job_id)
+        deterministic_move_review = main_module.build_deterministic_move_review(
+            review_payload,
+            counterfactual_rows,
+        )
 
         coach_payload = {
             "version": 1,
@@ -638,6 +647,7 @@ def test_coach_happy_path_writes_artifact_updates_supabase_and_get_returns_paylo
             ],
             "do_next_session": ["Start with max 2 trades first hour.", "Log reason before each entry."],
             "disclaimer": "Educational guidance; not financial advice.",
+            "move_review": deterministic_move_review,
         }
 
         main_module.generate_coach_via_vertex = lambda _: coach_payload
@@ -674,11 +684,7 @@ def test_coach_failure_writes_error_artifact_updates_supabase_and_get_returns_fa
     fake_supabase = _FakeSupabaseStore()
     try:
         main_module._supabase_store = lambda: fake_supabase
-        csv = (
-            "timestamp,asset,price,size_usd,side,pnl\n"
-            "2026-01-01T09:30:00,BTC,100000,1000,Buy,10\n"
-            "2026-01-01T09:31:00,BTC,100100,1200,Sell,-5\n"
-        )
+        csv = _calm_csv_slice()
         create = client.post(
             "/jobs",
             files={"file": ("coach_failure_source.csv", csv, "text/csv")},
@@ -741,5 +747,159 @@ def test_coach_not_ready_returns_409_for_running_job() -> None:
         assert payload["ok"] is False
         assert payload["error"]["code"] == "JOB_NOT_READY"
     finally:
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def _metric_value_from_artifacts(
+    *,
+    name: str,
+    row: dict,
+    thresholds: dict,
+    daily_max_loss_used: float,
+    post_loss_streak: int,
+) -> object:
+    pnl = float(row["pnl"])
+    simulated_pnl = float(row["simulated_pnl"])
+    if name == "pnl":
+        return pnl
+    if name == "impact_abs":
+        return abs(pnl - simulated_pnl)
+    if name in thresholds:
+        return float(thresholds[name])
+    if name == "blocked_reason":
+        return row["blocked_reason"]
+    if name == "post_loss_streak":
+        return post_loss_streak
+    if name == "near_daily_limit":
+        return (float(row["simulated_daily_pnl"]) <= (-0.8 * daily_max_loss_used)) if daily_max_loss_used > 0 else False
+    if name == "bias_tagged":
+        return (
+            str(row["is_revenge"]).lower() == "true"
+            or str(row["is_overtrading"]).lower() == "true"
+            or str(row["is_loss_aversion"]).lower() == "true"
+        )
+    raise AssertionError(f"unexpected metric name in deterministic move_review: {name}")
+
+
+def test_move_review_is_deterministic_and_matches_artifacts() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("move_review_source.csv", csv, "text/csv")},
+            data={"user_id": "coach_move_review"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        outputs_dir = Path(tmp.name) / "outputs"
+        review_payload, counterfactual_rows = _load_review_and_counterfactual_rows(outputs_dir, job_id)
+        first = main_module.build_deterministic_move_review(review_payload, counterfactual_rows)
+        second = main_module.build_deterministic_move_review(review_payload, counterfactual_rows)
+        assert first == second
+        assert len(first) == 3
+
+        rows_by_key = {(row["timestamp"], row["asset"]): row for row in counterfactual_rows}
+        thresholds = review_payload["labeling_rules"]["thresholds"]
+        daily_max_loss_used = float(review_payload["derived_stats"]["daily_max_loss_used"])
+        post_loss_streak_map: dict[tuple[str, str], int] = {}
+        streak = 0
+        for row in counterfactual_rows:
+            post_loss_streak_map[(row["timestamp"], row["asset"])] = streak
+            if float(row["pnl"]) < 0:
+                streak += 1
+            else:
+                streak = 0
+
+        for move in first:
+            key = (move["timestamp"], move["asset"])
+            assert key in rows_by_key
+            row = rows_by_key[key]
+            for ref in move["metric_refs"]:
+                expected = _metric_value_from_artifacts(
+                    name=ref["name"],
+                    row=row,
+                    thresholds=thresholds,
+                    daily_max_loss_used=daily_max_loss_used,
+                    post_loss_streak=post_loss_streak_map[key],
+                )
+                assert ref["value"] == expected
+    finally:
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_coach_rejects_vertex_number_drift() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    original_generate_coach = main_module.generate_coach_via_vertex
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("coach_drift_source.csv", csv, "text/csv")},
+            data={"user_id": "coach_drift_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        outputs_dir = Path(tmp.name) / "outputs"
+        review_payload, counterfactual_rows = _load_review_and_counterfactual_rows(outputs_dir, job_id)
+        deterministic_move_review = main_module.build_deterministic_move_review(
+            review_payload,
+            counterfactual_rows,
+        )
+
+        drifted_move_review = json.loads(json.dumps(deterministic_move_review))
+        first_metric_value = drifted_move_review[0]["metric_refs"][0]["value"]
+        if isinstance(first_metric_value, bool):
+            drifted_move_review[0]["metric_refs"][0]["value"] = not first_metric_value
+        elif isinstance(first_metric_value, str):
+            drifted_move_review[0]["metric_refs"][0]["value"] = first_metric_value + "_drift"
+        else:
+            drifted_move_review[0]["metric_refs"][0]["value"] = float(first_metric_value) + 1.0
+
+        def _vertex_with_drift(_: dict) -> dict:
+            return {
+                "version": 1,
+                "headline": "Discipline plan",
+                "diagnosis": [
+                    {
+                        "bias": "OVERTRADING",
+                        "severity": 2,
+                        "evidence": ["Any bias rate was 1.00%."],
+                        "metric_refs": [{"name": "any_bias_rate", "value": 1.0, "unit": "percent"}],
+                    }
+                ],
+                "plan": [
+                    {
+                        "title": "Stabilize cadence",
+                        "steps": ["Reduce impulsive entries.", "Pause after large losses."],
+                        "time_horizon": "NEXT_SESSION",
+                    }
+                ],
+                "do_next_session": ["Use size cap for first three trades."],
+                "disclaimer": "Educational guidance only.",
+                "move_review": drifted_move_review,
+            }
+
+        main_module.generate_coach_via_vertex = _vertex_with_drift
+        response = client.post(f"/jobs/{job_id}/coach")
+        assert response.status_code == 502
+        body = response.json()
+        assert body["ok"] is False
+        assert body["error"]["code"] == "COACH_GENERATION_FAILED"
+
+        error_path = Path(tmp.name) / "outputs" / job_id / "coach_error.json"
+        assert error_path.exists()
+        error_payload = json.loads(error_path.read_text())
+        assert "drifted" in str(error_payload.get("error_message", "")).lower()
+    finally:
+        main_module.generate_coach_via_vertex = original_generate_coach
         main_module.OUTPUTS_DIR = original_outputs
         tmp.cleanup()
