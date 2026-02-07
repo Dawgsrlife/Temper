@@ -19,9 +19,9 @@ def test_recommend_daily_max_loss_with_balance() -> None:
         }
     )
 
-    # median balance ~199,975 -> 2% = 3,999.5, 10% cap = 19,997.5 => 3,999.5
+    # median balance ~199,975 -> 2% = 3,999.5; apply 5% safety buffer => 4,199.475
     rec = recommend_daily_max_loss(df)
-    assert abs(rec - 3999.5) < 1e-9
+    assert abs(rec - 4199.475) < 1e-9
 
 
 def test_recommend_daily_max_loss_without_balance_uses_day_pnl_quantiles() -> None:

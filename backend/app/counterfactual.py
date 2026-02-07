@@ -77,6 +77,8 @@ class CounterfactualEngine:
             return self._result_df.copy(), dict(self._summary)
 
         df = self._df.copy()
+        df["_row_order"] = range(len(df))
+        df = df.sort_values(["timestamp", "_row_order"], kind="mergesort")
 
         # Optional flags default to False to keep input contract flexible.
         is_revenge = (
@@ -147,6 +149,9 @@ class CounterfactualEngine:
             "daily_max_loss_used": self.daily_max_loss,
             "outcome": outcome,
         }
+
+        # Preserve caller row order while keeping timeline-correct simulation math.
+        df = df.sort_values("_row_order", kind="mergesort").drop(columns=["_row_order"])
 
         self._result_df = df
         self._summary = summary
