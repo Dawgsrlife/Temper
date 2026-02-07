@@ -26,19 +26,32 @@ model User {
   reports   TemperReport[]
 }
 
+// ── Job status for async pipeline ─────────────────────────────
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 // ── Trade ingestion ───────────────────────────────────────────
 
 model TradeSet {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   fileName  String
-  rawCsv    String   @db.Text
-  createdAt DateTime @default(now())
+  rawCsv    String    @db.Text
+  status    JobStatus @default(PENDING)
+  error     String?   // error message if FAILED
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   sessions Session[]
 
   @@index([userId])
+  @@index([status])
 }
 
 // ── Session (one day of trading) ──────────────────────────────

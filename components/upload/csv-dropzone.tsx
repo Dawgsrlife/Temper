@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-type UploadState = "idle" | "uploading" | "analyzing" | "done" | "error";
+type UploadState =
+  | "idle"
+  | "uploading"
+  | "pending"
+  | "processing"
+  | "completed"
+  | "error";
+
+const POLL_INTERVAL = 2_000; // 2 seconds
 
 export function CsvDropzone() {
   const router = useRouter();
@@ -12,6 +20,52 @@ export function CsvDropzone() {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const pollJob = useCallback(
+    (jobId: string) => {
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/jobs/${jobId}`);
+          if (!res.ok) throw new Error("Failed to fetch job status");
+          const data = await res.json();
+
+          if (data.status === "PROCESSING") {
+            setState("processing");
+            setProgress("Analyzing sessions...");
+          }
+
+          if (data.status === "COMPLETED") {
+            stopPolling();
+            setState("completed");
+            const count = data.sessionIds?.length ?? 0;
+            setProgress(
+              `${count} session${count !== 1 ? "s" : ""} analyzed`,
+            );
+            setTimeout(() => router.push("/overview"), 1200);
+          }
+
+          if (data.status === "FAILED") {
+            stopPolling();
+            setState("error");
+            setError(data.error ?? "Analysis failed");
+          }
+        } catch {
+          stopPolling();
+          setState("error");
+          setError("Lost connection while polling");
+        }
+      }, POLL_INTERVAL);
+    },
+    [router, stopPolling],
+  );
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -25,6 +79,7 @@ export function CsvDropzone() {
       setProgress("Uploading...");
 
       try {
+        // ── Step 1: upload CSV → get jobId (PENDING) ─────────
         const formData = new FormData();
         formData.append("file", file);
         formData.append("userId", "demo-user");
@@ -39,16 +94,17 @@ export function CsvDropzone() {
           throw new Error(data.error ?? "Upload failed");
         }
 
-        const { tradeSetId, validRows, errors } = await uploadRes.json();
+        const { jobId, validRows, parseErrors } = await uploadRes.json();
         setProgress(
-          `${validRows} trades parsed${errors?.length > 0 ? ` (${errors.length} warnings)` : ""}. Analyzing...`,
+          `${validRows} trades parsed${parseErrors?.length > 0 ? ` (${parseErrors.length} warnings)` : ""}. Queued for analysis...`,
         );
-        setState("analyzing");
+        setState("pending");
 
+        // ── Step 2: kick off analysis ────────────────────────
         const analyzeRes = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tradeSetId, userId: "demo-user" }),
+          body: JSON.stringify({ jobId }),
         });
 
         if (!analyzeRes.ok) {
@@ -56,19 +112,29 @@ export function CsvDropzone() {
           throw new Error(data.error ?? "Analysis failed");
         }
 
-        const { sessionsAnalyzed, finalElo } = await analyzeRes.json();
-        setProgress(
-          `${sessionsAnalyzed} session${sessionsAnalyzed > 1 ? "s" : ""} analyzed. ELO: ${finalElo?.toFixed(0)}`,
-        );
-        setState("done");
+        // If analyze returned synchronously with COMPLETED, we're done
+        const analyzeData = await analyzeRes.json();
+        if (analyzeData.status === "COMPLETED") {
+          setState("completed");
+          const count = analyzeData.sessionsAnalyzed ?? 0;
+          setProgress(
+            `${count} session${count !== 1 ? "s" : ""} analyzed. ELO: ${analyzeData.finalElo?.toFixed(0)}`,
+          );
+          setTimeout(() => router.push("/overview"), 1200);
+          return;
+        }
 
-        setTimeout(() => router.push("/overview"), 1200);
+        // Otherwise, start polling
+        setState("processing");
+        setProgress("Analyzing sessions...");
+        pollJob(jobId);
       } catch (err) {
+        stopPolling();
         setState("error");
         setError(err instanceof Error ? err.message : "Something went wrong");
       }
     },
-    [router],
+    [router, pollJob, stopPolling],
   );
 
   const onDrop = useCallback(
@@ -89,6 +155,11 @@ export function CsvDropzone() {
     [handleFile],
   );
 
+  const busy =
+    state === "uploading" ||
+    state === "pending" ||
+    state === "processing";
+
   return (
     <div>
       <label
@@ -103,8 +174,7 @@ export function CsvDropzone() {
           dragOver
             ? "border-accent bg-accent/5"
             : "border-border bg-surface-1 hover:border-muted-foreground hover:bg-surface-2",
-          (state === "uploading" || state === "analyzing") &&
-            "pointer-events-none opacity-60",
+          busy && "pointer-events-none opacity-60",
         )}
       >
         <input
@@ -112,7 +182,7 @@ export function CsvDropzone() {
           accept=".csv"
           className="hidden"
           onChange={onFileInput}
-          disabled={state === "uploading" || state === "analyzing"}
+          disabled={busy}
         />
 
         {state === "idle" && (
@@ -126,7 +196,7 @@ export function CsvDropzone() {
           </div>
         )}
 
-        {(state === "uploading" || state === "analyzing") && (
+        {busy && (
           <div className="text-center">
             <div className="text-sm font-medium text-foreground/80">
               {progress}
@@ -134,13 +204,20 @@ export function CsvDropzone() {
             <div className="mx-auto mt-3 h-1 w-40 overflow-hidden rounded-full bg-border">
               <div
                 className="h-full rounded-full bg-accent transition-all duration-700"
-                style={{ width: state === "uploading" ? "35%" : "70%" }}
+                style={{
+                  width:
+                    state === "uploading"
+                      ? "20%"
+                      : state === "pending"
+                        ? "40%"
+                        : "70%",
+                }}
               />
             </div>
           </div>
         )}
 
-        {state === "done" && (
+        {state === "completed" && (
           <div className="text-center">
             <div className="text-sm font-medium text-positive">{progress}</div>
             <div className="mt-1 text-xs text-muted-foreground">

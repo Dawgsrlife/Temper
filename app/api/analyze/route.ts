@@ -3,9 +3,11 @@ export const dynamic = "force-dynamic";
 // ─────────────────────────────────────────────────────────────
 // POST /api/analyze
 // ─────────────────────────────────────────────────────────────
-// Triggers the full analysis pipeline for a TradeSet:
-//   parse → sessions → behavior engine → ELO → store reports
-// Returns the generated TemperReport IDs.
+// Accepts a jobId and transitions the TradeSet through:
+//   PENDING → PROCESSING → (pipeline) → COMPLETED | FAILED
+//
+// Pipeline: parse → sessions → behavior engine → ELO → reports
+// Client polls GET /api/jobs/[jobId] for status updates.
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
@@ -20,162 +22,203 @@ import type { UserBaseline, DecisionEloState } from "@/lib/types";
 import { DEFAULT_BASELINE } from "@/lib/types";
 
 const AnalyzeRequestSchema = z.object({
-  tradeSetId: z.string().min(1),
-  userId: z.string().default("demo-user"),
+  jobId: z.string().min(1),
 });
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { tradeSetId, userId } = AnalyzeRequestSchema.parse(body);
+    const { jobId } = AnalyzeRequestSchema.parse(body);
 
-    // Fetch the trade set
+    // ── Load job ──────────────────────────────────────────────
     const tradeSet = await db.tradeSet.findUnique({
-      where: { id: tradeSetId },
+      where: { id: jobId },
     });
 
     if (!tradeSet) {
       return NextResponse.json(
-        { error: "Trade set not found" },
+        { error: "Job not found" },
         { status: 404 },
       );
     }
 
-    // Parse CSV
-    const parseResult = parseCsv(tradeSet.rawCsv);
-    if (parseResult.validRows === 0) {
+    if (tradeSet.status !== "PENDING") {
       return NextResponse.json(
-        { error: "No valid trades in trade set" },
-        { status: 422 },
+        { error: `Job is already ${tradeSet.status}` },
+        { status: 409 },
       );
     }
 
-    // Load user baseline (or use defaults)
-    const userBaseline = await db.userBaseline.findUnique({
-      where: { userId },
+    // ── Transition → PROCESSING ──────────────────────────────
+    await db.tradeSet.update({
+      where: { id: jobId },
+      data: { status: "PROCESSING" },
     });
-    const baseline: UserBaseline = userBaseline
-      ? {
-          avgTradesPerDay: userBaseline.avgTradesPerDay,
-          avgPositionSize: userBaseline.avgPositionSize,
-          avgDailyPnl: userBaseline.avgDailyPnl,
-          avgWinRate: userBaseline.avgWinRate,
-          avgHoldingTimeMs: userBaseline.avgHoldingTimeMs,
-          avgWinHoldingTimeMs: userBaseline.avgWinHoldingTimeMs,
-          avgLossHoldingTimeMs: userBaseline.avgLossHoldingTimeMs,
-          sessionsCount: userBaseline.sessionsCount,
-        }
-      : DEFAULT_BASELINE;
 
-    // Load current ELO state
-    const eloRecord = await db.decisionElo.findUnique({
-      where: { userId },
-    });
-    let currentElo: DecisionEloState = eloRecord
-      ? {
-          rating: eloRecord.rating,
-          peakRating: eloRecord.peakRating,
-          sessionsPlayed: eloRecord.sessionsPlayed,
-          kFactor: Math.max(16, 40 - eloRecord.sessionsPlayed * 0.8),
-          lastSessionDelta: 0,
-          lastSessionPerformance: 0,
-          lastSessionExpected: 0,
-          history: eloRecord.history as unknown as DecisionEloState["history"],
-        }
-      : DEFAULT_ELO_STATE;
+    try {
+      // ── Concurrent: parse CSV + fetch baseline + fetch ELO ─
+      const [parseResult, userBaseline, eloRecord] = await Promise.all([
+        Promise.resolve(parseCsv(tradeSet.rawCsv)),
+        db.userBaseline.findUnique({ where: { userId: tradeSet.userId } }),
+        db.decisionElo.findUnique({ where: { userId: tradeSet.userId } }),
+      ]);
 
-    // Reconstruct sessions
-    const sessions = reconstructSessions(userId, parseResult.trades, baseline);
+      if (parseResult.validRows === 0) {
+        await db.tradeSet.update({
+          where: { id: jobId },
+          data: { status: "FAILED", error: "No valid trades in CSV" },
+        });
+        return NextResponse.json(
+          { error: "No valid trades in CSV" },
+          { status: 422 },
+        );
+      }
 
-    const reportIds: string[] = [];
+      // ── Baseline ───────────────────────────────────────────
+      const baseline: UserBaseline = userBaseline
+        ? {
+            avgTradesPerDay: userBaseline.avgTradesPerDay,
+            avgPositionSize: userBaseline.avgPositionSize,
+            avgDailyPnl: userBaseline.avgDailyPnl,
+            avgWinRate: userBaseline.avgWinRate,
+            avgHoldingTimeMs: userBaseline.avgHoldingTimeMs,
+            avgWinHoldingTimeMs: userBaseline.avgWinHoldingTimeMs,
+            avgLossHoldingTimeMs: userBaseline.avgLossHoldingTimeMs,
+            sessionsCount: userBaseline.sessionsCount,
+          }
+        : DEFAULT_BASELINE;
 
-    // Analyze each session
-    for (const session of sessions) {
-      // Store session
-      const dbSession = await db.session.create({
-        data: {
-          id: session.id,
-          tradeSetId,
-          userId,
-          date: session.date,
-          tradesJson: JSON.parse(JSON.stringify(session.trades)),
-          aggregates: JSON.parse(
-            JSON.stringify({
-              totalPnl: session.totalPnl,
-              maxDrawdown: session.maxDrawdown,
-              tradeCount: session.tradeCount,
-              winRate: session.winRate,
-              avgWin: session.avgWin,
-              avgLoss: session.avgLoss,
-              profitFactor: session.profitFactor,
-              symbols: session.symbols,
-            }),
-          ),
-        },
-      });
+      // ── ELO state ──────────────────────────────────────────
+      let currentElo: DecisionEloState = eloRecord
+        ? {
+            rating: eloRecord.rating,
+            peakRating: eloRecord.peakRating,
+            sessionsPlayed: eloRecord.sessionsPlayed,
+            kFactor: Math.max(16, 40 - eloRecord.sessionsPlayed * 0.8),
+            lastSessionDelta: 0,
+            lastSessionPerformance: 0,
+            lastSessionExpected: 0,
+            history: eloRecord.history as unknown as DecisionEloState["history"],
+          }
+        : DEFAULT_ELO_STATE;
 
-      // Run behavior engine
-      const { report, newElo } = analyzeSession({
-        session,
+      // ── Reconstruct sessions ───────────────────────────────
+      const sessions = reconstructSessions(
+        tradeSet.userId,
+        parseResult.trades,
         baseline,
-        previousElo: currentElo,
-      });
+      );
 
-      // Build coach facts
-      const coachFacts = buildCoachFacts(report);
+      const reportIds: string[] = [];
+      const sessionIds: string[] = [];
 
-      // Store report
-      await db.temperReport.create({
-        data: {
-          id: report.id,
-          sessionId: dbSession.id,
-          userId,
-          date: report.date,
-          biasScores: JSON.parse(JSON.stringify(report.biasScores)),
-          biasDetails: JSON.parse(JSON.stringify(report.biasDetails)),
-          decisions: JSON.parse(JSON.stringify(report.decisions)),
-          temperScore: JSON.parse(JSON.stringify(report.temperScore)),
-          eloBefore: report.eloBefore,
-          eloAfter: report.eloAfter,
-          eloDelta: report.eloDelta,
-          replayResult: JSON.parse(
-            JSON.stringify(report.disciplinedReplay),
-          ),
-          coachFacts: JSON.parse(JSON.stringify(coachFacts)),
+      // ── Analyze each session ───────────────────────────────
+      for (const session of sessions) {
+        const dbSession = await db.session.create({
+          data: {
+            id: session.id,
+            tradeSetId: jobId,
+            userId: tradeSet.userId,
+            date: session.date,
+            tradesJson: JSON.parse(JSON.stringify(session.trades)),
+            aggregates: JSON.parse(
+              JSON.stringify({
+                totalPnl: session.totalPnl,
+                maxDrawdown: session.maxDrawdown,
+                tradeCount: session.tradeCount,
+                winRate: session.winRate,
+                avgWin: session.avgWin,
+                avgLoss: session.avgLoss,
+                profitFactor: session.profitFactor,
+                symbols: session.symbols,
+              }),
+            ),
+          },
+        });
+
+        sessionIds.push(dbSession.id);
+
+        const { report, newElo } = analyzeSession({
+          session,
+          baseline,
+          previousElo: currentElo,
+        });
+
+        const coachFacts = buildCoachFacts(report);
+
+        await db.temperReport.create({
+          data: {
+            id: report.id,
+            sessionId: dbSession.id,
+            userId: tradeSet.userId,
+            date: report.date,
+            biasScores: JSON.parse(JSON.stringify(report.biasScores)),
+            biasDetails: JSON.parse(JSON.stringify(report.biasDetails)),
+            decisions: JSON.parse(JSON.stringify(report.decisions)),
+            temperScore: JSON.parse(JSON.stringify(report.temperScore)),
+            eloBefore: report.eloBefore,
+            eloAfter: report.eloAfter,
+            eloDelta: report.eloDelta,
+            replayResult: JSON.parse(
+              JSON.stringify(report.disciplinedReplay),
+            ),
+            coachFacts: JSON.parse(JSON.stringify(coachFacts)),
+          },
+        });
+
+        currentElo = newElo;
+        reportIds.push(report.id);
+      }
+
+      // ── Persist ELO ────────────────────────────────────────
+      await db.decisionElo.upsert({
+        where: { userId: tradeSet.userId },
+        create: {
+          userId: tradeSet.userId,
+          rating: currentElo.rating,
+          peakRating: currentElo.peakRating,
+          sessionsPlayed: currentElo.sessionsPlayed,
+          history: JSON.parse(JSON.stringify(currentElo.history)),
+        },
+        update: {
+          rating: currentElo.rating,
+          peakRating: currentElo.peakRating,
+          sessionsPlayed: currentElo.sessionsPlayed,
+          history: JSON.parse(JSON.stringify(currentElo.history)),
         },
       });
 
-      // Update ELO state for next session
-      currentElo = newElo;
-      reportIds.push(report.id);
+      // ── Update rolling baseline ────────────────────────────
+      await updateBaseline(tradeSet.userId, sessions, baseline);
+
+      // ── Transition → COMPLETED ─────────────────────────────
+      await db.tradeSet.update({
+        where: { id: jobId },
+        data: { status: "COMPLETED" },
+      });
+
+      return NextResponse.json({
+        jobId,
+        status: "COMPLETED",
+        reportIds,
+        sessionIds,
+        sessionsAnalyzed: sessions.length,
+        finalElo: currentElo.rating,
+      });
+    } catch (pipelineError) {
+      // ── Transition → FAILED ────────────────────────────────
+      const errorMessage =
+        pipelineError instanceof Error
+          ? pipelineError.message
+          : "Unknown pipeline error";
+
+      await db.tradeSet.update({
+        where: { id: jobId },
+        data: { status: "FAILED", error: errorMessage },
+      });
+
+      throw pipelineError;
     }
-
-    // Persist final ELO state
-    await db.decisionElo.upsert({
-      where: { userId },
-      create: {
-        userId,
-        rating: currentElo.rating,
-        peakRating: currentElo.peakRating,
-        sessionsPlayed: currentElo.sessionsPlayed,
-        history: JSON.parse(JSON.stringify(currentElo.history)),
-      },
-      update: {
-        rating: currentElo.rating,
-        peakRating: currentElo.peakRating,
-        sessionsPlayed: currentElo.sessionsPlayed,
-        history: JSON.parse(JSON.stringify(currentElo.history)),
-      },
-    });
-
-    // Update user baseline (rolling average)
-    await updateBaseline(userId, sessions, baseline);
-
-    return NextResponse.json({
-      reportIds,
-      sessionsAnalyzed: sessions.length,
-      finalElo: currentElo.rating,
-    });
   } catch (error) {
     console.error("Analysis error:", error);
     if (error instanceof z.ZodError) {
@@ -195,7 +238,15 @@ export async function POST(request: NextRequest) {
 
 async function updateBaseline(
   userId: string,
-  sessions: { tradeCount: number; avgPositionSize: number; totalPnl: number; winRate: number; avgHoldingTimeMs: number; avgWinHoldingTimeMs: number; avgLossHoldingTimeMs: number }[],
+  sessions: {
+    tradeCount: number;
+    avgPositionSize: number;
+    totalPnl: number;
+    winRate: number;
+    avgHoldingTimeMs: number;
+    avgWinHoldingTimeMs: number;
+    avgLossHoldingTimeMs: number;
+  }[],
   previous: UserBaseline,
 ) {
   const n = previous.sessionsCount;
@@ -231,8 +282,7 @@ async function updateBaseline(
         previous.avgDailyPnl * (1 - alpha) +
         latestSession.totalPnl * alpha,
       avgWinRate:
-        previous.avgWinRate * (1 - alpha) +
-        latestSession.winRate * alpha,
+        previous.avgWinRate * (1 - alpha) + latestSession.winRate * alpha,
       avgHoldingTimeMs:
         previous.avgHoldingTimeMs * (1 - alpha) +
         latestSession.avgHoldingTimeMs * alpha,

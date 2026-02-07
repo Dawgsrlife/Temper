@@ -3,8 +3,9 @@ export const dynamic = "force-dynamic";
 // ─────────────────────────────────────────────────────────────
 // POST /api/upload
 // ─────────────────────────────────────────────────────────────
-// Accepts a CSV file upload, parses it, and stores the TradeSet.
-// Returns parse result with validation errors if any.
+// Accepts a CSV file, validates it has parseable trades, stores
+// the raw CSV as a TradeSet with status=PENDING, and returns a
+// jobId. Client then polls GET /api/jobs/[jobId] until COMPLETED.
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
@@ -15,7 +16,6 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    // For hackathon MVP: use a fixed user ID (no auth yet)
     const userId = (formData.get("userId") as string) ?? "demo-user";
 
     if (!file) {
@@ -33,8 +33,9 @@ export async function POST(request: NextRequest) {
     }
 
     const csvText = await file.text();
-    const parseResult = parseCsv(csvText);
 
+    // Quick validation — fail fast if CSV is completely unparseable
+    const parseResult = parseCsv(csvText);
     if (parseResult.validRows === 0) {
       return NextResponse.json(
         {
@@ -45,29 +46,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure user exists (upsert for MVP)
+    // Ensure user exists (upsert for MVP — no auth)
     await db.user.upsert({
       where: { id: userId },
       create: { id: userId, email: `${userId}@temper.dev` },
       update: {},
     });
 
-    // Store the trade set
+    // Store raw CSV as a PENDING job
     const tradeSet = await db.tradeSet.create({
       data: {
         userId,
         fileName: file.name,
         rawCsv: csvText,
+        status: "PENDING",
       },
     });
 
     return NextResponse.json({
-      tradeSetId: tradeSet.id,
+      jobId: tradeSet.id,
+      status: "PENDING",
       fileName: file.name,
       totalRows: parseResult.totalRows,
       validRows: parseResult.validRows,
-      errors: parseResult.errors,
-      trades: parseResult.trades,
+      parseErrors: parseResult.errors,
     });
   } catch (error) {
     console.error("Upload error:", error);
