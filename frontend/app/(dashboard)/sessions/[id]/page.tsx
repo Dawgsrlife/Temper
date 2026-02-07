@@ -1,7 +1,7 @@
-export const dynamic = "force-dynamic";
+"use client";
 
-import { db } from "@/lib/db/prisma";
-import { notFound } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
 import { TradeTimeline } from "@/components/review/trade-timeline";
 import { BiasBreakdown } from "@/components/dashboard/bias-breakdown";
 import type {
@@ -12,40 +12,78 @@ import type {
 } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
-export default async function SessionReviewPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-  let session;
-  try {
-    session = await db.session.findUnique({
-      where: { id },
-      include: { report: true },
-    });
-  } catch (error) {
-    console.error("Database query failed:", error);
-    notFound();
-  }
-
-  if (!session || !session.report) {
-    notFound();
-  }
-
-  const report = session.report;
-  const trades = session.tradesJson as unknown as Trade[];
-  const decisions = report.decisions as unknown as DecisionEvent[];
-  const temperScore = report.temperScore as unknown as {
-    value: number;
-    rawScore: number;
-    biasPenalty: number;
-    labelDistribution: Record<string, number>;
+type SessionData = {
+  id: string;
+  date: string;
+  trades: Trade[];
+  report: {
+    id: string;
+    temperScore: {
+      value: number;
+      rawScore: number;
+      biasPenalty: number;
+      labelDistribution: Record<string, number>;
+    };
+    eloDelta: number;
+    biasScores: Record<string, number>;
+    decisions: DecisionEvent[];
+    coachFacts: CoachFactsPayload;
+    replayResult: DisciplinedSessionResult;
   };
-  const biasScores = report.biasScores as Record<string, number>;
-  const coachFacts = report.coachFacts as unknown as CoachFactsPayload;
-  const replay = report.replayResult as unknown as DisciplinedSessionResult;
+};
+
+export default function SessionReviewPage() {
+  const params = useParams();
+  const id = params.id as string;
+
+  const [session, setSession] = useState<SessionData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchSession() {
+      try {
+        const res = await fetch(`${API_URL}/api/sessions/${id}`);
+        if (!res.ok) {
+          setError("Session not found");
+          return;
+        }
+        const data = await res.json();
+        setSession(data);
+      } catch (err) {
+        console.error("Failed to fetch session:", err);
+        setError("Failed to load session");
+      } finally {
+        setLoading(false);
+      }
+    }
+    if (id) fetchSession();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <p className="text-sm text-muted-foreground">Loading session...</p>
+      </div>
+    );
+  }
+
+  if (error || !session) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <p className="text-sm text-muted-foreground">{error || "Session not found"}</p>
+      </div>
+    );
+  }
+
+  const { trades, report } = session;
+  const decisions = report.decisions;
+  const temperScore = report.temperScore;
+  const biasScores = report.biasScores;
+  const coachFacts = report.coachFacts;
+  const replay = report.replayResult;
 
   const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
 
@@ -71,9 +109,8 @@ export default async function SessionReviewPage({
             Temper Score
           </p>
           <p
-            className={`tabular mt-1 text-sm font-medium ${
-              report.eloDelta >= 0 ? "text-positive" : "text-negative"
-            }`}
+            className={`tabular mt-1 text-sm font-medium ${report.eloDelta >= 0 ? "text-positive" : "text-negative"
+              }`}
           >
             {report.eloDelta >= 0 ? "+" : ""}
             {report.eloDelta.toFixed(1)} ELO

@@ -1,3 +1,7 @@
+# ────────────────────────────────────────
+# Monorepo .gitignore
+# ────────────────────────────────────────
+
 # Dependencies
 node_modules/
 .pnp
@@ -18,9 +22,19 @@ build/
 .env.test.local
 .env.production.local
 
-# Prisma
-prisma/migrations/
-prisma/generated/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+.eggs/
+*.egg-info/
+*.egg
 
 # IDE
 .vscode/
@@ -34,6 +48,9 @@ Thumbs.db
 
 # Testing
 coverage/
+.coverage
+htmlcov/
+.pytest_cache/
 
 # Misc
 *.log

@@ -1,56 +1,59 @@
-export const dynamic = "force-dynamic";
+"use client";
 
-import { db } from "@/lib/db/prisma";
+import { useState, useEffect } from "react";
 import { TemperScoreCard } from "@/components/dashboard/temper-score-card";
 import { EloChart } from "@/components/dashboard/elo-chart";
 import { BiasBreakdown } from "@/components/dashboard/bias-breakdown";
 import Link from "next/link";
 
-export default async function OverviewPage() {
-  const userId = "demo-user";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-  type ReportData = {
-    id: string;
-    sessionId: string;
-    date: Date | string;
-    temperScore: unknown;
-    eloBefore: number;
-    eloAfter: number;
-    eloDelta: number;
-    biasScores: unknown;
-  };
+type ReportData = {
+  id: string;
+  sessionId: string;
+  date: string;
+  temperScore: number;
+  eloBefore: number;
+  eloAfter: number;
+  eloDelta: number;
+  biasScores: Record<string, number>;
+};
 
-  let reports: ReportData[] = [];
-  let eloState: {
-    rating: number;
-    peakRating: number;
-    sessionsPlayed: number;
-  } | null = null;
+type EloState = {
+  rating: number;
+  peakRating: number;
+  sessionsPlayed: number;
+};
 
-  try {
-    [reports, eloState] = await Promise.all([
-      db.temperReport.findMany({
-        where: { userId },
-        orderBy: { date: "desc" },
-        take: 30,
-        select: {
-          id: true,
-          sessionId: true,
-          date: true,
-          temperScore: true,
-          eloBefore: true,
-          eloAfter: true,
-          eloDelta: true,
-          biasScores: true,
-        },
-      }),
-      db.decisionElo.findUnique({
-        where: { userId },
-      }),
-    ]);
-  } catch (error) {
-    console.error("Database query failed:", error);
-    // Fall through to empty state
+export default function OverviewPage() {
+  const [reports, setReports] = useState<ReportData[]>([]);
+  const [eloState, setEloState] = useState<EloState | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const res = await fetch(`${API_URL}/api/history?userId=demo-user`);
+        if (res.ok) {
+          const data = await res.json();
+          setReports(data.reports || []);
+          setEloState(data.currentElo);
+        }
+      } catch (error) {
+        console.error("Failed to fetch history:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </div>
+    );
   }
 
   if (reports.length === 0) {
@@ -70,17 +73,14 @@ export default async function OverviewPage() {
   }
 
   const latestReport = reports[0];
-  const temperScore = (latestReport.temperScore as { value: number }).value;
-  const latestDate =
-    typeof latestReport.date === "string"
-      ? latestReport.date
-      : latestReport.date.toISOString();
+  const temperScore = latestReport.temperScore;
+  const latestDate = latestReport.date;
 
   const eloHistory = reports
     .slice()
     .reverse()
     .map((r) => ({
-      date: typeof r.date === "string" ? r.date : r.date.toISOString(),
+      date: r.date,
       rating: r.eloAfter,
     }));
 
@@ -112,11 +112,10 @@ export default async function OverviewPage() {
             Last Session
           </div>
           <div
-            className={`tabular text-3xl font-semibold ${
-              latestReport.eloDelta >= 0
+            className={`tabular text-3xl font-semibold ${latestReport.eloDelta >= 0
                 ? "text-positive"
                 : "text-negative"
-            }`}
+              }`}
           >
             {latestReport.eloDelta >= 0 ? "+" : ""}
             {latestReport.eloDelta.toFixed(1)}
@@ -140,9 +139,7 @@ export default async function OverviewPage() {
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Bias Breakdown &mdash; {latestDate}
         </h2>
-        <BiasBreakdown
-          scores={latestReport.biasScores as Record<string, number>}
-        />
+        <BiasBreakdown scores={latestReport.biasScores} />
       </section>
 
       {/* Recent sessions */}
@@ -151,33 +148,28 @@ export default async function OverviewPage() {
           Recent Sessions
         </h2>
         <div className="space-y-1">
-          {reports.map((r) => {
-            const dateStr =
-              typeof r.date === "string" ? r.date : r.date.toISOString();
-            return (
-              <Link
-                key={r.id}
-                href={`/sessions/${r.sessionId}`}
-                className="flex items-center justify-between rounded-md border border-border bg-surface-1 px-4 py-3 text-sm transition-colors hover:bg-surface-2"
-              >
-                <span className="font-medium">{dateStr}</span>
-                <div className="flex items-center gap-5 text-xs">
-                  <span className="tabular text-muted-foreground">
-                    Score {(r.temperScore as { value: number }).value}
-                  </span>
-                  <span
-                    className={`tabular font-medium ${
-                      r.eloDelta >= 0 ? "text-positive" : "text-negative"
+          {reports.map((r) => (
+            <Link
+              key={r.id}
+              href={`/sessions/${r.sessionId}`}
+              className="flex items-center justify-between rounded-md border border-border bg-surface-1 px-4 py-3 text-sm transition-colors hover:bg-surface-2"
+            >
+              <span className="font-medium">{r.date}</span>
+              <div className="flex items-center gap-5 text-xs">
+                <span className="tabular text-muted-foreground">
+                  Score {r.temperScore}
+                </span>
+                <span
+                  className={`tabular font-medium ${r.eloDelta >= 0 ? "text-positive" : "text-negative"
                     }`}
-                  >
-                    {r.eloDelta >= 0 ? "+" : ""}
-                    {r.eloDelta.toFixed(1)} ELO
-                  </span>
-                  <span className="text-muted-foreground">&rarr;</span>
-                </div>
-              </Link>
-            );
-          })}
+                >
+                  {r.eloDelta >= 0 ? "+" : ""}
+                  {r.eloDelta.toFixed(1)} ELO
+                </span>
+                <span className="text-muted-foreground">&rarr;</span>
+              </div>
+            </Link>
+          ))}
         </div>
       </section>
     </div>
