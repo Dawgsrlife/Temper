@@ -1,12 +1,38 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from app.job_store import LocalJobStore
+from app.job_store import JobRecord, LocalJobStore
+
+
+def _list_with_skip_count(
+    store: LocalJobStore,
+    *,
+    user_id: str | None = None,
+    limit: int | None = None,
+) -> tuple[list[JobRecord], int]:
+    records: list[JobRecord] = []
+    skipped = 0
+    for path in store.base_dir.glob("*/job.json"):
+        try:
+            payload = json.loads(path.read_text())
+            record = JobRecord.from_dict(payload)
+        except Exception:
+            skipped += 1
+            continue
+        if user_id is not None and record.user_id != user_id:
+            continue
+        records.append(record)
+
+    records.sort(key=lambda r: r.created_at, reverse=True)
+    if limit is not None:
+        records = records[:limit]
+    return records, skipped
 
 
 def main() -> int:
@@ -17,7 +43,9 @@ def main() -> int:
 
     root = Path(__file__).resolve().parents[2]
     store = LocalJobStore(root / "backend" / "outputs")
-    jobs = store.list_jobs(user_id=args.user_id, limit=args.limit)
+    jobs, skipped = _list_with_skip_count(store, user_id=args.user_id, limit=args.limit)
+    if skipped > 0:
+        print(f"WARNING: skipped {skipped} corrupt job records")
 
     if not jobs:
         print("No jobs found.")

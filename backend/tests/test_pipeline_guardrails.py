@@ -60,7 +60,10 @@ def test_20x_dataset_runtime_smoke() -> None:
 
     started = time.perf_counter()
     normalized = DataNormalizer(source=csv_path, dayfirst=False).normalize()
-    large_df = pd.concat([normalized] * 20, ignore_index=True)
+    large_df = pd.concat([normalized] * 20, ignore_index=True).sort_values(
+        ["timestamp", "asset", "side", "price", "size_usd", "pnl"],
+        kind="mergesort",
+    ).reset_index(drop=True)
 
     flagged = BiasDetective(large_df).detect()
     out, summary = CounterfactualEngine(flagged).run()

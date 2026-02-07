@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +70,9 @@ class LocalJobStore:
         target_dir = Path(job_dir) if job_dir is not None else self._job_dir(record.job_id)
         target_dir.mkdir(parents=True, exist_ok=True)
         target_file = target_dir / "job.json"
-        target_file.write_text(json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n")
+        tmp_file = target_dir / "job.json.tmp"
+        tmp_file.write_text(json.dumps(record.to_dict(), indent=2, sort_keys=True) + "\n")
+        os.replace(tmp_file, target_file)
         return target_file
 
     def read(self, job_id: str) -> JobRecord:
