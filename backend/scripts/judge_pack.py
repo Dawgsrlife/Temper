@@ -18,7 +18,7 @@ from app.counterfactual import CounterfactualEngine
 from app.data_quality import evaluate_data_quality
 from app.detective import BiasDetective, BiasThresholds
 from app.normalizer import DataNormalizer
-from app.review import build_trade_review
+from app.review import apply_trade_grades, build_trade_review
 from app.risk import (
     DEFAULT_BALANCE_BASE_FRACTION,
     DEFAULT_BALANCE_CAP_FRACTION,
@@ -58,6 +58,8 @@ def _canonical_sort(df: pd.DataFrame) -> pd.DataFrame:
             "is_blocked_bias",
             "is_blocked_risk",
             "checkmated_day",
+            "trade_grade",
+            "special_tags",
         )
         if col in df.columns
     ]
@@ -216,6 +218,7 @@ def main() -> int:
         flagged,
         daily_max_loss=used_daily_max_loss,
     ).run()
+    counterfactual, grading_meta = apply_trade_grades(counterfactual, summary)
     stage_seconds["counterfactual"] = time.perf_counter() - cf_start
 
     review_start = time.perf_counter()
@@ -223,6 +226,7 @@ def main() -> int:
         counterfactual,
         summary,
         data_quality_warnings=list(data_quality.get("warnings", [])),
+        grading_meta=grading_meta,
     )
     stage_seconds["review"] = time.perf_counter() - review_start
 

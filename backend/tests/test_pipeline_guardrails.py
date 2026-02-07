@@ -9,6 +9,7 @@ import pandas as pd
 from app.counterfactual import CounterfactualEngine
 from app.detective import BiasDetective
 from app.normalizer import DataNormalizer
+from app.review import apply_trade_grades
 from app.risk import recommend_daily_max_loss
 
 
@@ -25,12 +26,14 @@ def test_shuffle_invariance_counterfactual_outputs() -> None:
         flagged,
         daily_max_loss=daily_max_loss,
     ).run()
+    base_out, _ = apply_trade_grades(base_out, base_summary)
 
     shuffled = flagged.sample(frac=1.0, random_state=42).reset_index(drop=True)
     shuffled_out, shuffled_summary = CounterfactualEngine(
         shuffled,
         daily_max_loss=daily_max_loss,
     ).run()
+    shuffled_out, _ = apply_trade_grades(shuffled_out, shuffled_summary)
 
     assert base_summary == shuffled_summary
 
@@ -40,6 +43,8 @@ def test_shuffle_invariance_counterfactual_outputs() -> None:
         "is_blocked_risk",
         "blocked_reason",
         "checkmated_day",
+        "trade_grade",
+        "special_tags",
     ]
 
     base_aligned = base_out.sort_values("trade_id")[compare_cols].reset_index(drop=True)

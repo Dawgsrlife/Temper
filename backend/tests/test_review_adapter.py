@@ -28,6 +28,9 @@ def test_review_adapter_contract_and_determinism() -> None:
         "bias_rates",
         "derived_stats",
         "labeling_rules",
+        "badge_counts",
+        "badge_examples",
+        "grade_distribution_by_phase",
         "opening",
         "middlegame",
         "endgame",
@@ -40,20 +43,33 @@ def test_review_adapter_contract_and_determinism() -> None:
     assert review_a["scoreboard"]["delta_pnl"] == summary["delta_pnl"]
     assert review_a["scoreboard"]["cost_of_bias"] == summary["cost_of_bias"]
 
-    valid_labels = {"MEGA_BLUNDER", "BLUNDER", "INACCURACY"}
+    valid_labels = {
+        "BRILLIANT",
+        "GREAT",
+        "BEST",
+        "EXCELLENT",
+        "GOOD",
+        "INACCURACY",
+        "MISTAKE",
+        "MISS",
+        "BLUNDER",
+        "MEGABLUNDER",
+    }
     for moment in review_a["top_moments"]:
         assert moment["label"] in valid_labels
         assert "critical_line" in moment
         assert len(moment["critical_line"]) <= 7
         assert any(row["is_focus"] for row in moment["critical_line"])
 
-    assert "mega_blunder" in review_a["labeling_rules"]
-    assert "blunder" in review_a["labeling_rules"]
-    assert "inaccuracy" in review_a["labeling_rules"]
+    assert "grade_rules" in review_a["labeling_rules"]
+    assert "MEGABLUNDER" in review_a["labeling_rules"]["grade_rules"]
+    assert "BLUNDER" in review_a["labeling_rules"]["grade_rules"]
+    assert "INACCURACY" in review_a["labeling_rules"]["grade_rules"]
     assert len(review_a["coach_plan"]) == 3
     assert isinstance(review_a["opening"], dict)
     assert isinstance(review_a["middlegame"], dict)
     assert isinstance(review_a["endgame"], dict)
+    assert set(review_a["badge_examples"].keys()) == {"MEGABLUNDER", "BLUNDER", "MISS"}
 
 
 def test_review_recommendations_are_data_derived() -> None:
@@ -84,8 +100,8 @@ def test_review_includes_labeling_rules_and_sections() -> None:
     review = build_trade_review(out, summary, data_quality_warnings=["sample warning"])
     rules = review["labeling_rules"]
     assert "impact_definition" in rules
-    assert rules["mega_blunder"]["percentile"] == 99
-    assert rules["blunder"]["percentile"] == 95
+    assert "MEGABLUNDER" in rules["grade_rules"]
+    assert "BLUNDER" in rules["grade_rules"]
     assert "summary" in review["opening"]
     assert "summary" in review["middlegame"]
     assert "summary" in review["endgame"]
