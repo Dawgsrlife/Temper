@@ -21,6 +21,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.job_store import JobRecord, LocalJobStore, file_sha256, utc_now_iso
+from app.move_explanations import (
+    MoveExplanationError,
+    build_deterministic_move_review,
+    load_move_explanations_contract_text,
+)
 from app.supabase_jobs import SupabaseJobRepository, SupabaseSyncError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +43,18 @@ COACH_VERTEX_TIMEOUT_SECONDS_DEFAULT = 18.0
 COACH_VERTEX_MAX_OUTPUT_TOKENS_DEFAULT = 900
 COACH_ALLOWED_BIASES = {"OVERTRADING", "LOSS_AVERSION", "REVENGE_TRADING"}
 COACH_ALLOWED_HORIZONS = {"NEXT_SESSION", "THIS_WEEK"}
+COACH_ALLOWED_MOVE_LABELS = {
+    "BRILLIANT",
+    "GREAT",
+    "BEST",
+    "EXCELLENT",
+    "GOOD",
+    "INACCURACY",
+    "MISTAKE",
+    "MISS",
+    "BLUNDER",
+    "MEGABLUNDER",
+}
 ALLOWED_EXECUTION_STATUS = {"PENDING", "RUNNING", "COMPLETED", "FAILED", "TIMEOUT"}
 JOB_WORKERS = int(os.getenv("JOB_WORKERS", "1"))
 JOB_SEMAPHORE = asyncio.Semaphore(max(1, JOB_WORKERS))
@@ -256,15 +273,36 @@ def _persist_job_record(job: JobRecord, *, include_artifacts_sync: bool = False)
     _sync_job_to_supabase(job, include_artifacts=include_artifacts_sync, strict=False)
 
 
-def _coach_prompt_payload(job: JobRecord) -> dict[str, Any]:
-    review_path = _job_dir(job.job_id) / "review.json"
-    review: dict[str, Any] = {}
-    if review_path.exists():
-        try:
-            review = _load_json_file(review_path)
-        except Exception:
-            review = {}
+def _read_review_payload(job_id: str) -> dict[str, Any]:
+    review_path = _job_dir(job_id) / "review.json"
+    if not review_path.exists():
+        raise CoachGenerationError("review artifact missing for coach generation")
+    try:
+        return _load_json_file(review_path)
+    except Exception as exc:
+        raise CoachGenerationError(f"review artifact unreadable: {exc}") from exc
 
+
+def _read_counterfactual_rows(job_id: str) -> list[dict[str, Any]]:
+    counterfactual_path = _job_dir(job_id) / "counterfactual.csv"
+    if not counterfactual_path.exists():
+        raise CoachGenerationError("counterfactual artifact missing for coach generation")
+    try:
+        frame = pd.read_csv(counterfactual_path)
+    except Exception as exc:
+        raise CoachGenerationError(f"counterfactual artifact unreadable: {exc}") from exc
+    rows = frame.to_dict(orient="records")
+    if not rows:
+        raise CoachGenerationError("counterfactual artifact has no rows")
+    return rows
+
+
+def _coach_prompt_payload(
+    job: JobRecord,
+    *,
+    review: dict[str, Any],
+    deterministic_move_review: list[dict[str, Any]],
+) -> dict[str, Any]:
     summary = dict(job.summary or {})
     score = review.get("scoreboard", {}) if isinstance(review.get("scoreboard"), dict) else {}
     bias_rates = review.get("bias_rates", {}) if isinstance(review.get("bias_rates"), dict) else {}
@@ -281,6 +319,7 @@ def _coach_prompt_payload(job: JobRecord) -> dict[str, Any]:
         "badge_counts": badge_counts,
         "top_moments": review.get("top_moments", [])[:3] if isinstance(review.get("top_moments"), list) else [],
         "recommendations": review.get("recommendations", [])[:6] if isinstance(review.get("recommendations"), list) else [],
+        "move_review": deterministic_move_review,
     }
 
 
@@ -387,8 +426,127 @@ def _extract_json_from_text(text: str) -> dict[str, Any]:
     return dict(payload)
 
 
-def _validate_coach_schema(payload: dict[str, Any]) -> dict[str, Any]:
-    required = {"version", "headline", "diagnosis", "plan", "do_next_session", "disclaimer"}
+def _normalize_metric_scalar(value: Any, *, field: str) -> int | float | bool | str:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise CoachGenerationError(f"{field} must be finite when numeric")
+        return parsed
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            raise CoachGenerationError(f"{field} must be non-empty when string")
+        return cleaned
+    raise CoachGenerationError(f"{field} must be a scalar (bool|number|string)")
+
+
+def _metric_values_equal(actual: Any, expected: Any) -> bool:
+    if isinstance(actual, bool) or isinstance(expected, bool):
+        return actual is expected
+    if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):
+        return math.isclose(float(actual), float(expected), rel_tol=0.0, abs_tol=1e-9)
+    return actual == expected
+
+
+def _validate_move_review(
+    move_review: Any,
+    *,
+    expected_move_review: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    if not isinstance(move_review, list):
+        raise CoachGenerationError("coach move_review must be a list")
+    if len(move_review) != 3:
+        raise CoachGenerationError("coach move_review must contain exactly 3 moments")
+
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(move_review):
+        if not isinstance(item, dict):
+            raise CoachGenerationError("coach move_review entries must be objects")
+        label = item.get("label")
+        timestamp = item.get("timestamp")
+        asset = item.get("asset")
+        explanation = item.get("explanation")
+        metric_refs = item.get("metric_refs")
+        if label not in COACH_ALLOWED_MOVE_LABELS:
+            raise CoachGenerationError("coach move_review.label must be a valid chess grade")
+        if not isinstance(timestamp, str) or not timestamp.strip():
+            raise CoachGenerationError("coach move_review.timestamp must be non-empty string")
+        if not isinstance(asset, str) or not asset.strip():
+            raise CoachGenerationError("coach move_review.asset must be non-empty string")
+        if not isinstance(explanation, str) or not explanation.strip():
+            raise CoachGenerationError("coach move_review.explanation must be non-empty string")
+        if not isinstance(metric_refs, list) or not metric_refs:
+            raise CoachGenerationError("coach move_review.metric_refs must be a non-empty list")
+
+        normalized_refs: list[dict[str, Any]] = []
+        for ref in metric_refs:
+            if not isinstance(ref, dict):
+                raise CoachGenerationError("coach move_review.metric_refs entries must be objects")
+            name = ref.get("name")
+            unit = ref.get("unit")
+            value = ref.get("value")
+            if not isinstance(name, str) or not name.strip():
+                raise CoachGenerationError("coach move_review.metric_refs.name must be non-empty string")
+            if not isinstance(unit, str) or not unit.strip():
+                raise CoachGenerationError("coach move_review.metric_refs.unit must be non-empty string")
+            normalized_refs.append(
+                {
+                    "name": name.strip(),
+                    "value": _normalize_metric_scalar(value, field="coach move_review.metric_refs.value"),
+                    "unit": unit.strip(),
+                }
+            )
+
+        normalized_item = {
+            "label": label,
+            "timestamp": timestamp.strip(),
+            "asset": asset.strip(),
+            "explanation": explanation.strip(),
+            "metric_refs": normalized_refs,
+        }
+        if expected_move_review is not None:
+            if index >= len(expected_move_review):
+                raise CoachGenerationError("coach move_review length does not match deterministic top moments")
+            expected = expected_move_review[index]
+            if (
+                normalized_item["label"] != expected.get("label")
+                or normalized_item["timestamp"] != expected.get("timestamp")
+                or normalized_item["asset"] != expected.get("asset")
+            ):
+                raise CoachGenerationError("coach move_review changed deterministic labels/timestamps/assets")
+            expected_refs = expected.get("metric_refs")
+            if not isinstance(expected_refs, list):
+                raise CoachGenerationError("deterministic move_review metric refs are missing")
+            if len(normalized_refs) != len(expected_refs):
+                raise CoachGenerationError("coach move_review metric_refs length drifted from deterministic payload")
+            for ref_index, normalized_ref in enumerate(normalized_refs):
+                expected_ref = expected_refs[ref_index]
+                if not isinstance(expected_ref, dict):
+                    raise CoachGenerationError("deterministic move_review metric refs are invalid")
+                expected_name = str(expected_ref.get("name"))
+                expected_unit = str(expected_ref.get("unit"))
+                expected_value = _normalize_metric_scalar(
+                    expected_ref.get("value"),
+                    field="deterministic metric ref value",
+                )
+                if normalized_ref["name"] != expected_name or normalized_ref["unit"] != expected_unit:
+                    raise CoachGenerationError("coach move_review metric identity drifted from deterministic payload")
+                if not _metric_values_equal(normalized_ref["value"], expected_value):
+                    raise CoachGenerationError("coach move_review metric value drifted from deterministic payload")
+
+        normalized.append(normalized_item)
+
+    return normalized
+
+
+def _validate_coach_schema(
+    payload: dict[str, Any],
+    *,
+    expected_move_review: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    required = {"version", "headline", "diagnosis", "plan", "do_next_session", "disclaimer", "move_review"}
     missing = required - set(payload.keys())
     if missing:
         raise CoachGenerationError(f"coach JSON missing required keys: {sorted(missing)}")
@@ -497,6 +655,11 @@ def _validate_coach_schema(payload: dict[str, Any]) -> dict[str, Any]:
             raise CoachGenerationError("do_next_session entries must be non-empty strings")
         next_steps.append(entry.strip())
 
+    normalized_move_review = _validate_move_review(
+        payload.get("move_review"),
+        expected_move_review=expected_move_review,
+    )
+
     return {
         "version": 1,
         "headline": headline.strip(),
@@ -504,6 +667,7 @@ def _validate_coach_schema(payload: dict[str, Any]) -> dict[str, Any]:
         "plan": normalized_plan,
         "do_next_session": next_steps,
         "disclaimer": disclaimer.strip(),
+        "move_review": normalized_move_review,
     }
 
 
@@ -512,12 +676,15 @@ def generate_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
     token = _vertex_access_token()
     timeout = _coach_vertex_timeout_seconds()
     max_tokens = _coach_vertex_max_output_tokens()
+    contract_text = load_move_explanations_contract_text()
     prompt = (
         "You are a trading discipline coach. Use ONLY the provided metrics and facts. "
-        "Do not invent numbers. Return JSON only with keys: "
-        "version,headline,diagnosis,plan,do_next_session,disclaimer. "
+        "Do not invent numbers. move_review is deterministic and immutable: keep label/timestamp/asset and all "
+        "metric_refs values exactly unchanged. You may paraphrase move_review explanations only. "
+        "Return JSON only with keys: version,headline,diagnosis,plan,do_next_session,disclaimer,move_review. "
         "bias values must be OVERTRADING|LOSS_AVERSION|REVENGE_TRADING. "
         "severity must be 1-5 integer. time_horizon must be NEXT_SESSION or THIS_WEEK.\n\n"
+        f"MOVE_EXPLANATIONS_CONTRACT_MARKDOWN:\n{contract_text}\n\n"
         f"FACTS_JSON:\n{json.dumps(payload, sort_keys=True)}"
     )
     request_payload = {
@@ -1697,11 +1864,62 @@ async def generate_coach(job_id: str, force: bool = False) -> JSONResponse:
             status_code=200,
         )
 
-    coach_input = _coach_prompt_payload(job)
+    try:
+        review_payload = _read_review_payload(job_id)
+        counterfactual_rows = _read_counterfactual_rows(job_id)
+        deterministic_move_review = build_deterministic_move_review(
+            review_payload,
+            counterfactual_rows,
+        )
+    except (CoachGenerationError, MoveExplanationError) as exc:
+        error_payload = {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "when": utc_now_iso(),
+            "vertex_request_id": None,
+        }
+        coach_error_path.write_text(json.dumps(error_payload, indent=2, sort_keys=True) + "\n")
+        updated_summary = dict(job.summary or {})
+        updated_summary["coach_status"] = "FAILED"
+        updated_summary["coach_error_type"] = error_payload["error_type"]
+        updated_summary["coach_error_message"] = error_payload["error_message"]
+        updated_artifacts = dict(job.artifacts)
+        updated_artifacts["coach_error_json"] = str(coach_error_path)
+        updated_artifacts.pop("coach_json", None)
+        updated_job = JobRecord(
+            job_id=job.job_id,
+            user_id=job.user_id,
+            created_at=job.created_at,
+            engine_version=job.engine_version,
+            input_sha256=job.input_sha256,
+            status=job.status,
+            artifacts=updated_artifacts,
+            upload=job.upload,
+            summary=updated_summary,
+        )
+        _persist_job_record(updated_job, include_artifacts_sync=True)
+        return _envelope(
+            ok=False,
+            job=updated_job,
+            data={"coach_error": error_payload},
+            error_code="COACH_GENERATION_FAILED",
+            error_message="Vertex coach generation failed.",
+            error_details=error_payload,
+            status_code=502,
+        )
+
+    coach_input = _coach_prompt_payload(
+        job,
+        review=review_payload,
+        deterministic_move_review=deterministic_move_review,
+    )
 
     try:
         generated = await asyncio.to_thread(generate_coach_via_vertex, coach_input)
-        coach_payload = _validate_coach_schema(generated)
+        coach_payload = _validate_coach_schema(
+            generated,
+            expected_move_review=deterministic_move_review,
+        )
     except Exception as exc:
         request_id = getattr(exc, "vertex_request_id", None)
         error_payload = {
