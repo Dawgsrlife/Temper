@@ -137,13 +137,9 @@ export default function LoginPage() {
                         {/* Terms */}
                         <p className="text-center text-xs text-temper-muted">
                             By continuing, you agree to our{' '}
-                            <Link href="#" className="text-temper-text underline-offset-4 hover:underline">
-                                Terms
-                            </Link>{' '}
+                            <span className="text-temper-text">Terms</span>{' '}
                             and{' '}
-                            <Link href="#" className="text-temper-text underline-offset-4 hover:underline">
-                                Privacy Policy
-                            </Link>
+                            <span className="text-temper-text">Privacy Policy</span>
                         </p>
                     </div>
                 </div>
