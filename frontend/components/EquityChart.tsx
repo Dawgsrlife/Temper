@@ -5,16 +5,18 @@ import {
     createChart, ColorType, IChartApi, AreaSeries, LineSeries, Time,
     createSeriesMarkers, ISeriesApi, SeriesType,
 } from 'lightweight-charts';
-import { TradeWithAnalysis } from '@/lib/biasDetector';
+import { TradeWithAnalysis, SessionAnalysis } from '@/lib/biasDetector';
 
 interface EquityChartProps {
     trades: TradeWithAnalysis[];
     currentIndex: number;
     height?: number;
     onTradeClick?: (index: number) => void;
+    /** Full analysis — when present, draws the hypothetical disciplined P/L path */
+    analysis?: SessionAnalysis;
 }
 
-export default function EquityChart({ trades, currentIndex, height = 400, onTradeClick }: EquityChartProps) {
+export default function EquityChart({ trades, currentIndex, height = 400, onTradeClick, analysis }: EquityChartProps) {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const [focusedTrade, setFocusedTrade] = useState<TradeWithAnalysis | null>(null);
@@ -116,6 +118,65 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
             ]);
         }
 
+        // ── Hypothetical disciplined replay line (purple, dashed) ──
+        const replay = analysis?.report?.disciplinedReplay;
+        // Map UUID-based removedTradeIds → index-based set via session trades
+        const removedIndices = new Set<number>();
+        if (replay && replay.removedTradeIds.length > 0 && analysis?.report?.session?.trades) {
+            const idSet = new Set(replay.removedTradeIds);
+            for (const st of analysis.report.session.trades) {
+                if (idSet.has(st.id)) removedIndices.add(st.index);
+            }
+        }
+        if (replay && removedIndices.size > 0) {
+            const disciplinedSeries = chart.addSeries(LineSeries, {
+                color: 'rgba(168, 85, 247, 0.75)',   // purple-500
+                lineWidth: 2,
+                lineStyle: 2, // dashed
+                crosshairMarkerVisible: false,
+                priceLineVisible: false,
+                lastValueVisible: false,
+            });
+
+            // Build disciplined equity curve: skip removed trades
+            let runningPnl = 0;
+            const disciplinedData: { time: Time; value: number }[] = [];
+
+            // Start at zero
+            if (equityData.length > 0) {
+                disciplinedData.push({ time: equityData[0].time, value: 0 });
+            }
+
+            trades.forEach((trade) => {
+                const wasRemoved = removedIndices.has(trade.index);
+                if (!wasRemoved) {
+                    runningPnl += trade.pnl ?? 0;
+                }
+                disciplinedData.push({
+                    time: Math.floor(new Date(trade.timestamp).getTime() / 1000) as Time,
+                    value: runningPnl,
+                });
+            });
+
+            disciplinedSeries.setData(disciplinedData);
+
+            // Add markers for removed trades (ghost markers in purple, lower opacity)
+            const removedMarkers = trades
+                .filter((t) => removedIndices.has(t.index))
+                .map((trade) => ({
+                    time: Math.floor(new Date(trade.timestamp).getTime() / 1000) as Time,
+                    position: 'aboveBar' as const,
+                    color: 'rgba(168, 85, 247, 0.5)',
+                    shape: 'square' as const,
+                    size: 0.6,
+                    text: `✕ $${Math.abs(trade.pnl ?? 0).toFixed(0)}`,
+                }));
+
+            if (removedMarkers.length > 0) {
+                createSeriesMarkers(disciplinedSeries, removedMarkers);
+            }
+        }
+
         // Click handler for data points
         chart.subscribeClick((param) => {
             if (!param.point || !param.time) return;
@@ -211,12 +272,13 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                 >
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-white">{focusedTrade.asset}</span>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${focusedTrade.label === 'BRILLIANT' || focusedTrade.label === 'EXCELLENT' || focusedTrade.label === 'GOOD'
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                            focusedTrade.label === 'BRILLIANT' || focusedTrade.label === 'EXCELLENT' || focusedTrade.label === 'GOOD'
                                 ? 'bg-emerald-500/20 text-emerald-400'
                                 : focusedTrade.label === 'BLUNDER' || focusedTrade.label === 'MISTAKE'
                                     ? 'bg-red-500/20 text-red-400'
                                     : 'bg-yellow-500/20 text-yellow-400'
-                            }`}>{focusedTrade.label}</span>
+                        }`}>{focusedTrade.label}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
@@ -240,7 +302,7 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                         </div>
                     )}
                     <p className="mt-2 text-[10px] text-gray-400">{focusedTrade.timestamp}</p>
-                    <button
+                    <button 
                         onClick={() => { setFocusedTrade(null); setTooltipPos(null); resetZoom(); }}
                         className="mt-2 cursor-pointer text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
                     >
@@ -250,6 +312,27 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
             )}
 
             <div ref={chartContainerRef} className="h-full w-full rounded-xl chart-container cursor-crosshair" />
+
+            {/* Hypothetical legend */}
+            {analysis?.report?.disciplinedReplay && analysis.report.disciplinedReplay.tradesRemoved > 0 && (
+                <div className="absolute bottom-2 left-4 z-10 flex items-center gap-4 rounded-lg bg-[#0a0a0a]/80 px-3 py-1.5 backdrop-blur-sm ring-1 ring-white/[0.08]">
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-0.5 w-4 rounded bg-emerald-400" />
+                        <span className="text-[10px] text-gray-400">Actual P/L</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-0.5 w-4 rounded bg-purple-500" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #a855f7 0 4px, transparent 4px 8px)' }} />
+                        <span className="text-[10px] text-gray-400">Disciplined P/L</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-2 w-2 rounded-sm bg-purple-500/50" />
+                        <span className="text-[10px] text-gray-400">Filtered trades</span>
+                    </div>
+                    <span className="text-[10px] font-bold text-purple-400">
+                        Savings: ${Math.abs(analysis.report.disciplinedReplay.savings).toFixed(0)}
+                    </span>
+                </div>
+            )}
 
             {/* Scroll zoom hint */}
             <div className="absolute bottom-2 right-4 z-10">

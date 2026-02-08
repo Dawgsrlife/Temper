@@ -240,7 +240,7 @@ export default function ExplorerPage() {
         {/* Mode toggle */}
         <div className="mode-toggle flex items-center gap-2 rounded-xl bg-white/[0.06] p-1">
           <button
-            onClick={() => setMode('3d')}
+            onClick={() => { setMode('3d'); setSelectedTrade(null); setShowInfoPanel(false); }}
             className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
               mode === '3d'
                 ? 'bg-emerald-500 text-black'
@@ -251,7 +251,7 @@ export default function ExplorerPage() {
             3D Scene
           </button>
           <button
-            onClick={() => setMode('graph')}
+            onClick={() => { setMode('graph'); setSelectedTrade(null); setShowInfoPanel(false); }}
             className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
               mode === 'graph'
                 ? 'bg-emerald-500 text-black'

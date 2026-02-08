@@ -43,7 +43,9 @@ function detectTiltSequences(
   const BAD_LABELS = new Set([
     DecisionLabel.INACCURACY,
     DecisionLabel.MISTAKE,
+    DecisionLabel.MISS,
     DecisionLabel.BLUNDER,
+    DecisionLabel.MEGABLUNDER,
   ]);
 
   const sequences: TiltSequence[] = [];
@@ -125,9 +127,12 @@ function findDominantBias(events: DecisionEvent[]): BiasType {
 
 const GOOD_LABELS = new Set([
   DecisionLabel.BRILLIANT,
+  DecisionLabel.GREAT,
+  DecisionLabel.BEST,
   DecisionLabel.EXCELLENT,
   DecisionLabel.GOOD,
   DecisionLabel.BOOK,
+  DecisionLabel.WINNER,
 ]);
 
 function findBestAndWorstStreaks(decisions: DecisionEvent[]) {
@@ -220,14 +225,23 @@ export function buildCoachFacts(report: TemperReport): CoachFactsPayload {
 
   // ── Key events (top 5 by severity) ──────────────────────
   const severity: Record<DecisionLabel, number> = {
+    [DecisionLabel.MEGABLUNDER]: 12,
     [DecisionLabel.BLUNDER]: 10,
+    [DecisionLabel.CHECKMATED]: 9,
     [DecisionLabel.MISTAKE]: 8,
     [DecisionLabel.BRILLIANT]: 7,
+    [DecisionLabel.RESIGN]: 6,
     [DecisionLabel.INACCURACY]: 5,
+    [DecisionLabel.MISS]: 4.5,
     [DecisionLabel.EXCELLENT]: 4,
-    [DecisionLabel.MISSED_WIN]: 3,
+    [DecisionLabel.GREAT]: 3.5,
+    [DecisionLabel.BEST]: 3,
+    [DecisionLabel.WINNER]: 2.5,
     [DecisionLabel.GOOD]: 2,
+    [DecisionLabel.INTERESTING]: 1.5,
     [DecisionLabel.BOOK]: 1,
+    [DecisionLabel.FORCED]: 0.5,
+    [DecisionLabel.DRAW]: 0,
   };
 
   const keyEvents = [...report.decisions]

@@ -44,6 +44,10 @@ ENV/
 *.swp
 *.swo
 
+# Build artifacts & config
+package.json
+tsconfig.tsbuildinfo
+
 # OS
 .DS_Store
 Thumbs.db

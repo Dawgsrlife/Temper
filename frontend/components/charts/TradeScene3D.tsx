@@ -25,13 +25,22 @@ interface TradeSceneProps {
 
 const LABEL_COLORS: Record<string, number> = {
     BRILLIANT: 0x06d6a0,
-    EXCELLENT: 0x06d6a0,
+    GREAT: 0x00b4d8,
+    BEST: 0x10b981,
+    EXCELLENT: 0x22c55e,
     GOOD: 0x3b82f6,
-    BOOK: 0x3b82f6,
-    MISSED_WIN: 0x6b7280,
+    BOOK: 0x60a5fa,
+    FORCED: 0xa78bfa,
+    INTERESTING: 0xfbbf24,
     INACCURACY: 0xf59e0b,
     MISTAKE: 0xf97316,
+    MISS: 0x6b7280,
     BLUNDER: 0xef476f,
+    MEGABLUNDER: 0x991b1b,
+    CHECKMATED: 0xbe123c,
+    WINNER: 0xfde047,
+    DRAW: 0x94a3b8,
+    RESIGN: 0x475569,
 };
 
 export default function TradeScene3D({ trades, onNodeClick, onNodeHover, className }: TradeSceneProps) {
@@ -44,6 +53,8 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
     const raycasterRef = useRef(new THREE.Raycaster());
     const mouseRef = useRef(new THREE.Vector2());
     const hoveredRef = useRef<THREE.Mesh | null>(null);
+    const selectedMeshRef = useRef<THREE.Mesh | null>(null);
+    const selectionRingRef = useRef<THREE.Mesh | null>(null);
     const frameRef = useRef<number>(0);
     const isAnimatingRef = useRef(false);
     const [selectedTrade, setSelectedTrade] = useState<TradeNode | null>(null);
@@ -56,8 +67,8 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
 
         // Scene
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a0a);
-        scene.fog = new THREE.FogExp2(0x0a0a0a, 0.015);
+        scene.background = new THREE.Color(0x141414);
+        scene.fog = new THREE.FogExp2(0x1a1a1a, 0.008);
         sceneRef.current = scene;
 
         const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
@@ -68,7 +79,7 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
         renderer.setSize(container.clientWidth, container.clientHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.2;
+        renderer.toneMappingExposure = 1.8;
         container.appendChild(renderer.domElement);
         rendererRef.current = renderer;
 
@@ -82,19 +93,19 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
         controlsRef.current = controls;
 
         // Lighting
-        scene.add(new THREE.AmbientLight(0xffffff, 0.35));
-        const ptLight1 = new THREE.PointLight(0x06d6a0, 2, 60);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+        const ptLight1 = new THREE.PointLight(0x06d6a0, 3.5, 60);
         ptLight1.position.set(12, 12, 12);
         scene.add(ptLight1);
-        const ptLight2 = new THREE.PointLight(0xef476f, 1.5, 50);
+        const ptLight2 = new THREE.PointLight(0xef476f, 2.5, 50);
         ptLight2.position.set(-10, -5, -10);
         scene.add(ptLight2);
-        const ptLight3 = new THREE.PointLight(0xf59e0b, 0.8, 40);
+        const ptLight3 = new THREE.PointLight(0xf59e0b, 1.8, 40);
         ptLight3.position.set(0, 15, 0);
         scene.add(ptLight3);
 
         // Grid
-        const grid = new THREE.GridHelper(40, 40, 0x1a1a1a, 0x111111);
+        const grid = new THREE.GridHelper(40, 40, 0x2a2a2a, 0x1a1a1a);
         grid.position.y = -3;
         scene.add(grid);
 
@@ -125,10 +136,10 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                 const geometry = new THREE.SphereGeometry(Math.min(size, 0.6), 24, 24);
                 const material = new THREE.MeshStandardMaterial({
                     color,
-                    roughness: 0.2,
-                    metalness: 0.8,
+                    roughness: 0.3,
+                    metalness: 0.6,
                     emissive: new THREE.Color(color),
-                    emissiveIntensity: 0.15,
+                    emissiveIntensity: 0.3,
                 });
 
                 const mesh = new THREE.Mesh(geometry, material);
@@ -228,7 +239,8 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
             raycasterRef.current.setFromCamera(mouseRef.current, camera);
             const intersects = raycasterRef.current.intersectObjects(meshes);
 
-            if (hoveredRef.current) {
+            // Reset previously hovered (unless it's the selected one)
+            if (hoveredRef.current && hoveredRef.current !== selectedMeshRef.current) {
                 const mat = hoveredRef.current.material as THREE.MeshStandardMaterial;
                 mat.emissiveIntensity = 0.15;
                 hoveredRef.current.scale.setScalar(1);
@@ -236,9 +248,11 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
 
             if (intersects.length > 0) {
                 const mesh = intersects[0].object as THREE.Mesh;
-                const mat = mesh.material as THREE.MeshStandardMaterial;
-                mat.emissiveIntensity = 0.6;
-                mesh.scale.setScalar(1.3);
+                if (mesh !== selectedMeshRef.current) {
+                    const mat = mesh.material as THREE.MeshStandardMaterial;
+                    mat.emissiveIntensity = 0.6;
+                    mesh.scale.setScalar(1.3);
+                }
                 hoveredRef.current = mesh;
                 container.style.cursor = 'pointer';
             } else {
@@ -246,10 +260,25 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                 container.style.cursor = 'default';
             }
 
+            // Keep selected mesh visually distinct
+            if (selectedMeshRef.current) {
+                const selMat = selectedMeshRef.current.material as THREE.MeshStandardMaterial;
+                selMat.emissiveIntensity = 0.8;
+                selectedMeshRef.current.scale.setScalar(1.4);
+            }
+
+            // Animate selection ring
+            if (selectionRingRef.current && selectedMeshRef.current) {
+                selectionRingRef.current.position.copy(selectedMeshRef.current.position);
+                selectionRingRef.current.lookAt(camera.position);
+                const pulse = 1 + Math.sin(Date.now() * 0.004) * 0.15;
+                selectionRingRef.current.scale.setScalar(pulse);
+            }
+
             // Pulse biased rings
             meshes.forEach(m => {
                 const t = m.userData.trade as TradeNode;
-                if (t.biases.length > 0) {
+                if (t.biases.length > 0 && m !== selectedMeshRef.current) {
                     const sc = 1 + Math.sin(Date.now() * 0.003 + m.userData.index) * 0.05;
                     if (hoveredRef.current !== m) m.scale.setScalar(sc);
                 }
@@ -285,11 +314,52 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
 
             raycasterRef.current.setFromCamera(mouseRef.current, camera);
             const hits = raycasterRef.current.intersectObjects(meshes);
+
+            // Deselect previous
+            if (selectedMeshRef.current) {
+                const oldMat = selectedMeshRef.current.material as THREE.MeshStandardMaterial;
+                oldMat.emissiveIntensity = 0.15;
+                selectedMeshRef.current.scale.setScalar(1);
+            }
+            if (selectionRingRef.current) {
+                scene.remove(selectionRingRef.current);
+                selectionRingRef.current.geometry.dispose();
+                (selectionRingRef.current.material as THREE.Material).dispose();
+                selectionRingRef.current = null;
+            }
+
             if (hits.length > 0) {
-                const trade = hits[0].object.userData.trade as TradeNode;
+                const mesh = hits[0].object as THREE.Mesh;
+                const trade = mesh.userData.trade as TradeNode;
+
+                // Mark as selected
+                selectedMeshRef.current = mesh;
+                const mat = mesh.material as THREE.MeshStandardMaterial;
+                mat.emissiveIntensity = 0.8;
+                mesh.scale.setScalar(1.4);
+
+                // Create selection ring
+                const sphereGeo = mesh.geometry as THREE.SphereGeometry;
+                const radius = sphereGeo.parameters.radius;
+                const ringGeo = new THREE.RingGeometry(radius + 0.25, radius + 0.38, 48);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: 0x06d6a0,
+                    transparent: true,
+                    opacity: 0.8,
+                    side: THREE.DoubleSide,
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.position.copy(mesh.position);
+                ring.lookAt(camera.position);
+                scene.add(ring);
+                selectionRingRef.current = ring;
+
                 setSelectedTrade(trade);
                 onNodeClick?.(trade);
-                flyToNode(hits[0].object as THREE.Mesh);
+                flyToNode(mesh);
+            } else {
+                selectedMeshRef.current = null;
+                setSelectedTrade(null);
             }
         };
 
