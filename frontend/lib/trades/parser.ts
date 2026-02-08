@@ -70,6 +70,8 @@ const COLUMN_ALIASES: Record<string, string> = {
   ticker: "symbol",
   sym: "symbol",
   instrument: "symbol",
+  asset: "symbol",
+  stock: "symbol",
   // side
   side: "side",
   direction: "side",

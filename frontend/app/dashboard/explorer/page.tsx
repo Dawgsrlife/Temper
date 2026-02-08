@@ -94,11 +94,12 @@ export default function ExplorerPage() {
   useGSAP(
     () => {
       if (!mounted) return;
+      gsap.set(['.explorer-header', '.mode-toggle', '.explorer-canvas', '.explorer-sidebar'], { clearProps: 'all' });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-      tl.from('.explorer-header', { y: 30, opacity: 0, duration: 0.5 })
-        .from('.mode-toggle', { y: 20, opacity: 0, duration: 0.4 }, '-=0.3')
-        .from('.explorer-canvas', { scale: 0.97, opacity: 0, duration: 0.6 }, '-=0.3')
-        .from('.explorer-sidebar', { x: 30, opacity: 0, duration: 0.5 }, '-=0.3');
+      tl.fromTo('.explorer-header', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 })
+        .fromTo('.mode-toggle', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.4 }, '-=0.3')
+        .fromTo('.explorer-canvas', { scale: 0.97, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 0.6 }, '-=0.3')
+        .fromTo('.explorer-sidebar', { x: 30, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3');
     },
     { scope: container, dependencies: [mounted] },
   );
@@ -209,14 +210,14 @@ export default function ExplorerPage() {
   return (
     <div
       ref={container}
-      className="flex h-[calc(100vh-3.5rem)] flex-col bg-[#0a0a0a] text-white md:h-screen"
+      className="flex h-full flex-col overflow-hidden bg-[#0a0a0a] text-white"
     >
       {/* ── Header ── */}
-      <header className="explorer-header flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
+      <header className="explorer-header flex shrink-0 items-center justify-between border-b border-white/[0.08] px-6 py-4">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard"
-            className="flex items-center gap-2 text-sm text-gray-500 transition-colors hover:text-white"
+            className="flex items-center gap-2 text-sm text-gray-400 transition-colors hover:text-white cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
           </Link>
@@ -227,7 +228,7 @@ export default function ExplorerPage() {
             </div>
             <div>
               <h1 className="font-coach text-lg font-bold">3D Explorer</h1>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-400">
                 {stats
                   ? `${stats.totalTrades} trades · ${stats.biases} biases · Score ${stats.score}`
                   : 'No data loaded'}
@@ -237,10 +238,10 @@ export default function ExplorerPage() {
         </div>
 
         {/* Mode toggle */}
-        <div className="mode-toggle flex items-center gap-2 rounded-xl bg-white/[0.04] p-1">
+        <div className="mode-toggle flex items-center gap-2 rounded-xl bg-white/[0.06] p-1">
           <button
             onClick={() => setMode('3d')}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all ${
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
               mode === '3d'
                 ? 'bg-emerald-500 text-black'
                 : 'text-gray-400 hover:text-white'
@@ -251,7 +252,7 @@ export default function ExplorerPage() {
           </button>
           <button
             onClick={() => setMode('graph')}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all ${
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
               mode === 'graph'
                 ? 'bg-emerald-500 text-black'
                 : 'text-gray-400 hover:text-white'
@@ -266,7 +267,7 @@ export default function ExplorerPage() {
       {/* ── Main Area ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Canvas */}
-        <div className="explorer-canvas relative flex-1">
+        <div className="explorer-canvas relative min-w-0 flex-1 overflow-hidden">
           {mounted && mode === '3d' && (
             <TradeScene3D
               trades={tradeNodes}
@@ -298,7 +299,7 @@ export default function ExplorerPage() {
 
         {/* ── Sidebar ── */}
         <aside
-          className={`explorer-sidebar shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[#0a0a0a] transition-all duration-300 ${
+          className={`explorer-sidebar shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a] transition-all duration-300 ${
             showInfoPanel ? 'w-80' : 'w-0'
           }`}
         >
@@ -311,7 +312,7 @@ export default function ExplorerPage() {
                 </h3>
                 <button
                   onClick={() => setShowInfoPanel(false)}
-                  className="rounded-lg p-1.5 text-gray-500 hover:bg-white/[0.06] hover:text-white"
+                  className="cursor-pointer rounded-lg p-1.5 text-gray-400 hover:bg-white/[0.08] hover:text-white"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -334,14 +335,14 @@ export default function ExplorerPage() {
 
               {/* Info grid */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Asset</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Asset</p>
                   <p className="text-sm font-bold text-white">
                     {selectedTrade.asset}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Side</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Side</p>
                   <p
                     className={`text-sm font-bold ${
                       selectedTrade.side === 'BUY'
@@ -352,8 +353,8 @@ export default function ExplorerPage() {
                     {selectedTrade.side}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">P/L</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">P/L</p>
                   <p
                     className={`text-sm font-bold ${
                       selectedTrade.pnl >= 0
@@ -365,8 +366,8 @@ export default function ExplorerPage() {
                     {Math.abs(selectedTrade.pnl).toFixed(0)}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Session P/L</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Session P/L</p>
                   <p
                     className={`text-sm font-bold ${
                       selectedTrade.sessionPnL >= 0
@@ -403,8 +404,8 @@ export default function ExplorerPage() {
               )}
 
               {/* Timestamp */}
-              <div className="rounded-xl bg-white/[0.04] p-3">
-                <p className="text-[10px] text-gray-500">Timestamp</p>
+              <div className="rounded-xl bg-white/[0.06] p-3">
+                <p className="text-[10px] text-gray-400">Timestamp</p>
                 <p className="text-xs font-medium text-gray-300">
                   {selectedTrade.timestamp}
                 </p>
@@ -425,7 +426,7 @@ export default function ExplorerPage() {
 
       {/* ── Bottom stats strip ── */}
       {stats && (
-        <div className="flex items-center justify-between border-t border-white/[0.06] px-6 py-3">
+        <div className="flex items-center justify-between border-t border-white/[0.08] px-6 py-3">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />

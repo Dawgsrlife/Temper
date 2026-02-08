@@ -71,24 +71,30 @@ export default function LandingPage() {
                     loop
                     playsInline
                     preload="auto"
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover opacity-75"
                 >
                     <source src="/assets/4990245-hd_1920_1080_30fps.mp4" type="video/mp4" />
                 </video>
                 <div className="absolute inset-0 bg-gradient-to-b from-temper-bg/80 via-temper-bg/60 to-temper-bg" />
             </div>
 
-            {/* Fixed Header */}
             <header className="fixed left-0 right-0 top-0 z-50 px-6 py-5 md:px-12">
                 <div className="mx-auto flex max-w-7xl items-center justify-between">
-                    <Link href="/" className="font-coach text-xl font-bold tracking-tight text-temper-text">
-                        Temper
+                    {/* Logo and Text Container */}
+                    <Link href="/" className="flex items-center gap-2 font-coach text-xl font-bold tracking-tight text-temper-text">
+                    <img
+                        src="/Temper_logo.png"
+                        alt="Temper Logo"
+                        className="h-8 w-auto" // Adjust height as needed
+                    />
+                    <span>Temper</span>
                     </Link>
+                    
                     <Link
-                        href="/login"
-                        className="rounded-lg bg-temper-teal px-6 py-2.5 text-xs font-semibold uppercase tracking-wider text-temper-bg transition-all duration-300 hover:bg-white"
+                    href="/login"
+                    className="rounded-lg bg-temper-teal px-6 py-2.5 text-xs font-semibold uppercase tracking-wider text-temper-bg transition-all duration-300 hover:bg-white"
                     >
-                        Get Started
+                    Get Started
                     </Link>
                 </div>
             </header>
@@ -130,7 +136,7 @@ export default function LandingPage() {
                     <div className="mx-auto max-w-6xl">
                         <div className="reveal mb-16 text-center">
                             <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-temper-teal">
-                                How it works
+                                The Ultimate Trading Journal
                             </p>
                             <h2 className="text-3xl font-medium tracking-tight md:text-4xl lg:text-5xl">
                                 Simple. Effective. Honest.
@@ -233,11 +239,16 @@ export default function LandingPage() {
 
                 {/* Footer */}
                 <footer className="border-t border-temper-border/20 bg-temper-bg px-6 py-8">
-                    <div className="mx-auto flex max-w-6xl items-center justify-between">
+                    <div className="mx-auto flex max-w-6xl flex-col items-center gap-2 sm:flex-row sm:justify-between">
                         <span className="font-coach text-lg font-bold text-temper-text">Temper</span>
-                        <span className="text-xs text-temper-muted">
-                            © {new Date().getFullYear()} All rights reserved
-                        </span>
+                        <div className="flex flex-col items-center gap-1 sm:items-end">
+                            <span className="text-xs text-temper-muted">
+                                Built by Alexander He Meng & Vishnu Sai
+                            </span>
+                            <span className="text-[10px] text-temper-muted/60">
+                                © {new Date().getFullYear()} Temper
+                            </span>
+                        </div>
                     </div>
                 </footer>
             </main>
