@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { createChart, ColorType, IChartApi, AreaSeries, LineSeries, Time, createSeriesMarkers } from 'lightweight-charts';
 import { TradeWithAnalysis } from '@/lib/biasDetector';
+import { sanitizeIndexedChartPoints } from '@/lib/chart-sanitize';
 
 interface EquityChartProps {
     trades: TradeWithAnalysis[];
@@ -47,26 +48,42 @@ export default function EquityChart({ trades, currentIndex, height = 400 }: Equi
 
         chartRef.current = chart;
 
-        // Create equity curve data from trades
-        const equityData = trades.map((trade, i) => ({
-            time: Math.floor(new Date(trade.timestamp).getTime() / 1000) as Time,
-            value: trade.sessionPnL,
+        const normalizedRows = sanitizeIndexedChartPoints(
+            trades.map((trade, i) => ({
+                index: i,
+                time: Math.floor(new Date(trade.timestamp).getTime() / 1000),
+                value: Number(trade.sessionPnL),
+            })),
+        );
+
+        if (normalizedRows.length === 0) {
+            chart.remove();
+            chartRef.current = null;
+            return;
+        }
+
+        // Create equity curve data from sanitized trades
+        const equityData = normalizedRows.map((row) => ({
+            time: row.time as Time,
+            value: row.value,
         }));
 
         // Add starting point
-        if (equityData.length > 0 && trades.length > 0) {
-            const firstTradeTime = new Date(trades[0].timestamp).getTime();
+        if (equityData.length > 0) {
+            const firstTradeTime = normalizedRows[0].time * 1000;
             equityData.unshift({
                 time: Math.floor((firstTradeTime - 60000) / 1000) as Time, // 1 min before first trade
                 value: 0,
             });
         }
 
+        const finalPnl = normalizedRows[normalizedRows.length - 1]?.value ?? 0;
+
         // Area series for equity curve
         const areaSeries = chart.addSeries(AreaSeries, {
-            lineColor: trades[trades.length - 1]?.sessionPnL >= 0 ? '#06D6A0' : '#EF476F',
-            topColor: trades[trades.length - 1]?.sessionPnL >= 0 ? 'rgba(6, 214, 160, 0.3)' : 'rgba(239, 71, 111, 0.3)',
-            bottomColor: trades[trades.length - 1]?.sessionPnL >= 0 ? 'rgba(6, 214, 160, 0.02)' : 'rgba(239, 71, 111, 0.02)',
+            lineColor: finalPnl >= 0 ? '#06D6A0' : '#EF476F',
+            topColor: finalPnl >= 0 ? 'rgba(6, 214, 160, 0.3)' : 'rgba(239, 71, 111, 0.3)',
+            bottomColor: finalPnl >= 0 ? 'rgba(6, 214, 160, 0.02)' : 'rgba(239, 71, 111, 0.02)',
             lineWidth: 2,
             crosshairMarkerVisible: true,
             crosshairMarkerRadius: 6,
@@ -78,13 +95,13 @@ export default function EquityChart({ trades, currentIndex, height = 400 }: Equi
         areaSeries.setData(equityData);
 
         // Add trade markers
-        const markers = trades.map((trade, i) => ({
-            time: Math.floor(new Date(trade.timestamp).getTime() / 1000) as Time,
+        const markers = normalizedRows.map((row) => ({
+            time: row.time as Time,
             position: 'inBar' as const,
-            color: trade.sessionPnL >= 0 ? '#06D6A0' : '#EF476F',
+            color: row.value >= 0 ? '#06D6A0' : '#EF476F',
             shape: 'circle' as const,
-            size: i === currentIndex ? 1.5 : 0.8,
-            text: i === currentIndex ? `${trade.sessionPnL >= 0 ? '+' : ''}$${trade.sessionPnL.toFixed(0)}` : undefined,
+            size: row.index === currentIndex ? 1.5 : 0.8,
+            text: row.index === currentIndex ? `${row.value >= 0 ? '+' : ''}$${row.value.toFixed(0)}` : undefined,
         }));
 
         // Use v5 createSeriesMarkers instead of deprecated areaSeries.setMarkers()
@@ -131,8 +148,8 @@ export default function EquityChart({ trades, currentIndex, height = 400 }: Equi
             <div className="absolute left-4 top-4 z-10 flex gap-4">
                 <div className="rounded-lg bg-temper-bg/80 px-3 py-2 backdrop-blur-sm ring-1 ring-temper-border/20">
                     <p className="text-xs text-temper-muted">Current P/L</p>
-                    <p className={`text-lg font-bold ${trades[trades.length - 1]?.sessionPnL >= 0 ? 'text-temper-teal' : 'text-temper-red'}`}>
-                        {trades[trades.length - 1]?.sessionPnL >= 0 ? '+' : ''}${trades[trades.length - 1]?.sessionPnL.toFixed(0) || 0}
+                    <p className={`text-lg font-bold ${(trades[trades.length - 1]?.sessionPnL ?? 0) >= 0 ? 'text-temper-teal' : 'text-temper-red'}`}>
+                        {(trades[trades.length - 1]?.sessionPnL ?? 0) >= 0 ? '+' : ''}${(trades[trades.length - 1]?.sessionPnL ?? 0).toFixed(0)}
                     </p>
                 </div>
                 <div className="rounded-lg bg-temper-bg/80 px-3 py-2 backdrop-blur-sm ring-1 ring-temper-border/20">

@@ -1,0 +1,92 @@
+{
+  "judge_like_clean.csv": {
+    "expected_anomaly_counts": {
+      "ASSET_MISSING": 0,
+      "MISSING_FIELDS": 0,
+      "INCOMPLETE_FOR_BIAS_METRICS": 0,
+      "IMPLIED_NOTIONAL_TOO_HIGH": 0,
+      "PNL_TO_BALANCE_OUTLIER": 0
+    },
+    "expected_top_3_moment_categories": [
+      "revenge",
+      "loss_aversion",
+      "loss_aversion"
+    ],
+    "expected_trade_inspector_outcome": {
+      "trade_id": 7,
+      "decision": "KEEP",
+      "reason": "REVENGE_SIZE_RESCALED",
+      "primary_rule": "REVENGE_SIZE_RESCALE_REPLAY",
+      "simulated_pnl": 200.0,
+      "counterfactual_mechanics": {
+        "mechanism": "EXPOSURE_SCALING",
+        "effective_scale": 0.2,
+        "size_usd_before": 5000.0,
+        "size_usd_after": 1000.0,
+        "quantity_before": 50.0,
+        "quantity_after": 10.0,
+        "cap_used": 0.0
+      }
+    }
+  },
+  "judge_like_messy.csv": {
+    "expected_anomaly_counts": {
+      "ASSET_MISSING": 0,
+      "MISSING_FIELDS": 2,
+      "INCOMPLETE_FOR_BIAS_METRICS": 1,
+      "IMPLIED_NOTIONAL_TOO_HIGH": 1,
+      "PNL_TO_BALANCE_OUTLIER": 2
+    },
+    "expected_top_3_moment_categories": [
+      "revenge",
+      "loss_aversion",
+      "loss_aversion"
+    ],
+    "expected_trade_inspector_outcome": {
+      "trade_id": 7,
+      "decision": "KEEP",
+      "reason": "REVENGE_SIZE_RESCALED",
+      "primary_rule": "REVENGE_SIZE_RESCALE_REPLAY",
+      "simulated_pnl": -43.636364,
+      "counterfactual_mechanics": {
+        "mechanism": "EXPOSURE_SCALING",
+        "effective_scale": 0.03778,
+        "size_usd_before": 5500.0,
+        "size_usd_after": 207.792208,
+        "quantity_before": 55.0,
+        "quantity_after": 2.077922,
+        "cap_used": 240.0
+      }
+    }
+  },
+  "judge_like_pathological.csv": {
+    "expected_anomaly_counts": {
+      "ASSET_MISSING": 1,
+      "MISSING_FIELDS": 0,
+      "INCOMPLETE_FOR_BIAS_METRICS": 1,
+      "IMPLIED_NOTIONAL_TOO_HIGH": 2,
+      "PNL_TO_BALANCE_OUTLIER": 2
+    },
+    "expected_top_3_moment_categories": [
+      "revenge",
+      "loss_aversion",
+      "loss_aversion"
+    ],
+    "expected_trade_inspector_outcome": {
+      "trade_id": 7,
+      "decision": "KEEP",
+      "reason": "REVENGE_SIZE_RESCALED",
+      "primary_rule": "REVENGE_SIZE_RESCALE_REPLAY",
+      "simulated_pnl": -46.666667,
+      "counterfactual_mechanics": {
+        "mechanism": "EXPOSURE_SCALING",
+        "effective_scale": 0.033816,
+        "size_usd_before": 6000.0,
+        "size_usd_after": 202.898551,
+        "quantity_before": 60.0,
+        "quantity_after": 2.028986,
+        "cap_used": 280.0
+      }
+    }
+  }
+}

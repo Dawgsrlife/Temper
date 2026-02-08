@@ -5,12 +5,25 @@ import time
 from pathlib import Path
 from typing import Iterator
 
-import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_module
 
 TERMINAL = {"COMPLETED", "FAILED", "TIMEOUT"}
+
+try:
+    import pytest  # type: ignore
+except Exception:
+    class _PytestShim:
+        @staticmethod
+        def fixture(func=None, *args, **kwargs):
+            if func is None:
+                def _decorator(inner):
+                    return inner
+                return _decorator
+            return func
+
+    pytest = _PytestShim()  # type: ignore
 
 
 class FakeSupabaseStore:
@@ -72,4 +85,3 @@ def wait_for_terminal(client: TestClient, job_id: str, timeout_seconds: float = 
 def golden_bias_csv() -> str:
     source = Path(__file__).resolve().parents[3] / "trading_datasets" / "golden_bias_smoke.csv"
     return source.read_text(encoding="utf-8")
-

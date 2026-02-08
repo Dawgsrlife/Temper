@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import asdict
 import hmac
+import io
 import json
 import math
 import os
@@ -1166,6 +1167,121 @@ def _schedule_job(**kwargs: Any) -> None:
     task = asyncio.create_task(_process_job(**kwargs))
     ACTIVE_TASKS.add(task)
     task.add_done_callback(lambda finished: ACTIVE_TASKS.discard(finished))
+
+
+def _api_status_from_execution_status(execution_status: str | None) -> str:
+    if execution_status in {"PENDING", "RUNNING"}:
+        return "PROCESSING"
+    if execution_status == "COMPLETED":
+        return "COMPLETED"
+    if execution_status in {"FAILED", "TIMEOUT"}:
+        return "FAILED"
+    return "UNKNOWN"
+
+
+def _api_parse_error_message(job: JobRecord | None) -> str | None:
+    if job is None:
+        return None
+    summary = dict(job.summary or {})
+    message = summary.get("error_message")
+    if isinstance(message, str) and message.strip():
+        return message
+    return None
+
+
+def _rate_to_percent(value: Any) -> float:
+    rate = _safe_float(value)
+    if rate is None:
+        return 0.0
+    if 0.0 <= rate <= 1.0:
+        rate *= 100.0
+    return max(0.0, min(100.0, float(rate)))
+
+
+def _temper_score_from_rates(rates: dict[str, Any]) -> float:
+    any_bias_pct = _rate_to_percent(rates.get("any_bias_rate"))
+    return round(max(0.0, min(100.0, 100.0 - any_bias_pct)), 1)
+
+
+def _elo_delta_from_job(*, outcome: Any, delta_pnl: Any, status: str | None) -> float:
+    if status != "COMPLETED":
+        return 0.0
+    normalized_outcome = str(outcome or "").upper()
+    if normalized_outcome in {"WINNER", "BEST", "BRILLIANT", "EXCELLENT", "GREAT"}:
+        return 8.0
+    if normalized_outcome in {"CHECKMATED", "RESIGN", "MEGABLUNDER", "BLUNDER"}:
+        return -8.0
+    pnl = _safe_float(delta_pnl)
+    if pnl is None:
+        return 0.0
+    return 4.0 if pnl >= 0 else -4.0
+
+
+def _history_reports_from_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if not rows:
+        return [], {"rating": 1200.0, "peakRating": 1200.0, "sessionsPlayed": 0}
+
+    chron_rows = sorted(rows, key=lambda row: str(row.get("created_at", "")))
+    rating = 1200.0
+    peak = rating
+    reports_chron: list[dict[str, Any]] = []
+    for row in chron_rows:
+        rates = row.get("bias_rates")
+        rates = dict(rates) if isinstance(rates, dict) else {}
+        elo_before = rating
+        elo_delta = _elo_delta_from_job(
+            outcome=row.get("outcome"),
+            delta_pnl=row.get("delta_pnl"),
+            status=str(row.get("execution_status") or row.get("status") or ""),
+        )
+        elo_after = elo_before + elo_delta
+        rating = elo_after
+        peak = max(peak, rating)
+        reports_chron.append(
+            {
+                "id": str(row.get("job_id") or row.get("id") or ""),
+                "sessionId": str(row.get("job_id") or row.get("id") or ""),
+                "date": str(row.get("created_at") or ""),
+                "temperScore": _temper_score_from_rates(rates),
+                "eloBefore": round(float(elo_before), 1),
+                "eloAfter": round(float(elo_after), 1),
+                "eloDelta": round(float(elo_delta), 1),
+                "biasScores": {
+                    "OVERTRADING": round(_rate_to_percent(rates.get("overtrading_rate")), 1),
+                    "LOSS_AVERSION": round(_rate_to_percent(rates.get("loss_aversion_rate")), 1),
+                    "REVENGE_TRADING": round(_rate_to_percent(rates.get("revenge_rate")), 1),
+                },
+            }
+        )
+
+    reports_desc = list(reversed(reports_chron))
+    current = {
+        "rating": round(float(rating), 1),
+        "peakRating": round(float(peak), 1),
+        "sessionsPlayed": len(reports_chron),
+    }
+    return reports_desc, current
+
+
+def _history_rows_local(user_id: str, limit: int) -> list[dict[str, Any]]:
+    local_jobs = _store().list_jobs(user_id=user_id, limit=limit)
+    rows: list[dict[str, Any]] = []
+    for job in local_jobs:
+        bias_rates = _read_bias_rates(job.job_id) or {}
+        rows.append(
+            {
+                "job_id": job.job_id,
+                "id": job.job_id,
+                "created_at": job.created_at,
+                "status": job.status,
+                "execution_status": job.status,
+                "outcome": (job.summary or {}).get("outcome"),
+                "delta_pnl": _safe_float((job.summary or {}).get("delta_pnl")),
+                "cost_of_bias": _safe_float((job.summary or {}).get("cost_of_bias")),
+                "bias_rates": bias_rates,
+            }
+        )
+    return rows
 
 
 def _default_summary_data(job: JobRecord | None) -> dict[str, Any]:
@@ -2404,6 +2520,197 @@ async def root() -> dict[str, str]:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "healthy"}
+
+
+@app.post("/api/upload")
+async def api_upload_csv(
+    request: Request,
+    userId: str | None = None,
+    run_async: bool = True,
+) -> JSONResponse:
+    try:
+        csv_bytes, fields = await _extract_csv_and_fields(request)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={"error": str(exc)},
+        )
+
+    user_id_value = (
+        fields.get("userId")
+        or fields.get("user_id")
+        or userId
+        or "demo-user"
+    )
+    user_id_value = str(user_id_value).strip() if user_id_value is not None else "demo-user"
+    if not user_id_value:
+        user_id_value = "demo-user"
+
+    valid_rows = 0
+    parse_errors: list[str] = []
+    try:
+        parsed = pd.read_csv(io.BytesIO(csv_bytes))
+        valid_rows = int(len(parsed))
+    except Exception as exc:
+        parse_errors.append(str(exc))
+
+    job_id = str(uuid4())
+    out_dir = _job_dir(job_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    input_path = out_dir / "input.csv"
+    input_path.write_bytes(csv_bytes)
+    input_sha = file_sha256(input_path)
+
+    pending_record = _initial_job_record(
+        job_id,
+        user_id=user_id_value,
+        input_sha256=input_sha,
+        status="PENDING",
+    )
+    _store().write(pending_record, job_dir=out_dir)
+    _sync_job_to_supabase(pending_record, strict=False)
+
+    if run_async:
+        _schedule_job(
+            job_id=job_id,
+            input_path=input_path,
+            out_dir=out_dir,
+            user_id=user_id_value,
+            daily_max_loss=None,
+            k_repeat=1,
+            max_seconds=120.0,
+        )
+    else:
+        await _process_job(
+            job_id=job_id,
+            input_path=input_path,
+            out_dir=out_dir,
+            user_id=user_id_value,
+            daily_max_loss=None,
+            k_repeat=1,
+            max_seconds=120.0,
+        )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "jobId": job_id,
+            "status": "PENDING",
+            "validRows": valid_rows,
+            "parseErrors": parse_errors,
+        },
+    )
+
+
+@app.post("/api/analyze")
+async def api_analyze(request: Request) -> JSONResponse:
+    try:
+        payload = await _optional_json_body(request)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    job_id = payload.get("jobId") or payload.get("job_id")
+    if not isinstance(job_id, str) or not job_id.strip():
+        return JSONResponse(status_code=400, content={"error": "jobId is required"})
+    job_id = job_id.strip()
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "FAILED",
+                "jobId": exc.job_id or job_id,
+                "error": "Corrupt job record",
+            },
+        )
+
+    if job is None:
+        return JSONResponse(status_code=404, content={"error": "Job not found", "jobId": job_id})
+
+    execution_status = _job_payload(job)["execution_status"]
+    api_status = _api_status_from_execution_status(execution_status)
+    response: dict[str, Any] = {
+        "jobId": job_id,
+        "status": api_status,
+    }
+    if api_status == "COMPLETED":
+        response["sessionsAnalyzed"] = 1
+        response["sessionIds"] = [job_id]
+    elif api_status == "FAILED":
+        response["error"] = _api_parse_error_message(job) or "Analysis failed"
+    return JSONResponse(status_code=200, content=_json_safe(response))
+
+
+@app.get("/api/jobs/{job_id}")
+async def api_job_status(job_id: str) -> JSONResponse:
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError:
+        return JSONResponse(
+            status_code=422,
+            content={"jobId": job_id, "status": "FAILED", "error": "Corrupt job record"},
+        )
+    if job is None:
+        return JSONResponse(status_code=404, content={"jobId": job_id, "error": "Job not found"})
+
+    execution_status = _job_payload(job)["execution_status"]
+    api_status = _api_status_from_execution_status(execution_status)
+    payload: dict[str, Any] = {
+        "jobId": job_id,
+        "status": api_status,
+    }
+    if api_status == "COMPLETED":
+        payload["sessionIds"] = [job_id]
+    elif api_status == "FAILED":
+        payload["error"] = _api_parse_error_message(job) or "Analysis failed"
+    return JSONResponse(status_code=200, content=_json_safe(payload))
+
+
+@app.get("/api/history")
+async def api_history(userId: str = "demo-user", limit: int = 20) -> JSONResponse:
+    if limit < 1:
+        limit = 1
+    if limit > LIST_JOBS_LIMIT_MAX:
+        limit = LIST_JOBS_LIMIT_MAX
+
+    user_id = userId.strip() or "demo-user"
+
+    rows: list[dict[str, Any]] = []
+    try:
+        supabase_rows = _supabase_store().list_jobs_for_user(user_id=user_id, limit=limit)
+    except SupabaseSyncError:
+        supabase_rows = []
+
+    for row in supabase_rows:
+        rows.append(
+            {
+                "job_id": row.get("id"),
+                "id": row.get("id"),
+                "created_at": row.get("created_at"),
+                "status": row.get("status"),
+                "execution_status": row.get("status"),
+                "outcome": row.get("outcome"),
+                "delta_pnl": row.get("delta_pnl"),
+                "cost_of_bias": row.get("cost_of_bias"),
+                "bias_rates": row.get("bias_rates") if isinstance(row.get("bias_rates"), dict) else {},
+            }
+        )
+
+    if not rows:
+        rows = _history_rows_local(user_id=user_id, limit=limit)
+
+    reports, current_elo = _history_reports_from_rows(rows)
+    return JSONResponse(
+        status_code=200,
+        content=_json_safe(
+            {
+                "reports": reports,
+                "currentElo": current_elo,
+            }
+        ),
+    )
 
 
 @app.post("/jobs")

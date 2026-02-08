@@ -284,7 +284,6 @@ class CounterfactualEngine:
         self._summary = summary
         return df.copy(), dict(summary)
 
-
 def _float_or_none(value: Any) -> float | None:
     if value is None:
         return None
@@ -326,6 +325,7 @@ def _anomaly_counts(raw_df: pd.DataFrame) -> dict[str, int]:
     counts = {
         "ASSET_MISSING": 0,
         "MISSING_FIELDS": 0,
+        "INCOMPLETE_FOR_BIAS_METRICS": 0,
         "IMPLIED_NOTIONAL_TOO_HIGH": 0,
         "PNL_TO_BALANCE_OUTLIER": 0,
     }
@@ -335,6 +335,7 @@ def _anomaly_counts(raw_df: pd.DataFrame) -> dict[str, int]:
     asset_col = _first_existing_column(raw_df, ["asset", "coin", "symbol"])
     quantity_col = _first_existing_column(raw_df, ["quantity", "qty", "size_qty_proxy"])
     pnl_col = _first_existing_column(raw_df, ["profit_loss", "pnl", "closed pnl", "closed_pnl"])
+    timestamp_col = _first_existing_column(raw_df, ["timestamp", "timestamp ist", "time"])
     balance_col = _first_existing_column(raw_df, ["balance", "account_balance", "equity"])
     price_col = _first_existing_column(raw_df, ["entry_price", "price", "execution price"])
 
@@ -344,6 +345,8 @@ def _anomaly_counts(raw_df: pd.DataFrame) -> dict[str, int]:
     quantity_missing = int(_missing_mask(raw_df[quantity_col]).sum()) if quantity_col is not None else 0
     pnl_missing = int(_missing_mask(raw_df[pnl_col]).sum()) if pnl_col is not None else 0
     counts["MISSING_FIELDS"] = quantity_missing + pnl_missing
+    timestamp_missing = int(_missing_mask(raw_df[timestamp_col]).sum()) if timestamp_col is not None else 0
+    counts["INCOMPLETE_FOR_BIAS_METRICS"] = timestamp_missing + pnl_missing
 
     if quantity_col is not None and balance_col is not None and price_col is not None:
         qty = pd.to_numeric(raw_df[quantity_col], errors="coerce").abs()
@@ -371,6 +374,7 @@ def _primary_rule_from_reason(reason: str) -> str:
         "DAILY_MAX_LOSS_STOP": "DAILY_MAX_LOSS_STOP",
         "BIAS_RULE_BLOCK": "BIAS_RULE_BLOCK",
         "NO_BLOCK": "NO_BLOCK",
+        "DATA_INVALID": "DATA_INVALID",
     }
     return mapping.get(reason, "NO_BLOCK")
 
@@ -452,8 +456,30 @@ def run_counterfactual_replay(
 
     valid_mask = prepared["timestamp"].notna() & prepared["pnl"].notna() & np.isfinite(prepared["pnl"])
     replay_input = prepared.loc[valid_mask].copy()
+    invalid_rows = prepared.loc[~valid_mask].copy()
     if replay_input.empty:
-        return {"rows": [], "summary": {"anomalies": anomalies}}
+        rows_out: list[dict[str, Any]] = []
+        for _, row in invalid_rows.iterrows():
+            rows_out.append(
+                {
+                    "trade_id": int(row.get("trade_id")),
+                    "decision": "SKIP",
+                    "reason": "DATA_INVALID",
+                    "primary_rule": _primary_rule_from_reason("DATA_INVALID"),
+                    "simulated_pnl": 0.0,
+                    "counterfactual_mechanics": {
+                        "mechanism": "DATA_INVALID",
+                        "effective_scale": None,
+                        "size_usd_before": _float_or_none(row.get("size_usd")),
+                        "size_usd_after": None,
+                        "quantity_before": _float_or_none(row.get("quantity")),
+                        "quantity_after": None,
+                        "cap_used": 0.0,
+                    },
+                }
+            )
+        rows_out.sort(key=lambda item: int(item["trade_id"]))
+        return {"rows": rows_out, "summary": {"anomalies": anomalies}}
 
     replay_input = replay_input.sort_values(
         ["timestamp", "asset", "side", "price", "size_usd", "pnl", "trade_id"],
@@ -531,6 +557,27 @@ def run_counterfactual_replay(
             }
         )
 
+    for _, row in invalid_rows.iterrows():
+        output_rows.append(
+            {
+                "trade_id": int(row.get("trade_id")),
+                "decision": "SKIP",
+                "reason": "DATA_INVALID",
+                "primary_rule": _primary_rule_from_reason("DATA_INVALID"),
+                "simulated_pnl": 0.0,
+                "counterfactual_mechanics": {
+                    "mechanism": "DATA_INVALID",
+                    "effective_scale": None,
+                    "size_usd_before": _float_or_none(row.get("size_usd")),
+                    "size_usd_after": None,
+                    "quantity_before": _float_or_none(row.get("quantity")),
+                    "quantity_after": None,
+                    "cap_used": 0.0,
+                },
+            }
+        )
+
     summary_out = {key: value for key, value in summary.items()}
     summary_out["anomalies"] = anomalies
+    output_rows.sort(key=lambda item: int(item["trade_id"]))
     return {"rows": output_rows, "summary": summary_out}
