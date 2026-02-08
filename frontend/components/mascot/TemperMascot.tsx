@@ -662,12 +662,12 @@ export default function TemperMascot({
         {showBubble && (
           <div
             ref={bubbleRef}
-            className="absolute -top-2 left-full ml-2 whitespace-nowrap rounded-xl bg-white/[0.1] backdrop-blur-sm px-3 py-1.5 text-[11px] font-medium text-white shadow-lg border border-white/[0.08]"
-            style={{ transformOrigin: '0% 100%' }}
+            className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-white/[0.1] backdrop-blur-sm px-3 py-1.5 text-[11px] font-medium text-white shadow-lg border border-white/[0.08]"
+            style={{ transformOrigin: '50% 100%' }}
           >
             <span style={{ color: theme.labelColor }}>{theme.quip}</span>
-            {/* Bubble tail */}
-            <div className="absolute -left-1.5 bottom-2 h-3 w-3 rotate-45 bg-white/[0.1] border-l border-b border-white/[0.08]" />
+            {/* Bubble tail (centered below) */}
+            <div className="absolute left-1/2 -bottom-1.5 h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-white/[0.1] border-r border-b border-white/[0.08]" />
           </div>
         )}
       </div>
