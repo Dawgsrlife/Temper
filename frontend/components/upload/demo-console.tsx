@@ -29,6 +29,24 @@ type JobStatusData = {
   outcome?: string | null;
 };
 
+type SummaryData = {
+  headline?: string | null;
+  delta_pnl?: number | null;
+  cost_of_bias?: number | null;
+  bias_rates?: {
+    revenge_rate?: number | null;
+    overtrading_rate?: number | null;
+    loss_aversion_rate?: number | null;
+    any_bias_rate?: number | null;
+  } | null;
+  data_quality_flags?: Array<{
+    code?: string;
+    count?: number;
+    message?: string;
+    details?: Record<string, unknown>;
+  }> | null;
+};
+
 type SeriesPoint = {
   timestamp: string;
   actual_equity: number;
@@ -85,6 +103,7 @@ type MomentData = {
   simulated_pnl: number | null;
   policy_replay_pnl?: number | null;
   impact_abs: number | null;
+  impact_pct_balance?: number | null;
   blocked_reason: string | null;
   reason_label?: string | null;
   is_revenge: boolean | null;
@@ -99,6 +118,15 @@ type MomentData = {
     outcome: string;
   };
   lesson?: string;
+  counterfactual_mechanics?: {
+    mechanism?: string;
+    scale_factor?: number | null;
+    size_usd_before?: number | null;
+    size_usd_after?: number | null;
+    quantity_before?: number | null;
+    quantity_after?: number | null;
+    cap_used?: number | null;
+  };
   trace_trade_id?: number | null;
   decision?: string | null;
   reason?: string | null;
@@ -141,6 +169,16 @@ type TradeInspectorData = {
       simulated_pnl: number | null;
       policy_replay_pnl?: number | null;
       delta_pnl: number | null;
+      impact_pct_balance?: number | null;
+    };
+    counterfactual_mechanics?: {
+      mechanism?: string;
+      scale_factor?: number | null;
+      size_usd_before?: number | null;
+      size_usd_after?: number | null;
+      quantity_before?: number | null;
+      quantity_after?: number | null;
+      cap_used?: number | null;
     };
     explanation_plain_english: string | null;
     thesis?: {
@@ -234,6 +272,11 @@ function fmtMaybePercent(value: number | null | undefined): string {
   return `${value.toFixed(2)}%`;
 }
 
+function fmtMaybeScale(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) return "n/a";
+  return `${value.toFixed(8)}x`;
+}
+
 function fmtMaybeNumber(value: number | null | undefined, digits = 2): string {
   if (value == null || Number.isNaN(value) || !Number.isFinite(value)) return "n/a";
   return value.toFixed(digits);
@@ -276,14 +319,58 @@ function isMeaningfullyModified(interventionType: string | null | undefined, del
   return Math.abs(deltaPnl) > 1e-9;
 }
 
-function primaryFiredRule(
+function formatPercentFromRatio(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "n/a";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function firedRules(
   ruleHits: Array<Record<string, unknown>> | null | undefined,
-): Record<string, unknown> | null {
-  if (!Array.isArray(ruleHits)) return null;
-  for (const hit of ruleHits) {
-    if (hit && typeof hit === "object" && Boolean(hit.fired)) return hit;
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(ruleHits)) return [];
+  return ruleHits.filter((hit) => hit && typeof hit === "object" && Boolean(hit.fired));
+}
+
+function preferredRuleIdsForReason(reason: string | null | undefined): string[] {
+  const r = (reason || "").toUpperCase();
+  if (r.includes("OVERTRADING")) {
+    return ["OVERTRADING_COOLDOWN_SKIP_REPLAY", "OVERTRADING_DEFERRED_REPLAY", "OVERTRADING_HOURLY_CAP"];
   }
-  return null;
+  if (r.includes("REVENGE")) {
+    return ["REVENGE_SIZE_RESCALE_REPLAY", "REVENGE_AFTER_LOSS"];
+  }
+  if (r.includes("LOSS_AVERSION")) {
+    return ["LOSS_AVERSION_CAP_REPLAY", "LOSS_AVERSION_PAYOFF_PROXY"];
+  }
+  if (r.includes("DAILY_MAX_LOSS")) {
+    return ["DAILY_MAX_LOSS_STOP"];
+  }
+  return [];
+}
+
+function resolvePrimaryRule(
+  ruleHits: Array<Record<string, unknown>> | null | undefined,
+  reason: string | null | undefined,
+): Record<string, unknown> | null {
+  const fired = firedRules(ruleHits);
+  if (!fired.length) return null;
+  const preferred = preferredRuleIdsForReason(reason);
+  for (const ruleId of preferred) {
+    const matched = fired.find((hit) => String(hit.rule_id || "").toUpperCase() === ruleId);
+    if (matched) return matched;
+  }
+  return fired[0] || null;
+}
+
+function resolveSecondaryRules(
+  ruleHits: Array<Record<string, unknown>> | null | undefined,
+  reason: string | null | undefined,
+): Array<Record<string, unknown>> {
+  const fired = firedRules(ruleHits);
+  const primary = resolvePrimaryRule(ruleHits, reason);
+  if (!primary) return fired;
+  const primaryId = String(primary.rule_id || "");
+  return fired.filter((hit) => String(hit.rule_id || "") !== primaryId);
 }
 
 export function DemoConsole() {
@@ -299,7 +386,9 @@ export function DemoConsole() {
   const [seriesError, setSeriesError] = useState<ApiFailure | null>(null);
   const [momentsError, setMomentsError] = useState<ApiFailure | null>(null);
   const [inspectorError, setInspectorError] = useState<ApiFailure | null>(null);
+  const [summaryError, setSummaryError] = useState<ApiFailure | null>(null);
 
+  const [summary, setSummary] = useState<SummaryData | null>(null);
   const [series, setSeries] = useState<SeriesData | null>(null);
   const [moments, setMoments] = useState<MomentData[]>([]);
   const [momentsSource, setMomentsSource] = useState<string | null>(null);
@@ -324,12 +413,21 @@ export function DemoConsole() {
   }, [userId]);
 
   const loadEvidence = useCallback(async (id: string) => {
+    setSummaryError(null);
     setSeriesError(null);
     setMomentsError(null);
-    const [seriesResult, momentsResult] = await Promise.allSettled([
+    const [summaryResult, seriesResult, momentsResult] = await Promise.allSettled([
+      request<SummaryData>(`/jobs/${id}/summary`),
       request<SeriesData>(`/jobs/${id}/counterfactual/series?max_points=2000`),
       request<MomentsEnvelopeData>(`/jobs/${id}/moments`),
     ]);
+
+    if (summaryResult.status === "fulfilled") {
+      setSummary(summaryResult.value.data);
+    } else {
+      setSummary(null);
+      setSummaryError(toFailure(summaryResult.reason));
+    }
 
     if (seriesResult.status === "fulfilled") {
       setSeries(seriesResult.value.data);
@@ -410,6 +508,8 @@ export function DemoConsole() {
     setSeriesError(null);
     setMomentsError(null);
     setInspectorError(null);
+    setSummaryError(null);
+    setSummary(null);
     setSeries(null);
     setMoments([]);
     setMomentsSource(null);
@@ -538,20 +638,69 @@ export function DemoConsole() {
   );
 
   const inspectorRule = useMemo(
-    () => primaryFiredRule(inspector?.evidence.rule_hits),
+    () => resolvePrimaryRule(inspector?.evidence.rule_hits, inspector?.decision.reason),
+    [inspector],
+  );
+  const inspectorSecondaryRules = useMemo(
+    () => resolveSecondaryRules(inspector?.evidence.rule_hits, inspector?.decision.reason),
     [inspector],
   );
 
   const inspectorIntervention = inspector?.decision.intervention_type || "KEEP (no change)";
   const inspectorDelta = inspector?.counterfactual.delta_pnl ?? null;
+  const inspectorImpactPct = inspector?.counterfactual.impact_pct_balance ?? null;
   const policyChanged = isMeaningfullyModified(inspectorIntervention, inspectorDelta);
+  const biasImpactRows = useMemo(() => {
+    const byBias = series?.metrics?.top_bias_by_impact?.by_bias;
+    if (!byBias) return [] as Array<{ bias: string; impact: number }>;
+    return Object.entries(byBias)
+      .map(([bias, impact]) => ({
+        bias,
+        impact: typeof impact === "number" && Number.isFinite(impact) ? impact : 0,
+      }))
+      .sort((left, right) => right.impact - left.impact);
+  }, [series]);
+
+  const recommendations = useMemo(() => {
+    const rows: Array<{ title: string; detail: string }> = [];
+    const revengeMoment = sortedMoments.find((moment) => moment.is_revenge === true);
+    const lossAversionMoment = sortedMoments.find((moment) => moment.is_loss_aversion === true);
+    const overtradingMoment = sortedMoments.find((moment) => moment.is_overtrading === true);
+    const rates = summary?.bias_rates;
+
+    if (revengeMoment) {
+      rows.push({
+        title: "Revenge guardrail",
+        detail: `After a significant loss, cap the next trade to median size for 30 minutes. In this run: impact ${fmtMaybePercent(revengeMoment.impact_pct_balance)} of balance at ${revengeMoment.timestamp}.`,
+      });
+    }
+    if (lossAversionMoment) {
+      rows.push({
+        title: "Loss cap discipline",
+        detail: `Your outsized-loss profile triggered loss aversion checks (rate ${formatPercentFromRatio(rates?.loss_aversion_rate)}). Start with a fixed stop aligned to your historical loss threshold.`,
+      });
+    }
+    if (overtradingMoment) {
+      rows.push({
+        title: "Cooldown policy",
+        detail: `Trade bursts drive avoidable variance (overtrading rate ${formatPercentFromRatio(rates?.overtrading_rate)}). Add cooldown between entries during high-frequency windows.`,
+      });
+    }
+    if (rows.length === 0) {
+      rows.push({
+        title: "No major intervention pattern",
+        detail: "Most trades were unchanged in replay. Focus on consistency and monitor bias rates as new sessions accumulate.",
+      });
+    }
+    return rows.slice(0, 3);
+  }, [sortedMoments, summary]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <section className="rounded-xl border border-border bg-surface-1 p-5">
         <h1 className="text-xl font-semibold text-foreground">Evidence Console (Single Run)</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Objective: inspect deterministic policy replay decisions with verifiable receipts.
+          Objective: inspect deterministic disciplined replay decisions with verifiable receipts.
         </p>
         <div className="mt-4 text-xs text-muted-foreground">
           API base: <span className="tabular text-foreground">{API_BASE}</span>
@@ -636,7 +785,11 @@ export function DemoConsole() {
           />
           <QuestionCard
             title="3) So what?"
-            highlight={inspector ? `Impact ${fmtMaybeCurrency(inspectorDelta)}` : "n/a"}
+            highlight={
+              inspector
+                ? `Impact ${fmtMaybePercent(inspectorImpactPct)} of balance`
+                : "n/a"
+            }
             detail={
               series?.metrics
                 ? `% modified ${fmtMaybePercent(series.metrics.pct_trades_modified)} · top bias ${series.metrics.top_bias_by_impact.bias}`
@@ -652,30 +805,40 @@ export function DemoConsole() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Overview
           </h2>
+          <div className="mt-3 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-foreground">
+            <span className="font-semibold">What this shows:</span> your actual trades versus the same trades replayed
+            with behavioral safeguards (sizing/cooldown/loss caps). Price path, timing, and signals are unchanged.
+          </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Policy replay follows deterministic constraints. It does not invent alternative entries.
+            Disciplined replay follows deterministic constraints. It does not invent alternative entries.
           </p>
+          <div className="mt-3 rounded-md border border-border-subtle bg-surface-2 p-3 text-xs text-muted-foreground">
+            <div className="font-semibold text-foreground">Intervention semantics</div>
+            <div className="mt-1">Trade kept, risk reduced: same trade with smaller size exposure.</div>
+            <div className="mt-1">Trade kept, downside capped: same trade with capped loss.</div>
+            <div className="mt-1">Trade skipped (cooldown): no replacement trade assumed, replay pnl = 0.</div>
+          </div>
           {series?.metrics ? (
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <MetricCard
                 title="Return"
                 primary={`Actual ${fmtMaybeCurrency(series.metrics.return_actual)}`}
-                secondary={`Policy replay ${fmtMaybeCurrency(series.metrics.return_policy_replay)}`}
+                secondary={`Disciplined ${fmtMaybeCurrency(series.metrics.return_policy_replay)}`}
               />
               <MetricCard
                 title="Max Drawdown"
                 primary={`Actual ${fmtMaybeCurrency(series.metrics.max_drawdown_actual)}`}
-                secondary={`Policy replay ${fmtMaybeCurrency(series.metrics.max_drawdown_policy_replay)}`}
+                secondary={`Disciplined ${fmtMaybeCurrency(series.metrics.max_drawdown_policy_replay)}`}
               />
               <MetricCard
                 title="Worst Day"
                 primary={`Actual ${fmtMaybeCurrency(series.metrics.worst_day_actual)}`}
-                secondary={`Policy replay ${fmtMaybeCurrency(series.metrics.worst_day_policy_replay)}`}
+                secondary={`Disciplined ${fmtMaybeCurrency(series.metrics.worst_day_policy_replay)}`}
               />
               <MetricCard
                 title="Trade Volatility"
                 primary={`Actual ${fmtMaybeNumber(series.metrics.trade_volatility_actual)}`}
-                secondary={`Policy replay ${fmtMaybeNumber(series.metrics.trade_volatility_policy_replay)}`}
+                secondary={`Disciplined ${fmtMaybeNumber(series.metrics.trade_volatility_policy_replay)}`}
               />
               <MetricCard
                 title="% Trades Modified"
@@ -689,6 +852,46 @@ export function DemoConsole() {
               />
             </div>
           ) : null}
+          {summaryError && <ErrorBox title="Summary fetch failed" failure={summaryError} />}
+          {summary?.data_quality_flags && summary.data_quality_flags.length > 0 ? (
+            <div className="mt-4 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs">
+              <div className="font-semibold text-foreground">Data anomalies detected</div>
+              <div className="mt-2 space-y-2">
+                {summary.data_quality_flags.map((flag, index) => (
+                  <div key={`${flag.code || "flag"}-${index}`}>
+                    <div className="text-foreground">
+                      {flag.code || "FLAG"} ({flag.count ?? 0})
+                    </div>
+                    <div className="text-muted-foreground">{flag.message || "Data quality warning."}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {biasImpactRows.length > 0 ? (
+            <div className="mt-4 rounded-md border border-border-subtle bg-surface-2 p-3 text-xs">
+              <div className="font-semibold text-foreground">Top Bias by Impact (Leaderboard)</div>
+              <div className="mt-2 space-y-1">
+                {biasImpactRows.map((row) => (
+                  <div key={row.bias} className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{row.bias}</span>
+                    <span className="tabular text-foreground">{fmtMaybeCurrency(row.impact)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-4 rounded-md border border-border-subtle bg-surface-2 p-3 text-xs">
+            <div className="font-semibold text-foreground">Actionable Recommendations (from your data)</div>
+            <div className="mt-2 space-y-2">
+              {recommendations.map((item, idx) => (
+                <div key={`${item.title}-${idx}`}>
+                  <div className="font-medium text-foreground">{item.title}</div>
+                  <div className="text-muted-foreground">{item.detail}</div>
+                </div>
+              ))}
+            </div>
+          </div>
           {seriesError && <ErrorBox title="Timeline fetch failed" failure={seriesError} />}
           {series && (
             <div className="mt-3 text-xs text-muted-foreground">
@@ -705,8 +908,8 @@ export function DemoConsole() {
                   actual equity
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-muted-foreground" />
-                  policy replay equity
+                <span className="h-2 w-2 rounded-full bg-muted-foreground" />
+                  disciplined replay equity
                 </span>
               </div>
               <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="h-72 w-full">
@@ -763,9 +966,15 @@ export function DemoConsole() {
           {momentsError && <ErrorBox title="Moments fetch failed" failure={momentsError} />}
           <div className="mt-4 space-y-3">
             {sortedMoments.map((moment, index) => {
-              const momentRule = primaryFiredRule(moment.evidence.rule_hits || moment.rule_hits || null);
+              const momentRuleHits = moment.evidence.rule_hits || moment.rule_hits || null;
+              const momentRule = resolvePrimaryRule(momentRuleHits, moment.reason);
+              const momentSecondaryRules = resolveSecondaryRules(momentRuleHits, moment.reason);
+              const momentChanged = isMeaningfullyModified(moment.intervention_type, moment.impact_abs);
               return (
-                <article key={`${moment.timestamp}-${moment.asset}-${index}`} className="rounded-md border border-border-subtle bg-surface-2 p-3">
+                <article
+                  key={`${moment.timestamp}-${moment.asset}-${index}`}
+                  className={`rounded-md border border-border-subtle bg-surface-2 p-3 ${momentChanged ? "" : "opacity-70"}`}
+                >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <div className="text-sm font-semibold text-foreground">
@@ -800,9 +1009,17 @@ export function DemoConsole() {
                     <span className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-foreground">
                       {moment.reason_label || "No intervention"}
                     </span>
+                    {!momentChanged ? (
+                      <span className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                        unchanged
+                      </span>
+                    ) : null}
                   </div>
                   <div className="mt-2 text-xs tabular text-foreground">
-                    actual {fmtMaybeCurrency(moment.pnl)} | policy_replay {fmtMaybeCurrency(moment.policy_replay_pnl ?? moment.simulated_pnl)} | impact {fmtMaybeCurrency(moment.impact_abs)}
+                    actual {fmtMaybeCurrency(moment.pnl)} | disciplined {fmtMaybeCurrency(moment.policy_replay_pnl ?? moment.simulated_pnl)} | impact {fmtMaybePercent(moment.impact_pct_balance)} of balance
+                  </div>
+                  <div className="mt-1 text-xs tabular text-muted-foreground">
+                    impact_usd {fmtMaybeCurrency(moment.impact_abs)}
                   </div>
                   <p className="mt-2 text-sm text-foreground">{moment.explanation_human}</p>
                   {moment.thesis ? (
@@ -813,9 +1030,24 @@ export function DemoConsole() {
                       <div>Outcome: {moment.thesis.outcome}</div>
                     </div>
                   ) : null}
+                  {moment.counterfactual_mechanics ? (
+                    <div className="mt-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+                      <div className="font-semibold text-foreground">Counterfactual mechanics</div>
+                      <div>Mechanism: {moment.counterfactual_mechanics.mechanism || "n/a"}</div>
+                      <div>Scale factor: {fmtMaybeScale(moment.counterfactual_mechanics.scale_factor)}</div>
+                      <div>
+                        Size USD: {fmtMaybeMagnitudeCurrency(moment.counterfactual_mechanics.size_usd_before)}{" "}
+                        -&gt; {fmtMaybeMagnitudeCurrency(moment.counterfactual_mechanics.size_usd_after)}
+                      </div>
+                      <div>Cap used: {fmtMaybeCurrency(moment.counterfactual_mechanics.cap_used ?? null)}</div>
+                    </div>
+                  ) : null}
                   {momentRule ? (
                     <div className="mt-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
-                      rule={String(momentRule.rule_id)} · fired={String(Boolean(momentRule.fired))}
+                      primary_rule={String(momentRule.rule_id)} · fired={String(Boolean(momentRule.fired))}
+                      {momentSecondaryRules.length > 0 ? (
+                        <span> · also_triggered={momentSecondaryRules.map((hit) => String(hit.rule_id || "UNKNOWN")).join(",")}</span>
+                      ) : null}
                     </div>
                   ) : null}
                   <details className="mt-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
@@ -848,7 +1080,7 @@ export function DemoConsole() {
             Trade Inspector (<code>/trade/{"{trade_id}"}</code>)
           </h2>
           <p className="mt-2 text-xs text-muted-foreground">
-            Raw row, derived flags, rule receipts, and policy replay result for a single trade.
+            Raw row, derived flags, rule receipts, and disciplined replay result for a single trade.
           </p>
           <div className="mt-3 flex items-center gap-2">
             <input
@@ -901,7 +1133,10 @@ export function DemoConsole() {
                 <div className="rounded-md border border-border-subtle bg-surface-2 p-3 text-xs md:col-span-2">
                   <div className="font-semibold text-foreground">Counterfactual</div>
                   <div className="mt-1 text-muted-foreground">
-                    actual={fmtMaybeCurrency(inspector.counterfactual.actual_pnl)} | policy_replay={fmtMaybeCurrency(inspector.counterfactual.policy_replay_pnl ?? inspector.counterfactual.simulated_pnl)} | delta={fmtMaybeCurrency(inspector.counterfactual.delta_pnl)}
+                    actual={fmtMaybeCurrency(inspector.counterfactual.actual_pnl)} | disciplined={fmtMaybeCurrency(inspector.counterfactual.policy_replay_pnl ?? inspector.counterfactual.simulated_pnl)} | impact={fmtMaybePercent(inspector.counterfactual.impact_pct_balance)} of balance
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    impact_usd={fmtMaybeCurrency(inspector.counterfactual.delta_pnl)}
                   </div>
                 </div>
               </div>
@@ -914,6 +1149,22 @@ export function DemoConsole() {
                   <div className="mt-1 text-muted-foreground">Outcome: {inspector.thesis.outcome}</div>
                 </div>
               ) : null}
+              {inspector.counterfactual_mechanics ? (
+                <div className="rounded-md border border-border-subtle bg-surface-2 p-3 text-xs text-muted-foreground">
+                  <div className="font-semibold text-foreground">Counterfactual mechanics</div>
+                  <div>Mechanism: {inspector.counterfactual_mechanics.mechanism || "n/a"}</div>
+                  <div>Scale factor: {fmtMaybeScale(inspector.counterfactual_mechanics.scale_factor)}</div>
+                  <div>
+                    Quantity: {fmtMaybeNumber(inspector.counterfactual_mechanics.quantity_before, 6)} -&gt;{" "}
+                    {fmtMaybeNumber(inspector.counterfactual_mechanics.quantity_after, 6)}
+                  </div>
+                  <div>
+                    Size USD: {fmtMaybeMagnitudeCurrency(inspector.counterfactual_mechanics.size_usd_before)} -&gt;{" "}
+                    {fmtMaybeMagnitudeCurrency(inspector.counterfactual_mechanics.size_usd_after)}
+                  </div>
+                  <div>Cap used: {fmtMaybeCurrency(inspector.counterfactual_mechanics.cap_used ?? null)}</div>
+                </div>
+              ) : null}
               {inspector.lesson ? (
                 <div className="rounded-md border border-border-subtle bg-surface-2 p-3 text-xs text-foreground">
                   {inspector.lesson}
@@ -921,7 +1172,10 @@ export function DemoConsole() {
               ) : null}
               {inspectorRule ? (
                 <div className="rounded border border-border px-2 py-1 text-xs text-muted-foreground">
-                  rule={String(inspectorRule.rule_id)} · fired={String(Boolean(inspectorRule.fired))}
+                  primary_rule={String(inspectorRule.rule_id)} · fired={String(Boolean(inspectorRule.fired))}
+                  {inspectorSecondaryRules.length > 0 ? (
+                    <span> · also_triggered={inspectorSecondaryRules.map((hit) => String(hit.rule_id || "UNKNOWN")).join(",")}</span>
+                  ) : null}
                 </div>
               ) : null}
 

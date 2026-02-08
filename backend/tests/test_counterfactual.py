@@ -100,6 +100,64 @@ def test_missing_flag_columns_default_to_false() -> None:
     assert summary["blocked_risk_count"] == 0
 
 
+def test_overtrading_rows_are_skipped_under_cooldown_policy() -> None:
+    df = pd.DataFrame(
+        {
+            "timestamp": _ts(
+                [
+                    "2026-01-01 09:30:00",
+                    "2026-01-01 09:31:00",
+                    "2026-01-01 09:32:00",
+                ]
+            ),
+            "pnl": [25.0, -40.0, 15.0],
+            "is_revenge": [False, False, False],
+            "is_overtrading": [False, True, False],
+            "is_loss_aversion": [False, False, False],
+        }
+    )
+
+    out, summary = CounterfactualEngine(df, daily_max_loss=10_000.0).run()
+
+    assert out["simulated_pnl"].tolist() == [25.0, 0.0, 15.0]
+    assert out["replay_deferred"].tolist() == [False, True, False]
+    assert out["replay_deferred_target_index"].tolist() == [-1, -1, -1]
+    assert out["blocked_reason"].tolist() == ["NONE", "BIAS", "NONE"]
+    assert summary["blocked_bias_count"] == 1
+
+
+def test_loss_aversion_cap_uses_win_based_cap_and_exposure_scaling_invariant() -> None:
+    df = pd.DataFrame(
+        {
+            "timestamp": _ts(
+                [
+                    "2026-01-01 09:30:00",
+                    "2026-01-01 09:31:00",
+                ]
+            ),
+            "pnl": [-23_677_221.0, 53.155],
+            "size_usd": [29_600_593.0, 100.0],
+            "is_revenge": [False, False],
+            "is_overtrading": [False, False],
+            "is_loss_aversion": [True, False],
+        }
+    )
+
+    out, _ = CounterfactualEngine(df, daily_max_loss=1_000_000_000.0).run()
+
+    cap_value = 53.155 * 4.0
+    expected_scale = cap_value / 23_677_221.0
+
+    first = out.iloc[0]
+    assert bool(first["replay_loss_capped"]) is True
+    assert abs(first["replay_loss_cap_value"] - cap_value) < 1e-6
+    assert abs(first["replay_effective_scale"] - expected_scale) < 1e-12
+    assert abs(first["replay_loss_cap_factor"] - expected_scale) < 1e-12
+    assert abs(first["simulated_pnl"] - (-cap_value)) < 1e-6
+    assert abs(first["simulated_size_usd"] - (29_600_593.0 * expected_scale)) < 1e-6
+    assert abs(first["simulated_pnl"] - (first["pnl"] * first["replay_effective_scale"])) < 1e-6
+
+
 def test_counterfactual_invariants() -> None:
     df = pd.DataFrame(
         {
