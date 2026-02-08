@@ -17,3 +17,4 @@ Current gate coverage:
 - Overtrading semantics remain conservative skip/cooldown behavior.
 - Data anomaly handling is deterministic and surfaced in summary flags.
 - API contract stability for `/counterfactual/series`, `/moments`, and `/trade/{trade_id}`.
+- Golden replay fixtures that pin exact per-trade decisions/mechanics and anomaly counts.
