@@ -8,11 +8,12 @@ This module is designed for backend batch/background execution at 200k+ rows.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from app.detective import BiasThresholds
+from app.detective import BiasDetective, BiasThresholds
 from app.risk import recommend_daily_max_loss
 
 
@@ -282,3 +283,301 @@ class CounterfactualEngine:
         self._result_df = df
         self._summary = summary
         return df.copy(), dict(summary)
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
+
+
+def _bool(value: Any) -> bool:
+    try:
+        if pd.isna(value):
+            return False
+    except Exception:
+        pass
+    return bool(value)
+
+
+def _first_existing_column(df: pd.DataFrame, names: list[str]) -> str | None:
+    lowered = {str(col).strip().lower(): str(col) for col in df.columns}
+    for name in names:
+        resolved = lowered.get(name.strip().lower())
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def _missing_mask(series: pd.Series) -> pd.Series:
+    missing = series.isna()
+    if pd.api.types.is_string_dtype(series.dtype) or series.dtype == object:
+        missing = missing | series.astype(str).str.strip().eq("")
+    return missing
+
+
+def _anomaly_counts(raw_df: pd.DataFrame) -> dict[str, int]:
+    counts = {
+        "ASSET_MISSING": 0,
+        "MISSING_FIELDS": 0,
+        "INCOMPLETE_FOR_BIAS_METRICS": 0,
+        "IMPLIED_NOTIONAL_TOO_HIGH": 0,
+        "PNL_TO_BALANCE_OUTLIER": 0,
+    }
+    if raw_df.empty:
+        return counts
+
+    asset_col = _first_existing_column(raw_df, ["asset", "coin", "symbol"])
+    quantity_col = _first_existing_column(raw_df, ["quantity", "qty", "size_qty_proxy"])
+    pnl_col = _first_existing_column(raw_df, ["profit_loss", "pnl", "closed pnl", "closed_pnl"])
+    timestamp_col = _first_existing_column(raw_df, ["timestamp", "timestamp ist", "time"])
+    balance_col = _first_existing_column(raw_df, ["balance", "account_balance", "equity"])
+    price_col = _first_existing_column(raw_df, ["entry_price", "price", "execution price"])
+
+    if asset_col is not None:
+        counts["ASSET_MISSING"] = int(_missing_mask(raw_df[asset_col]).sum())
+
+    quantity_missing = int(_missing_mask(raw_df[quantity_col]).sum()) if quantity_col is not None else 0
+    pnl_missing = int(_missing_mask(raw_df[pnl_col]).sum()) if pnl_col is not None else 0
+    counts["MISSING_FIELDS"] = quantity_missing + pnl_missing
+    timestamp_missing = int(_missing_mask(raw_df[timestamp_col]).sum()) if timestamp_col is not None else 0
+    counts["INCOMPLETE_FOR_BIAS_METRICS"] = timestamp_missing + pnl_missing
+
+    if quantity_col is not None and balance_col is not None and price_col is not None:
+        qty = pd.to_numeric(raw_df[quantity_col], errors="coerce").abs()
+        bal = pd.to_numeric(raw_df[balance_col], errors="coerce").abs()
+        px = pd.to_numeric(raw_df[price_col], errors="coerce").abs()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = (qty * px) / bal
+        counts["IMPLIED_NOTIONAL_TOO_HIGH"] = int((ratio > 100.0).fillna(False).sum())
+
+    if pnl_col is not None and balance_col is not None:
+        pnl = pd.to_numeric(raw_df[pnl_col], errors="coerce").abs()
+        bal = pd.to_numeric(raw_df[balance_col], errors="coerce").abs()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = pnl / bal
+        counts["PNL_TO_BALANCE_OUTLIER"] = int((ratio > 20.0).fillna(False).sum())
+
+    return counts
+
+
+def _primary_rule_from_reason(reason: str) -> str:
+    mapping = {
+        "OVERTRADING_COOLDOWN_SKIP": "OVERTRADING_COOLDOWN_SKIP_REPLAY",
+        "REVENGE_SIZE_RESCALED": "REVENGE_SIZE_RESCALE_REPLAY",
+        "LOSS_AVERSION_CAPPED": "LOSS_AVERSION_CAP_REPLAY",
+        "DAILY_MAX_LOSS_STOP": "DAILY_MAX_LOSS_STOP",
+        "BIAS_RULE_BLOCK": "BIAS_RULE_BLOCK",
+        "NO_BLOCK": "NO_BLOCK",
+        "DATA_INVALID": "DATA_INVALID",
+    }
+    return mapping.get(reason, "NO_BLOCK")
+
+
+def run_counterfactual_replay(
+    rows: list[dict[str, Any]],
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Deterministic replay adapter used by golden tests.
+
+    Args:
+        rows: Raw CSV-like rows.
+        config: Optional threshold overrides.
+
+    Returns:
+        {
+          "rows": [... per-trade decision + mechanics ...],
+          "summary": {... engine summary + anomaly counts ...},
+        }
+    """
+    config = dict(config or {})
+    raw_df = pd.DataFrame(rows)
+    anomalies = _anomaly_counts(raw_df)
+    if raw_df.empty:
+        return {"rows": [], "summary": {"anomalies": anomalies}}
+
+    if "trade_id" not in raw_df.columns:
+        raw_df["trade_id"] = np.arange(1, len(raw_df) + 1, dtype=int)
+
+    timestamp_col = _first_existing_column(raw_df, ["timestamp", "timestamp ist", "time"])
+    asset_col = _first_existing_column(raw_df, ["asset", "coin", "symbol"])
+    side_col = _first_existing_column(raw_df, ["side"])
+    price_col = _first_existing_column(raw_df, ["entry_price", "price", "execution price"])
+    qty_col = _first_existing_column(raw_df, ["quantity", "qty", "size_qty_proxy"])
+    pnl_col = _first_existing_column(raw_df, ["profit_loss", "pnl", "closed pnl", "closed_pnl"])
+    balance_col = _first_existing_column(raw_df, ["balance", "account_balance", "equity"])
+    size_col = _first_existing_column(raw_df, ["size_usd", "size usd"])
+
+    prepared = pd.DataFrame(index=raw_df.index)
+    prepared["trade_id"] = pd.to_numeric(raw_df["trade_id"], errors="coerce").fillna(0).astype(int)
+    prepared["timestamp"] = pd.to_datetime(
+        raw_df[timestamp_col] if timestamp_col is not None else pd.Series([None] * len(raw_df)),
+        errors="coerce",
+    )
+    prepared["asset"] = (
+        raw_df[asset_col].astype(str).str.strip()
+        if asset_col is not None
+        else pd.Series([""] * len(raw_df), dtype=str)
+    )
+    side_raw = (
+        raw_df[side_col].astype(str).str.upper().str.strip()
+        if side_col is not None
+        else pd.Series(["BUY"] * len(raw_df), dtype=str)
+    )
+    prepared["side"] = side_raw.map(lambda value: "Buy" if value in {"BUY", "B", "LONG"} else "Sell")
+    prepared["price"] = pd.to_numeric(
+        raw_df[price_col] if price_col is not None else pd.Series([0.0] * len(raw_df)),
+        errors="coerce",
+    ).fillna(0.0)
+    prepared["quantity"] = pd.to_numeric(
+        raw_df[qty_col] if qty_col is not None else pd.Series([None] * len(raw_df)),
+        errors="coerce",
+    )
+    prepared["pnl"] = pd.to_numeric(
+        raw_df[pnl_col] if pnl_col is not None else pd.Series([None] * len(raw_df)),
+        errors="coerce",
+    )
+    prepared["balance"] = pd.to_numeric(
+        raw_df[balance_col] if balance_col is not None else pd.Series([0.0] * len(raw_df)),
+        errors="coerce",
+    ).fillna(0.0)
+
+    if size_col is not None:
+        prepared["size_usd"] = pd.to_numeric(raw_df[size_col], errors="coerce")
+    else:
+        prepared["size_usd"] = prepared["quantity"] * prepared["price"]
+    prepared["size_usd"] = pd.to_numeric(prepared["size_usd"], errors="coerce").fillna(0.0)
+
+    valid_mask = prepared["timestamp"].notna() & prepared["pnl"].notna() & np.isfinite(prepared["pnl"])
+    replay_input = prepared.loc[valid_mask].copy()
+    invalid_rows = prepared.loc[~valid_mask].copy()
+    if replay_input.empty:
+        rows_out: list[dict[str, Any]] = []
+        for _, row in invalid_rows.iterrows():
+            rows_out.append(
+                {
+                    "trade_id": int(row.get("trade_id")),
+                    "decision": "SKIP",
+                    "reason": "DATA_INVALID",
+                    "primary_rule": _primary_rule_from_reason("DATA_INVALID"),
+                    "simulated_pnl": 0.0,
+                    "counterfactual_mechanics": {
+                        "mechanism": "DATA_INVALID",
+                        "effective_scale": None,
+                        "size_usd_before": _float_or_none(row.get("size_usd")),
+                        "size_usd_after": None,
+                        "quantity_before": _float_or_none(row.get("quantity")),
+                        "quantity_after": None,
+                        "cap_used": 0.0,
+                    },
+                }
+            )
+        rows_out.sort(key=lambda item: int(item["trade_id"]))
+        return {"rows": rows_out, "summary": {"anomalies": anomalies}}
+
+    replay_input = replay_input.sort_values(
+        ["timestamp", "asset", "side", "price", "size_usd", "pnl", "trade_id"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+    threshold_fields = BiasThresholds.__dataclass_fields__.keys()
+    threshold_kwargs: dict[str, Any] = {}
+    for field in threshold_fields:
+        if field in config and config[field] is not None:
+            threshold_kwargs[field] = config[field]
+    thresholds = BiasThresholds(**threshold_kwargs)
+
+    flagged = BiasDetective(replay_input, thresholds=thresholds).detect()
+    daily_max_loss = float(config.get("daily_max_loss", 1_000_000_000_000.0))
+    replay_df, summary = CounterfactualEngine(flagged, daily_max_loss=daily_max_loss).run()
+
+    output_rows: list[dict[str, Any]] = []
+    for _, row in replay_df.iterrows():
+        blocked_reason = str(row.get("blocked_reason", "NONE"))
+        replay_deferred = _bool(row.get("replay_deferred"))
+        replay_rescaled = _bool(row.get("replay_rescaled"))
+        replay_loss_capped = _bool(row.get("replay_loss_capped"))
+
+        if blocked_reason == "DAILY_MAX_LOSS":
+            decision = "SKIP"
+            reason = "DAILY_MAX_LOSS_STOP"
+        elif replay_deferred:
+            decision = "SKIP"
+            reason = "OVERTRADING_COOLDOWN_SKIP"
+        elif replay_rescaled:
+            decision = "KEEP"
+            reason = "REVENGE_SIZE_RESCALED"
+        elif replay_loss_capped:
+            decision = "KEEP"
+            reason = "LOSS_AVERSION_CAPPED"
+        elif blocked_reason == "BIAS":
+            decision = "SKIP"
+            reason = "BIAS_RULE_BLOCK"
+        else:
+            decision = "KEEP"
+            reason = "NO_BLOCK"
+
+        effective_scale = _float_or_none(row.get("replay_effective_scale"))
+        quantity_before = _float_or_none(row.get("quantity"))
+        cap_used = _float_or_none(row.get("replay_loss_cap_value")) or 0.0
+
+        if replay_deferred:
+            mechanism = "COOLDOWN_SKIP"
+        elif replay_rescaled or replay_loss_capped:
+            mechanism = "EXPOSURE_SCALING"
+        else:
+            mechanism = "UNCHANGED"
+
+        output_rows.append(
+            {
+                "trade_id": int(row.get("trade_id")),
+                "decision": decision,
+                "reason": reason,
+                "primary_rule": _primary_rule_from_reason(reason),
+                "simulated_pnl": float(row.get("simulated_pnl", 0.0)),
+                "counterfactual_mechanics": {
+                    "mechanism": mechanism,
+                    "effective_scale": effective_scale,
+                    "size_usd_before": _float_or_none(row.get("size_usd")),
+                    "size_usd_after": _float_or_none(row.get("simulated_size_usd")),
+                    "quantity_before": quantity_before,
+                    "quantity_after": (
+                        (quantity_before * effective_scale)
+                        if quantity_before is not None and effective_scale is not None
+                        else None
+                    ),
+                    "cap_used": cap_used,
+                },
+            }
+        )
+
+    for _, row in invalid_rows.iterrows():
+        output_rows.append(
+            {
+                "trade_id": int(row.get("trade_id")),
+                "decision": "SKIP",
+                "reason": "DATA_INVALID",
+                "primary_rule": _primary_rule_from_reason("DATA_INVALID"),
+                "simulated_pnl": 0.0,
+                "counterfactual_mechanics": {
+                    "mechanism": "DATA_INVALID",
+                    "effective_scale": None,
+                    "size_usd_before": _float_or_none(row.get("size_usd")),
+                    "size_usd_after": None,
+                    "quantity_before": _float_or_none(row.get("quantity")),
+                    "quantity_after": None,
+                    "cap_used": 0.0,
+                },
+            }
+        )
+
+    summary_out = {key: value for key, value in summary.items()}
+    summary_out["anomalies"] = anomalies
+    output_rows.sort(key=lambda item: int(item["trade_id"]))
+    return {"rows": output_rows, "summary": summary_out}
