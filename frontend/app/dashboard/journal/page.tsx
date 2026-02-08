@@ -15,8 +15,10 @@ import {
   BookOpen,
   Trash2,
   Activity,
+  Mic,
 } from 'lucide-react';
 import { Trade, analyzeSession, SessionAnalysis } from '@/lib/biasDetector';
+import { getLastJobId, transcribeJournalAudio } from '@/lib/backend-bridge';
 
 type Mood = 'Calm' | 'Anxious' | 'Greedy' | 'Revenge';
 
@@ -73,6 +75,10 @@ export default function JournalPage() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [mounted, setMounted] = useState(false);
   const [sessionSummary, setSessionSummary] = useState<SessionAnalysis | null>(null);
+  const [journalAudioFile, setJournalAudioFile] = useState<File | null>(null);
+  const [journalTranscript, setJournalTranscript] = useState<string | null>(null);
+  const [journalTranscribeLoading, setJournalTranscribeLoading] = useState(false);
+  const [journalTranscribeError, setJournalTranscribeError] = useState<string | null>(null);
 
   /* Load entries + today's session data */
   useEffect(() => {
@@ -154,6 +160,26 @@ export default function JournalPage() {
       localStorage.setItem('temper_journal_entries', JSON.stringify(filtered));
       return filtered;
     });
+  };
+
+  const handleTranscribe = async () => {
+    if (!journalAudioFile) return;
+    const jobId = getLastJobId();
+    if (!jobId) {
+      setJournalTranscribeError('Upload and analyze a session before voice journaling.');
+      return;
+    }
+    setJournalTranscribeLoading(true);
+    setJournalTranscribeError(null);
+    try {
+      const payload = await transcribeJournalAudio(jobId, journalAudioFile);
+      setJournalTranscript(typeof payload.transcript === 'string' ? payload.transcript : null);
+    } catch (error) {
+      setJournalTranscript(null);
+      setJournalTranscribeError(error instanceof Error ? error.message : 'Transcription failed.');
+    } finally {
+      setJournalTranscribeLoading(false);
+    }
   };
 
   const heatmap = buildHeatmap(entries);
@@ -291,6 +317,36 @@ export default function JournalPage() {
                   <Save className="h-4 w-4" />
                   Log Entry
                 </button>
+
+                <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-3">
+                  <p className="mb-2 flex items-center gap-2 text-xs font-medium text-gray-400">
+                    <Mic className="h-3.5 w-3.5 text-purple-400" />
+                    Voice Journal (Gradium STT)
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      onChange={(e) => setJournalAudioFile(e.target.files?.[0] || null)}
+                      className="text-xs text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-white/[0.08] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white"
+                    />
+                    <button
+                      onClick={handleTranscribe}
+                      disabled={!journalAudioFile || journalTranscribeLoading}
+                      className="rounded-lg bg-purple-500 px-3 py-2 text-xs font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {journalTranscribeLoading ? 'Transcribing...' : 'Transcribe Note'}
+                    </button>
+                    {journalTranscribeError && (
+                      <p className="text-xs text-red-400">{journalTranscribeError}</p>
+                    )}
+                    {journalTranscript && (
+                      <p className="rounded-lg bg-white/[0.06] p-2 text-xs text-gray-300">
+                        {journalTranscript}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             </section>
           </div>

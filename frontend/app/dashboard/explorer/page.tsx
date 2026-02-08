@@ -5,6 +5,7 @@ import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Network,
   Eye,
@@ -25,6 +26,7 @@ import {
   TradeWithAnalysis,
   SessionAnalysis,
 } from '@/lib/biasDetector';
+import { fetchTradesFromJob, getLastJobId } from '@/lib/backend-bridge';
 import type { TradeNode } from '@/components/charts/TradeScene3D';
 import type { GraphNode, GraphLink } from '@/components/charts/TradeGraph';
 
@@ -67,6 +69,7 @@ type ViewMode = '3d' | 'graph';
 
 export default function ExplorerPage() {
   const container = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const [mode, setMode] = useState<ViewMode>('3d');
   const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null);
@@ -75,6 +78,7 @@ export default function ExplorerPage() {
 
   /* Load data ------------------------------------------------ */
   useEffect(() => {
+    let cancelled = false;
     setMounted(true);
 
     let trades = demoTrades;
@@ -88,7 +92,24 @@ export default function ExplorerPage() {
       }
     }
     setAnalysis(analyzeSession(trades));
-  }, []);
+
+    const jobId = searchParams.get('jobId') || getLastJobId();
+    if (jobId) {
+      void fetchTradesFromJob(jobId)
+        .then((rows) => {
+          if (cancelled || rows.length === 0) return;
+          localStorage.setItem('temper_current_session', JSON.stringify(rows));
+          setAnalysis(analyzeSession(rows));
+        })
+        .catch(() => {
+          // Keep local/demo fallback.
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
 
   /* Entrance animation --------------------------------------- */
   useGSAP(

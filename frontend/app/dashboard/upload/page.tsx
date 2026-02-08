@@ -28,6 +28,8 @@ import {
 } from '@/lib/biasDetector';
 import {
   createAndWaitForJob,
+  fetchJobElo,
+  fetchJobSummary,
   fetchTradesFromJob,
   getUserId,
   setLastJobId,
@@ -69,6 +71,52 @@ export default function UploadPage() {
     ]);
     return [header.join(','), ...rows.map((row) => row.join(','))].join('\n');
   }, []);
+
+  const resultFromBackend = useCallback(
+    async (jobId: string, fallbackTrades: Trade[], fallbackProfile?: TraderProfile) => {
+      try {
+        const [summary, elo] = await Promise.all([
+          fetchJobSummary(jobId),
+          fetchJobElo(jobId),
+        ]);
+
+        const biasRates = summary.bias_rates || {};
+        const rankedBiases = Object.entries(biasRates)
+          .filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
+          .sort((a, b) => (Number(b[1]) - Number(a[1])));
+
+        const biasNames = rankedBiases
+          .filter(([, value]) => Number(value) > 0)
+          .map(([key]) => key.replace(/_rate$/i, '').replace(/_/g, ' ').toUpperCase())
+          .slice(0, 3);
+
+        const topBiasKey = rankedBiases.length > 0 ? rankedBiases[0][0] : '';
+        const inferredProfile: TraderProfile =
+          topBiasKey.includes('revenge')
+            ? 'revenge_trader'
+            : topBiasKey.includes('overtrading')
+              ? 'overtrader'
+              : topBiasKey.includes('loss')
+                ? 'loss_averse_trader'
+                : (fallbackProfile || 'calm_trader');
+
+        const projectedElo = Math.round(Number(elo?.elo?.projected ?? 1200));
+        setAnalysisResult({
+          score: projectedElo,
+          biases: biasNames,
+          profile: inferredProfile,
+        });
+      } catch {
+        const fallback = analyzeSession(fallbackTrades);
+        setAnalysisResult({
+          score: fallback.disciplineScore,
+          biases: fallback.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
+          profile: fallbackProfile || (fallback.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader'),
+        });
+      }
+    },
+    [],
+  );
 
   /* ── Manual trade entry state ── */
   interface ManualTrade {
@@ -150,14 +198,9 @@ export default function UploadPage() {
       const effectiveTrades = backendTrades.length > 0 ? backendTrades : validTrades;
       generateSessionTitle();
       localStorage.setItem('temper_current_session', JSON.stringify(effectiveTrades));
-      const result = analyzeSession(effectiveTrades);
       setIsUploading(false);
       setIsComplete(true);
-      setAnalysisResult({
-        score: result.disciplineScore,
-        biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
-        profile: result.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader',
-      });
+      await resultFromBackend(jobId, effectiveTrades);
     } catch (error) {
       setIsUploading(false);
       setUploadError(error instanceof Error ? error.message : 'Upload failed');
@@ -245,14 +288,9 @@ export default function UploadPage() {
 
       generateSessionTitle();
       localStorage.setItem('temper_current_session', JSON.stringify(effectiveTrades));
-      const result = analyzeSession(effectiveTrades);
       setIsUploading(false);
       setIsComplete(true);
-      setAnalysisResult({
-        score: result.disciplineScore,
-        biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
-        profile: result.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader',
-      });
+      await resultFromBackend(jobId, effectiveTrades);
     } catch (error) {
       setIsUploading(false);
       setUploadError(error instanceof Error ? error.message : 'Upload failed');
@@ -305,13 +343,32 @@ export default function UploadPage() {
     // Immediately analyze and store in localStorage so it reflects everywhere
     generateSessionTitle();
     localStorage.setItem('temper_current_session', JSON.stringify(trades));
-    const result = analyzeSession(trades);
-    setIsComplete(true);
-    setAnalysisResult({
-      score: result.disciplineScore,
-      biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
-      profile,
-    });
+    const csv = tradesToCsv(trades);
+    const sampleFile = new File([csv], `${profile}.csv`, { type: 'text/csv' });
+    setIsUploading(true);
+    setUploadError(null);
+    void createAndWaitForJob(sampleFile, getUserId(), { maxSeconds: 600 })
+      .then(async (jobId) => {
+        setLastJobId(jobId);
+        const backendTrades = await fetchTradesFromJob(jobId);
+        const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
+        localStorage.setItem('temper_current_session', JSON.stringify(effectiveTrades));
+        setIsComplete(true);
+        await resultFromBackend(jobId, effectiveTrades, profile);
+      })
+      .catch((error) => {
+        const result = analyzeSession(trades);
+        setIsComplete(true);
+        setAnalysisResult({
+          score: result.disciplineScore,
+          biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
+          profile,
+        });
+        setUploadError(error instanceof Error ? error.message : 'Upload failed');
+      })
+      .finally(() => {
+        setIsUploading(false);
+      });
   };
 
   const removeFile = () => {
@@ -442,7 +499,7 @@ export default function UploadPage() {
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-2xl font-bold text-yellow-400">{analysisResult.score}</p>
-                      <p className="text-[10px] text-gray-400">Discipline Score</p>
+                      <p className="text-[10px] text-gray-400">Projected ELO</p>
                     </div>
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-2xl font-bold text-orange-400">{analysisResult.biases.length}</p>

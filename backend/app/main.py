@@ -20,7 +20,7 @@ import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.detective import BiasThresholds
 from app.job_store import JobRecord, LocalJobStore, file_sha256, utc_now_iso
@@ -30,6 +30,12 @@ from app.move_explanations import (
     load_move_explanations_contract_text,
 )
 from app.supabase_jobs import SupabaseJobRepository, SupabaseSyncError
+from app.voice import (
+    VoiceProviderError,
+    synthesize_with_elevenlabs,
+    synthesize_with_gradium_tts,
+    transcribe_with_gradium,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = ROOT / "backend"
@@ -43,6 +49,12 @@ UPLOADTHING_FILE_BASE_URL = os.getenv("UPLOADTHING_FILE_BASE_URL", "https://utfs
 UPLOADTHING_SIGNATURE_HEADER = "x-uploadthing-signature"
 COACH_JSON_NAME = "coach.json"
 COACH_ERROR_JSON_NAME = "coach_error.json"
+TRADE_COACH_JSON_PREFIX = "trade_coach_"
+TRADE_COACH_ERROR_JSON_PREFIX = "trade_coach_error_"
+TRADE_COACH_VOICE_MP3_PREFIX = "trade_coach_voice_"
+TRADE_COACH_VOICE_JSON_PREFIX = "trade_coach_voice_"
+TRADE_COACH_VOICE_ERROR_JSON_PREFIX = "trade_coach_voice_error_"
+JOURNAL_TRANSCRIPT_JSON_PREFIX = "journal_transcript_"
 TRACE_JSONL_NAME = "decision_trace.jsonl"
 COACH_VERTEX_TIMEOUT_SECONDS_DEFAULT = 18.0
 COACH_VERTEX_MAX_OUTPUT_TOKENS_DEFAULT = 900
@@ -266,6 +278,28 @@ def _coach_paths(job_id: str) -> tuple[Path, Path]:
     return job_dir / COACH_JSON_NAME, job_dir / COACH_ERROR_JSON_NAME
 
 
+def _trade_coach_paths(job_id: str, trade_id: int) -> tuple[Path, Path]:
+    job_dir = _job_dir(job_id)
+    return (
+        job_dir / f"{TRADE_COACH_JSON_PREFIX}{trade_id}.json",
+        job_dir / f"{TRADE_COACH_ERROR_JSON_PREFIX}{trade_id}.json",
+    )
+
+
+def _trade_voice_paths(job_id: str, trade_id: int) -> tuple[Path, Path, Path]:
+    job_dir = _job_dir(job_id)
+    return (
+        job_dir / f"{TRADE_COACH_VOICE_MP3_PREFIX}{trade_id}.mp3",
+        job_dir / f"{TRADE_COACH_VOICE_JSON_PREFIX}{trade_id}.json",
+        job_dir / f"{TRADE_COACH_VOICE_ERROR_JSON_PREFIX}{trade_id}.json",
+    )
+
+
+def _journal_transcript_path(job_id: str) -> Path:
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return _job_dir(job_id) / f"{JOURNAL_TRANSCRIPT_JSON_PREFIX}{timestamp}.json"
+
+
 def _load_json_file(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text())
     if not isinstance(payload, dict):
@@ -330,6 +364,65 @@ def _coach_prompt_payload(
         "top_moments": review.get("top_moments", [])[:3] if isinstance(review.get("top_moments"), list) else [],
         "recommendations": review.get("recommendations", [])[:6] if isinstance(review.get("recommendations"), list) else [],
         "move_review": deterministic_move_review,
+    }
+
+
+def _trade_metric_refs(trade_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    counterfactual = trade_payload.get("counterfactual")
+    if isinstance(counterfactual, dict):
+        for name in ("actual_pnl", "policy_replay_pnl", "delta_pnl", "impact_pct_balance"):
+            value = counterfactual.get(name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)):
+                refs.append({"name": name, "value": float(value), "unit": "USD" if name != "impact_pct_balance" else "pct_balance"})
+
+    decision = trade_payload.get("decision")
+    if isinstance(decision, dict):
+        blocked_reason = decision.get("blocked_reason")
+        if isinstance(blocked_reason, str) and blocked_reason.strip():
+            refs.append({"name": "blocked_reason", "value": blocked_reason.strip(), "unit": "enum"})
+        reason_label = decision.get("reason_label")
+        if isinstance(reason_label, str) and reason_label.strip():
+            refs.append({"name": "reason_label", "value": reason_label.strip(), "unit": "enum"})
+
+    derived_flags = trade_payload.get("derived_flags")
+    if isinstance(derived_flags, dict):
+        for key in ("is_revenge", "is_overtrading", "is_loss_aversion"):
+            value = derived_flags.get(key)
+            if isinstance(value, bool):
+                refs.append({"name": key, "value": value, "unit": "bool"})
+
+    if not refs:
+        raise CoachGenerationError("trade coach requires deterministic metric refs from trade inspector payload")
+    return refs
+
+
+def _trade_coach_prompt_payload(
+    job: JobRecord,
+    *,
+    trade_payload: dict[str, Any],
+    metric_refs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary = dict(job.summary or {})
+    return {
+        "job_id": job.job_id,
+        "user_id": job.user_id,
+        "status": job.status,
+        "trade_id": trade_payload.get("trade_id"),
+        "label": trade_payload.get("label"),
+        "timestamp": trade_payload.get("timestamp"),
+        "asset": trade_payload.get("asset"),
+        "decision": trade_payload.get("decision"),
+        "counterfactual": trade_payload.get("counterfactual"),
+        "counterfactual_mechanics": trade_payload.get("counterfactual_mechanics"),
+        "thesis": trade_payload.get("thesis"),
+        "lesson": trade_payload.get("lesson"),
+        "summary": {
+            "outcome": summary.get("outcome"),
+            "delta_pnl": _safe_float(summary.get("delta_pnl")),
+            "cost_of_bias": _safe_float(summary.get("cost_of_bias")),
+        },
+        "metric_refs": metric_refs,
     }
 
 
@@ -551,6 +644,96 @@ def _validate_move_review(
     return normalized
 
 
+def _validate_trade_coach_schema(
+    payload: dict[str, Any],
+    *,
+    expected_trade_id: int,
+    expected_label: str,
+    expected_metric_refs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    required = {
+        "version",
+        "trade_id",
+        "label",
+        "llm_explanation",
+        "actionable_fix",
+        "confidence_note",
+        "metric_refs",
+    }
+    missing = required - set(payload.keys())
+    if missing:
+        raise CoachGenerationError(f"trade coach JSON missing required keys: {sorted(missing)}")
+
+    version = payload.get("version")
+    if version != 1:
+        raise CoachGenerationError("trade coach version must be 1")
+
+    trade_id = payload.get("trade_id")
+    if not isinstance(trade_id, int) or isinstance(trade_id, bool):
+        raise CoachGenerationError("trade coach trade_id must be an integer")
+    if trade_id != expected_trade_id:
+        raise CoachGenerationError("trade coach trade_id drifted from deterministic payload")
+
+    label = payload.get("label")
+    if not isinstance(label, str) or not label.strip():
+        raise CoachGenerationError("trade coach label must be a non-empty string")
+    label = label.strip().upper()
+    if label not in COACH_ALLOWED_MOVE_LABELS:
+        raise CoachGenerationError("trade coach label must be a valid chess grade")
+    if label != expected_label:
+        raise CoachGenerationError("trade coach label drifted from deterministic payload")
+
+    for field in ("llm_explanation", "actionable_fix", "confidence_note"):
+        value = payload.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise CoachGenerationError(f"trade coach {field} must be a non-empty string")
+
+    metric_refs = payload.get("metric_refs")
+    if not isinstance(metric_refs, list) or not metric_refs:
+        raise CoachGenerationError("trade coach metric_refs must be a non-empty list")
+    if len(metric_refs) != len(expected_metric_refs):
+        raise CoachGenerationError("trade coach metric_refs length drifted from deterministic payload")
+
+    normalized_metric_refs: list[dict[str, Any]] = []
+    for index, ref in enumerate(metric_refs):
+        if not isinstance(ref, dict):
+            raise CoachGenerationError("trade coach metric_refs entries must be objects")
+        name = ref.get("name")
+        unit = ref.get("unit")
+        value = ref.get("value")
+        if not isinstance(name, str) or not name.strip():
+            raise CoachGenerationError("trade coach metric_refs.name must be non-empty string")
+        if not isinstance(unit, str) or not unit.strip():
+            raise CoachGenerationError("trade coach metric_refs.unit must be non-empty string")
+        normalized_ref = {
+            "name": name.strip(),
+            "value": _normalize_metric_scalar(value, field="trade coach metric_refs.value"),
+            "unit": unit.strip(),
+        }
+        expected_ref = expected_metric_refs[index]
+        expected_name = str(expected_ref.get("name"))
+        expected_unit = str(expected_ref.get("unit"))
+        expected_value = _normalize_metric_scalar(
+            expected_ref.get("value"),
+            field="deterministic trade metric ref value",
+        )
+        if normalized_ref["name"] != expected_name or normalized_ref["unit"] != expected_unit:
+            raise CoachGenerationError("trade coach metric identity drifted from deterministic payload")
+        if not _metric_values_equal(normalized_ref["value"], expected_value):
+            raise CoachGenerationError("trade coach metric value drifted from deterministic payload")
+        normalized_metric_refs.append(normalized_ref)
+
+    return {
+        "version": 1,
+        "trade_id": expected_trade_id,
+        "label": expected_label,
+        "llm_explanation": str(payload["llm_explanation"]).strip(),
+        "actionable_fix": str(payload["actionable_fix"]).strip(),
+        "confidence_note": str(payload["confidence_note"]).strip(),
+        "metric_refs": normalized_metric_refs,
+    }
+
+
 def _validate_coach_schema(
     payload: dict[str, Any],
     *,
@@ -746,6 +929,98 @@ def generate_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
                 continue
             raise CoachGenerationError(f"vertex generation failed: {exc}") from exc
     raise CoachGenerationError(f"vertex generation failed: {last_error}")
+
+
+def generate_trade_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
+    endpoint = _vertex_endpoint()
+    token = _vertex_access_token()
+    timeout = _coach_vertex_timeout_seconds()
+    max_tokens = min(700, _coach_vertex_max_output_tokens())
+    contract_text = load_move_explanations_contract_text()
+    prompt = (
+        "You are a trading discipline coach for a single trade. Use ONLY the provided deterministic facts. "
+        "Do not invent numbers. Keep trade_id, label, and metric_refs exactly unchanged. "
+        "Return JSON only with keys: version,trade_id,label,llm_explanation,actionable_fix,confidence_note,metric_refs. "
+        "metric_refs values must match exactly.\n\n"
+        f"MOVE_EXPLANATIONS_CONTRACT_MARKDOWN:\n{contract_text}\n\n"
+        f"FACTS_JSON:\n{json.dumps(payload, sort_keys=True)}"
+    )
+    request_payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": max_tokens,
+        },
+    }
+
+    request_bytes = json.dumps(request_payload).encode("utf-8")
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            request = URLRequest(
+                endpoint,
+                data=request_bytes,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urlopen(request, timeout=timeout) as response:
+                response_body = response.read().decode("utf-8", errors="replace")
+            parsed = json.loads(response_body)
+            if not isinstance(parsed, dict):
+                raise CoachGenerationError("vertex returned non-object response")
+            text = _extract_vertex_text(parsed)
+            result = _extract_json_from_text(text)
+            return result
+        except HTTPError as exc:
+            last_error = exc
+            if exc.code >= 500 or exc.code == 429:
+                if attempt == 0:
+                    continue
+            raise CoachGenerationError(f"vertex http error {exc.code}: {exc.reason}") from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt == 0:
+                continue
+            raise CoachGenerationError(f"vertex network error: {exc}") from exc
+        except CoachGenerationError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt == 0:
+                continue
+            raise CoachGenerationError(f"vertex generation failed: {exc}") from exc
+    raise CoachGenerationError(f"vertex generation failed: {last_error}")
+
+
+def _trade_voice_script(trade_coach_payload: dict[str, Any]) -> str:
+    explanation = str(trade_coach_payload.get("llm_explanation") or "").strip()
+    actionable_fix = str(trade_coach_payload.get("actionable_fix") or "").strip()
+    confidence_note = str(trade_coach_payload.get("confidence_note") or "").strip()
+    script_parts = [part for part in [explanation, actionable_fix, confidence_note] if part]
+    if not script_parts:
+        raise VoiceProviderError("trade coach artifact does not contain speech-ready text")
+    return " ".join(script_parts)
+
+
+def _synthesize_trade_voice(text: str, provider: str) -> tuple[str, bytes]:
+    normalized = provider.strip().lower()
+    if normalized not in {"auto", "elevenlabs", "gradium"}:
+        raise VoiceProviderError("provider must be one of: auto, elevenlabs, gradium")
+
+    if normalized in {"auto", "elevenlabs"}:
+        try:
+            return "elevenlabs", synthesize_with_elevenlabs(text)
+        except VoiceProviderError:
+            if normalized == "elevenlabs":
+                raise
+
+    if normalized in {"auto", "gradium"}:
+        return "gradium", synthesize_with_gradium_tts(text)
+
+    raise VoiceProviderError("failed to synthesize voice with available providers")
 
 
 def _finished_at(job_id: str, status: str) -> str | None:
@@ -985,6 +1260,51 @@ async def _extract_csv_and_fields(request: Request) -> tuple[bytes, dict[str, st
 
     # Backward-compatible raw CSV path.
     return body, {}
+
+
+async def _extract_audio_upload(request: Request) -> tuple[bytes, str, str]:
+    content_type = request.headers.get("content-type", "")
+    body = await request.body()
+    if not body:
+        raise ValueError("empty request body")
+    if "multipart/form-data" not in content_type:
+        raise ValueError("audio upload must use multipart/form-data")
+
+    boundary_match = re.search(r'boundary="?([^";]+)"?', content_type)
+    if not boundary_match:
+        raise ValueError("multipart payload missing boundary")
+
+    boundary = boundary_match.group(1).encode("utf-8")
+    marker = b"--" + boundary
+    for raw_part in body.split(marker):
+        part = raw_part.strip()
+        if not part or part == b"--":
+            continue
+        if part.startswith(b"--"):
+            part = part[2:]
+        part = part.strip(b"\r\n")
+        headers_blob, sep, content = part.partition(b"\r\n\r\n")
+        if not sep:
+            continue
+        headers = headers_blob.decode("utf-8", errors="ignore").split("\r\n")
+        disposition = next(
+            (h for h in headers if h.lower().startswith("content-disposition:")),
+            "",
+        )
+        name_match = re.search(r'name="([^"]+)"', disposition)
+        filename_match = re.search(r'filename="([^"]*)"', disposition)
+        if not name_match or filename_match is None:
+            continue
+        field_name = name_match.group(1)
+        if field_name not in {"audio", "file"}:
+            continue
+        cleaned_content = content[:-2] if content.endswith(b"\r\n") else content
+        mime_header = next((h for h in headers if h.lower().startswith("content-type:")), "")
+        mime_type = mime_header.split(":", 1)[1].strip() if ":" in mime_header else "application/octet-stream"
+        filename = filename_match.group(1) or "journal_note"
+        return cleaned_content, mime_type, filename
+
+    raise ValueError("multipart payload missing audio file field")
 
 
 def _initial_job_record(
@@ -3698,6 +4018,652 @@ async def get_coach(job_id: str) -> JSONResponse:
     )
 
 
+@app.post("/jobs/{job_id}/trade/{trade_id}/coach")
+async def generate_trade_coach(job_id: str, trade_id: int, force: bool = False) -> JSONResponse:
+    if trade_id < 0:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"trade_coach": None},
+            error_code="INVALID_TRADE_ID",
+            error_message="trade_id must be >= 0",
+            status_code=400,
+        )
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"trade_coach": None},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"trade_coach": None},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    status = _job_payload(job)["execution_status"]
+    if status != "COMPLETED":
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade_coach": None, "execution_status": status},
+            error_code="JOB_NOT_READY",
+            error_message="Job must be COMPLETED before trade coach generation.",
+            status_code=409,
+        )
+
+    coach_path, coach_error_path = _trade_coach_paths(job_id, trade_id)
+    if coach_path.exists() and not force:
+        try:
+            existing = _load_json_file(coach_path)
+        except Exception as exc:
+            return _envelope(
+                ok=False,
+                job=job,
+                data={"trade_coach": None},
+                error_code="TRADE_COACH_READ_FAILED",
+                error_message=f"Stored trade coach artifact is unreadable: {exc}",
+                status_code=409,
+            )
+        return _envelope(
+            ok=True,
+            job=job,
+            data={"trade_coach": existing, "cached": True},
+            status_code=200,
+        )
+
+    trade_response = await get_trade_inspector(job_id, trade_id)
+    trade_payload_envelope = json.loads(trade_response.body.decode("utf-8"))
+    if trade_response.status_code != 200 or not bool(trade_payload_envelope.get("ok")):
+        return trade_response
+    trade_payload_data = trade_payload_envelope.get("data", {})
+    if not isinstance(trade_payload_data, dict):
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade_coach": None},
+            error_code="TRADE_NOT_FOUND",
+            error_message="Trade payload was unavailable for coach generation.",
+            status_code=404,
+        )
+    trade_payload = trade_payload_data.get("trade")
+    if not isinstance(trade_payload, dict):
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade_coach": None},
+            error_code="TRADE_NOT_FOUND",
+            error_message="Trade payload was unavailable for coach generation.",
+            status_code=404,
+        )
+
+    expected_label = str(trade_payload.get("label", "GOOD")).strip().upper()
+    if expected_label not in COACH_ALLOWED_MOVE_LABELS:
+        expected_label = "GOOD"
+    try:
+        metric_refs = _trade_metric_refs(trade_payload)
+    except CoachGenerationError as exc:
+        error_payload = {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "when": utc_now_iso(),
+            "vertex_request_id": None,
+            "trade_id": trade_id,
+        }
+        coach_error_path.write_text(json.dumps(error_payload, indent=2, sort_keys=True) + "\n")
+        updated_artifacts = dict(job.artifacts)
+        updated_artifacts[f"trade_coach_error_{trade_id}_json"] = str(coach_error_path)
+        updated_artifacts.pop(f"trade_coach_{trade_id}_json", None)
+        updated_job = JobRecord(
+            job_id=job.job_id,
+            user_id=job.user_id,
+            created_at=job.created_at,
+            engine_version=job.engine_version,
+            input_sha256=job.input_sha256,
+            status=job.status,
+            artifacts=updated_artifacts,
+            upload=job.upload,
+            summary=dict(job.summary or {}),
+        )
+        _persist_job_record(updated_job, include_artifacts_sync=True)
+        return _envelope(
+            ok=False,
+            job=updated_job,
+            data={"trade_coach_error": error_payload},
+            error_code="TRADE_COACH_GENERATION_FAILED",
+            error_message="Trade coach generation failed.",
+            error_details=error_payload,
+            status_code=502,
+        )
+
+    trade_input = _trade_coach_prompt_payload(
+        job,
+        trade_payload=trade_payload,
+        metric_refs=metric_refs,
+    )
+
+    try:
+        generated = await asyncio.to_thread(generate_trade_coach_via_vertex, trade_input)
+        trade_coach_payload = _validate_trade_coach_schema(
+            generated,
+            expected_trade_id=trade_id,
+            expected_label=expected_label,
+            expected_metric_refs=metric_refs,
+        )
+    except Exception as exc:
+        request_id = getattr(exc, "vertex_request_id", None)
+        error_payload = {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "when": utc_now_iso(),
+            "vertex_request_id": request_id,
+            "trade_id": trade_id,
+        }
+        coach_error_path.write_text(json.dumps(error_payload, indent=2, sort_keys=True) + "\n")
+        updated_artifacts = dict(job.artifacts)
+        updated_artifacts[f"trade_coach_error_{trade_id}_json"] = str(coach_error_path)
+        updated_artifacts.pop(f"trade_coach_{trade_id}_json", None)
+        updated_job = JobRecord(
+            job_id=job.job_id,
+            user_id=job.user_id,
+            created_at=job.created_at,
+            engine_version=job.engine_version,
+            input_sha256=job.input_sha256,
+            status=job.status,
+            artifacts=updated_artifacts,
+            upload=job.upload,
+            summary=dict(job.summary or {}),
+        )
+        _persist_job_record(updated_job, include_artifacts_sync=True)
+        return _envelope(
+            ok=False,
+            job=updated_job,
+            data={"trade_coach_error": error_payload},
+            error_code="TRADE_COACH_GENERATION_FAILED",
+            error_message="Trade coach generation failed.",
+            error_details=error_payload,
+            status_code=502,
+        )
+
+    coach_path.write_text(json.dumps(trade_coach_payload, indent=2, sort_keys=True) + "\n")
+    if coach_error_path.exists():
+        coach_error_path.unlink()
+
+    updated_artifacts = dict(job.artifacts)
+    updated_artifacts[f"trade_coach_{trade_id}_json"] = str(coach_path)
+    updated_artifacts.pop(f"trade_coach_error_{trade_id}_json", None)
+    updated_job = JobRecord(
+        job_id=job.job_id,
+        user_id=job.user_id,
+        created_at=job.created_at,
+        engine_version=job.engine_version,
+        input_sha256=job.input_sha256,
+        status=job.status,
+        artifacts=updated_artifacts,
+        upload=job.upload,
+        summary=dict(job.summary or {}),
+    )
+    _persist_job_record(updated_job, include_artifacts_sync=True)
+    return _envelope(
+        ok=True,
+        job=updated_job,
+        data={"trade_coach": trade_coach_payload, "cached": False},
+        status_code=200,
+    )
+
+
+@app.get("/jobs/{job_id}/trade/{trade_id}/coach")
+async def get_trade_coach(job_id: str, trade_id: int) -> JSONResponse:
+    if trade_id < 0:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"trade_coach": None},
+            error_code="INVALID_TRADE_ID",
+            error_message="trade_id must be >= 0",
+            status_code=400,
+        )
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"trade_coach": None},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"trade_coach": None},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    coach_path, coach_error_path = _trade_coach_paths(job_id, trade_id)
+    if coach_path.exists():
+        try:
+            payload = _load_json_file(coach_path)
+        except Exception as exc:
+            return _envelope(
+                ok=False,
+                job=job,
+                data={"trade_coach": None},
+                error_code="TRADE_COACH_READ_FAILED",
+                error_message=f"Stored trade coach artifact is unreadable: {exc}",
+                status_code=409,
+            )
+        return _envelope(
+            ok=True,
+            job=job,
+            data={"trade_coach": payload},
+            status_code=200,
+        )
+
+    if coach_error_path.exists():
+        try:
+            error_payload = _load_json_file(coach_error_path)
+        except Exception as exc:
+            error_payload = {
+                "error_type": "CorruptTradeCoachErrorArtifact",
+                "error_message": str(exc),
+                "when": utc_now_iso(),
+                "trade_id": trade_id,
+            }
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade_coach_error": error_payload},
+            error_code="TRADE_COACH_FAILED",
+            error_message="Trade coach generation previously failed.",
+            error_details=error_payload,
+            status_code=409,
+        )
+
+    return _envelope(
+        ok=False,
+        job=job,
+        data={"trade_coach": None},
+        error_code="TRADE_COACH_NOT_FOUND",
+        error_message="Trade coach artifact not found for this trade.",
+        status_code=404,
+    )
+
+
+@app.post("/jobs/{job_id}/trade/{trade_id}/voice")
+async def generate_trade_voice(
+    job_id: str,
+    trade_id: int,
+    provider: str = "auto",
+    force: bool = False,
+) -> JSONResponse:
+    if trade_id < 0:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"voice": None},
+            error_code="INVALID_TRADE_ID",
+            error_message="trade_id must be >= 0",
+            status_code=400,
+        )
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"voice": None},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"voice": None},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    status = _job_payload(job)["execution_status"]
+    if status != "COMPLETED":
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"voice": None, "execution_status": status},
+            error_code="JOB_NOT_READY",
+            error_message="Job must be COMPLETED before trade voice generation.",
+            status_code=409,
+        )
+
+    audio_path, meta_path, error_path = _trade_voice_paths(job_id, trade_id)
+    if audio_path.exists() and meta_path.exists() and not force:
+        try:
+            voice_meta = _load_json_file(meta_path)
+        except Exception:
+            voice_meta = {
+                "provider": "unknown",
+                "mime_type": "audio/mpeg",
+                "artifact": str(audio_path),
+            }
+        return _envelope(
+            ok=True,
+            job=job,
+            data={"voice": voice_meta, "cached": True},
+            status_code=200,
+        )
+
+    trade_coach_payload: dict[str, Any] | None = None
+    coach_path, _ = _trade_coach_paths(job_id, trade_id)
+    if coach_path.exists():
+        try:
+            trade_coach_payload = _load_json_file(coach_path)
+        except Exception:
+            trade_coach_payload = None
+
+    if trade_coach_payload is None:
+        existing = await get_trade_coach(job_id, trade_id)
+        if existing.status_code == 200:
+            existing_payload = json.loads(existing.body.decode("utf-8"))
+            trade_coach = existing_payload.get("data", {}).get("trade_coach")
+            if isinstance(trade_coach, dict):
+                trade_coach_payload = trade_coach
+        elif existing.status_code == 404:
+            generated = await generate_trade_coach(job_id, trade_id, force=False)
+            if generated.status_code != 200:
+                return generated
+            generated_payload = json.loads(generated.body.decode("utf-8"))
+            trade_coach = generated_payload.get("data", {}).get("trade_coach")
+            if isinstance(trade_coach, dict):
+                trade_coach_payload = trade_coach
+        else:
+            return existing
+
+    if not isinstance(trade_coach_payload, dict):
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"voice": None},
+            error_code="TRADE_COACH_NOT_FOUND",
+            error_message="Trade coach text is unavailable for voice synthesis.",
+            status_code=404,
+        )
+
+    try:
+        script = _trade_voice_script(trade_coach_payload)
+        provider_used, audio_bytes = await asyncio.to_thread(
+            _synthesize_trade_voice,
+            script,
+            provider,
+        )
+        audio_path.write_bytes(audio_bytes)
+        voice_meta = {
+            "provider": provider_used,
+            "mime_type": "audio/mpeg",
+            "artifact": str(audio_path),
+            "trade_id": trade_id,
+            "generated_at": utc_now_iso(),
+        }
+        meta_path.write_text(json.dumps(voice_meta, indent=2, sort_keys=True) + "\n")
+        if error_path.exists():
+            error_path.unlink()
+
+        updated_artifacts = dict(job.artifacts)
+        updated_artifacts[f"trade_coach_voice_{trade_id}_mp3"] = str(audio_path)
+        updated_artifacts[f"trade_coach_voice_{trade_id}_json"] = str(meta_path)
+        updated_artifacts.pop(f"trade_coach_voice_error_{trade_id}_json", None)
+        updated_job = JobRecord(
+            job_id=job.job_id,
+            user_id=job.user_id,
+            created_at=job.created_at,
+            engine_version=job.engine_version,
+            input_sha256=job.input_sha256,
+            status=job.status,
+            artifacts=updated_artifacts,
+            upload=job.upload,
+            summary=dict(job.summary or {}),
+        )
+        _persist_job_record(updated_job, include_artifacts_sync=True)
+        return _envelope(
+            ok=True,
+            job=updated_job,
+            data={"voice": voice_meta, "cached": False},
+            status_code=200,
+        )
+    except Exception as exc:
+        error_payload = {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "when": utc_now_iso(),
+            "trade_id": trade_id,
+            "provider": provider,
+        }
+        error_path.write_text(json.dumps(error_payload, indent=2, sort_keys=True) + "\n")
+        updated_artifacts = dict(job.artifacts)
+        updated_artifacts[f"trade_coach_voice_error_{trade_id}_json"] = str(error_path)
+        updated_artifacts.pop(f"trade_coach_voice_{trade_id}_mp3", None)
+        updated_artifacts.pop(f"trade_coach_voice_{trade_id}_json", None)
+        updated_job = JobRecord(
+            job_id=job.job_id,
+            user_id=job.user_id,
+            created_at=job.created_at,
+            engine_version=job.engine_version,
+            input_sha256=job.input_sha256,
+            status=job.status,
+            artifacts=updated_artifacts,
+            upload=job.upload,
+            summary=dict(job.summary or {}),
+        )
+        _persist_job_record(updated_job, include_artifacts_sync=True)
+        return _envelope(
+            ok=False,
+            job=updated_job,
+            data={"voice_error": error_payload},
+            error_code="TRADE_VOICE_GENERATION_FAILED",
+            error_message="Trade voice generation failed.",
+            error_details=error_payload,
+            status_code=502,
+        )
+
+
+@app.get("/jobs/{job_id}/trade/{trade_id}/voice")
+async def get_trade_voice(job_id: str, trade_id: int) -> Response:
+    if trade_id < 0:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"voice": None},
+            error_code="INVALID_TRADE_ID",
+            error_message="trade_id must be >= 0",
+            status_code=400,
+        )
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"voice": None},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"voice": None},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    audio_path, _, error_path = _trade_voice_paths(job_id, trade_id)
+    if audio_path.exists():
+        return Response(
+            content=audio_path.read_bytes(),
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    if error_path.exists():
+        try:
+            error_payload = _load_json_file(error_path)
+        except Exception as exc:
+            error_payload = {
+                "error_type": "CorruptTradeVoiceErrorArtifact",
+                "error_message": str(exc),
+                "when": utc_now_iso(),
+            }
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"voice_error": error_payload},
+            error_code="TRADE_VOICE_FAILED",
+            error_message="Trade voice generation previously failed.",
+            error_details=error_payload,
+            status_code=409,
+        )
+
+    return _envelope(
+        ok=False,
+        job=job,
+        data={"voice": None},
+        error_code="TRADE_VOICE_NOT_FOUND",
+        error_message="Trade voice artifact not found for this trade.",
+        status_code=404,
+    )
+
+
+@app.post("/jobs/{job_id}/journal/transcribe")
+async def transcribe_journal(job_id: str, request: Request) -> JSONResponse:
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"transcript": None},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"transcript": None},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    try:
+        audio_bytes, mime_type, filename = await _extract_audio_upload(request)
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"transcript": None},
+            error_code="INVALID_AUDIO",
+            error_message=str(exc),
+            status_code=400,
+        )
+
+    if not audio_bytes:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"transcript": None},
+            error_code="INVALID_AUDIO",
+            error_message="Uploaded audio file is empty.",
+            status_code=400,
+        )
+    if len(audio_bytes) > _max_upload_bytes():
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"transcript": None},
+            error_code="PAYLOAD_TOO_LARGE",
+            error_message=f"Audio exceeds MAX_UPLOAD_MB={_max_upload_bytes() // (1024 * 1024)}",
+            status_code=413,
+        )
+
+    try:
+        transcript_payload = await asyncio.to_thread(
+            transcribe_with_gradium,
+            audio_bytes,
+            mime_type=mime_type,
+        )
+    except Exception as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"transcript": None},
+            error_code="TRANSCRIPTION_FAILED",
+            error_message=str(exc),
+            error_details={"error_type": type(exc).__name__},
+            status_code=502,
+        )
+
+    transcript_artifact = {
+        "provider": transcript_payload.get("provider", "gradium"),
+        "filename": filename,
+        "mime_type": mime_type,
+        "byte_size": len(audio_bytes),
+        "transcript": transcript_payload.get("transcript"),
+        "created_at": utc_now_iso(),
+        "raw": transcript_payload.get("raw"),
+    }
+    transcript_path = _journal_transcript_path(job_id)
+    transcript_path.write_text(json.dumps(transcript_artifact, indent=2, sort_keys=True) + "\n")
+
+    updated_artifacts = dict(job.artifacts)
+    updated_artifacts[transcript_path.stem] = str(transcript_path)
+    updated_job = JobRecord(
+        job_id=job.job_id,
+        user_id=job.user_id,
+        created_at=job.created_at,
+        engine_version=job.engine_version,
+        input_sha256=job.input_sha256,
+        status=job.status,
+        artifacts=updated_artifacts,
+        upload=job.upload,
+        summary=dict(job.summary or {}),
+    )
+    _persist_job_record(updated_job, include_artifacts_sync=True)
+
+    return _envelope(
+        ok=True,
+        job=updated_job,
+        data={
+            "transcript": transcript_artifact.get("transcript"),
+            "provider": transcript_artifact.get("provider"),
+            "artifact": str(transcript_path),
+            "mime_type": mime_type,
+        },
+        status_code=200,
+    )
+
+
 @app.get("/jobs/{job_id}/counterfactual")
 async def get_counterfactual(job_id: str, offset: int = 0, limit: int = 500) -> JSONResponse:
     if offset < 0:
@@ -4678,6 +5644,9 @@ async def get_trade_inspector(job_id: str, trade_id: int) -> JSONResponse:
 
     trade_payload = {
         "trade_id": trade_id,
+        "label": str(trace_record.get("trade_grade", trace_record.get("label", "GOOD"))).upper(),
+        "timestamp": str(trace_record.get("timestamp", "")),
+        "asset": str(trace_record.get("asset", "")),
         "raw_input_row": raw_input_row,
         "derived_flags": {
             "is_revenge": is_revenge,
