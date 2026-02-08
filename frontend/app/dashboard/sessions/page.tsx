@@ -10,10 +10,11 @@ import {
   Calendar,
   AlertTriangle,
 } from 'lucide-react';
-import { TRADER_PROFILES, TraderProfile } from '@/lib/biasDetector';
+import { TRADER_PROFILES, TraderProfile, Trade, analyzeSession } from '@/lib/biasDetector';
 
 interface Session {
   id: string;
+  title: string;
   date: string;
   time: string;
   score: number;
@@ -25,24 +26,99 @@ interface Session {
   duration: string;
 }
 
-const mockSessions: Session[] = [
-  { id: 'calm-1', date: 'Today', time: '2:30 PM', score: 92, pnl: '+$485', pnlValue: 485, trades: 8, bias: null, profile: 'calm_trader', duration: '4h 12m' },
-  { id: 'revenge-1', date: 'Today', time: '9:15 AM', score: 38, pnl: '-$1,245', pnlValue: -1245, trades: 24, bias: 'Revenge Trading', profile: 'revenge_trader', duration: '2h 30m' },
-  { id: 'over-1', date: 'Yesterday', time: '10:00 AM', score: 52, pnl: '-$320', pnlValue: -320, trades: 47, bias: 'Overtrading', profile: 'overtrader', duration: '6h 45m' },
-  { id: 'loss-1', date: 'Yesterday', time: '9:30 AM', score: 65, pnl: '+$95', pnlValue: 95, trades: 12, bias: 'Loss Aversion', profile: 'loss_averse_trader', duration: '3h 20m' },
-  { id: 'calm-2', date: 'May 15', time: '11:00 AM', score: 88, pnl: '+$720', pnlValue: 720, trades: 6, bias: null, profile: 'calm_trader', duration: '2h 15m' },
-  { id: 'revenge-2', date: 'May 14', time: '2:00 PM', score: 45, pnl: '-$890', pnlValue: -890, trades: 18, bias: 'Revenge Trading', profile: 'revenge_trader', duration: '1h 45m' },
-  { id: 'calm-3', date: 'May 13', time: '9:30 AM', score: 95, pnl: '+$1,120', pnlValue: 1120, trades: 4, bias: null, profile: 'calm_trader', duration: '4h 00m' },
-  { id: 'over-2', date: 'May 12', time: '10:15 AM', score: 48, pnl: '-$445', pnlValue: -445, trades: 52, bias: 'Overtrading', profile: 'overtrader', duration: '7h 30m' },
-];
+function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  return `${hours}h ${mins}m`;
+}
+
+function formatDateTime(timestamp: string): { date: string; time: string } {
+  try {
+    const dt = new Date(timestamp.replace(' ', 'T'));
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const tradeDate = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+
+    let dateStr: string;
+    if (tradeDate.getTime() === today.getTime()) {
+      dateStr = 'Today';
+    } else if (tradeDate.getTime() === yesterday.getTime()) {
+      dateStr = 'Yesterday';
+    } else {
+      dateStr = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    const timeStr = dt.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    return { date: dateStr, time: timeStr };
+  } catch {
+    return { date: 'Unknown', time: '' };
+  }
+}
 
 export default function SessionsPage() {
   const container = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState<'all' | 'winners' | 'losers' | 'biased'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [sessions, setSessions] = useState<Session[]>([]);
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    setMounted(true);
+    
+    // Load session from localStorage
+    const savedSession = localStorage.getItem('temper_current_session');
+    if (savedSession) {
+      try {
+        const trades: Trade[] = JSON.parse(savedSession);
+        if (trades.length > 0) {
+          const analysis = analyzeSession(trades);
+          const firstTrade = trades[0];
+          const { date, time } = formatDateTime(firstTrade.timestamp);
+          
+          // Get or generate session title
+          let title = localStorage.getItem('temper_session_title') || 'Session 1';
+          
+          // Determine profile from biases
+          let profile: TraderProfile = 'calm_trader';
+          if (analysis.biases.length > 0) {
+            const primaryBias = analysis.biases[0].type;
+            if (primaryBias === 'REVENGE_TRADING') profile = 'revenge_trader';
+            else if (primaryBias === 'OVERTRADING') profile = 'overtrader';
+            else if (primaryBias === 'LOSS_AVERSION') profile = 'loss_averse_trader';
+          }
+          
+          const session: Session = {
+            id: 'session-1',
+            title,
+            date,
+            time,
+            score: Math.round(analysis.disciplineScore),
+            pnl: analysis.summary.totalPnL >= 0 
+              ? `+$${Math.abs(analysis.summary.totalPnL).toFixed(0)}`
+              : `-$${Math.abs(analysis.summary.totalPnL).toFixed(0)}`,
+            pnlValue: analysis.summary.totalPnL,
+            trades: analysis.summary.totalTrades,
+            bias: analysis.biases.length > 0 
+              ? analysis.biases[0].type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+              : null,
+            profile,
+            duration: formatDuration(analysis.summary.tradingDuration),
+          };
+          
+          setSessions([session]);
+        }
+      } catch (err) {
+        console.error('Failed to load session:', err);
+      }
+    }
+  }, []);
 
   useGSAP(
     () => {
@@ -57,12 +133,13 @@ export default function SessionsPage() {
     { scope: container, dependencies: [mounted] },
   );
 
-  const filteredSessions = mockSessions.filter((session) => {
+  const filteredSessions = sessions.filter((session) => {
     if (filter === 'winners' && session.pnlValue <= 0) return false;
     if (filter === 'losers' && session.pnlValue >= 0) return false;
     if (filter === 'biased' && !session.bias) return false;
     if (
       searchQuery &&
+      !session.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
       !session.date.toLowerCase().includes(searchQuery.toLowerCase()) &&
       !session.bias?.toLowerCase().includes(searchQuery.toLowerCase())
     )
@@ -70,9 +147,11 @@ export default function SessionsPage() {
     return true;
   });
 
-  const totalPnL = mockSessions.reduce((s, x) => s + x.pnlValue, 0);
-  const avgScore = Math.round(mockSessions.reduce((s, x) => s + x.score, 0) / mockSessions.length);
-  const biasedCount = mockSessions.filter((s) => s.bias).length;
+  const totalPnL = sessions.reduce((s, x) => s + x.pnlValue, 0);
+  const avgScore = sessions.length > 0 
+    ? Math.round(sessions.reduce((s, x) => s + x.score, 0) / sessions.length)
+    : 0;
+  const biasedCount = sessions.filter((s) => s.bias).length;
 
   return (
     <div
@@ -184,6 +263,9 @@ export default function SessionsPage() {
 
                   <div className="space-y-1">
                     <p className="text-sm font-semibold text-white">
+                      {session.title}
+                    </p>
+                    <p className="text-xs text-gray-400">
                       {session.date} · {session.time}
                     </p>
                     <p className="text-xs text-gray-400">

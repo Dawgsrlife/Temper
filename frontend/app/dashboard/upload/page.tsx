@@ -27,6 +27,14 @@ import {
   analyzeSession,
 } from '@/lib/biasDetector';
 
+function generateSessionTitle(): string {
+  const titleCounter = parseInt(localStorage.getItem('temper_session_counter') || '0', 10);
+  const newTitle = `Session ${titleCounter + 1}`;
+  localStorage.setItem('temper_session_counter', String(titleCounter + 1));
+  localStorage.setItem('temper_session_title', newTitle);
+  return newTitle;
+}
+
 export default function UploadPage() {
   const container = useRef<HTMLDivElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -112,6 +120,7 @@ export default function UploadPage() {
     setIsUploading(true);
 
     setTimeout(() => {
+      generateSessionTitle();
       localStorage.setItem('temper_current_session', JSON.stringify(validTrades));
       const result = analyzeSession(validTrades);
       setIsUploading(false);
@@ -193,6 +202,7 @@ export default function UploadPage() {
     }
 
     setTimeout(() => {
+      generateSessionTitle();
       localStorage.setItem('temper_current_session', JSON.stringify(trades));
       const result = analyzeSession(trades);
       setIsUploading(false);
@@ -249,6 +259,7 @@ export default function UploadPage() {
     const trades = sampleTrades[profile];
 
     // Immediately analyze and store in localStorage so it reflects everywhere
+    generateSessionTitle();
     localStorage.setItem('temper_current_session', JSON.stringify(trades));
     const result = analyzeSession(trades);
     setIsComplete(true);

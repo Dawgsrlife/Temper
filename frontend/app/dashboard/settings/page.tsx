@@ -62,6 +62,8 @@ export default function SettingsPage() {
     localStorage.removeItem('temper_journal_entries');
     localStorage.removeItem('temper_elo_state');
     localStorage.removeItem('temper_display_name');
+    localStorage.removeItem('temper_session_title');
+    localStorage.removeItem('temper_session_counter');
     window.location.reload();
   };
 
