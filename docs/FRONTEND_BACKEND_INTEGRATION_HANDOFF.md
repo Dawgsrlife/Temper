@@ -138,3 +138,10 @@ This validates:
 - Backend engine semantics are frozen.
 - Frontend PR can change UI/UX freely.
 - Backend wiring must only consume published contract above.
+
+## 7) Merge Helpers
+
+- Post-pull integration runbook:
+  - `docs/POST_PULL_FRONTEND_MERGE_PLAYBOOK.md`
+- Copy-paste TS adapter:
+  - `docs/FRONTEND_API_ADAPTER_SNIPPET.ts`

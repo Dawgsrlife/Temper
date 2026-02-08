@@ -1,7 +1,6 @@
 import asyncio
 from dataclasses import asdict
 import hmac
-import io
 import json
 import math
 import os
@@ -2551,13 +2550,11 @@ async def api_upload_csv(
     if not user_id_value:
         user_id_value = "demo-user"
 
-    valid_rows = 0
-    parse_errors: list[str] = []
-    try:
-        parsed = pd.read_csv(io.BytesIO(csv_bytes))
-        valid_rows = int(len(parsed))
-    except Exception as exc:
-        parse_errors.append(str(exc))
+    if len(csv_bytes) > _max_upload_bytes():
+        return JSONResponse(
+            status_code=413,
+            content={"error": f"Upload exceeds MAX_UPLOAD_MB={_max_upload_bytes() // (1024 * 1024)}"},
+        )
 
     job_id = str(uuid4())
     out_dir = _job_dir(job_id)
@@ -2601,8 +2598,8 @@ async def api_upload_csv(
         content={
             "jobId": job_id,
             "status": "PENDING",
-            "validRows": valid_rows,
-            "parseErrors": parse_errors,
+            "validRows": 0,
+            "parseErrors": [],
         },
     )
 
@@ -2765,6 +2762,16 @@ async def create_job(
             error_code="INVALID_REQUEST",
             error_message=str(exc),
             status_code=400,
+        )
+
+    if len(csv_bytes) > _max_upload_bytes():
+        return _envelope(
+            ok=False,
+            job=None,
+            data=None,
+            error_code="PAYLOAD_TOO_LARGE",
+            error_message=f"Upload exceeds MAX_UPLOAD_MB={_max_upload_bytes() // (1024 * 1024)}",
+            status_code=413,
         )
 
     # Allow multipart form fields to override query args when provided.
