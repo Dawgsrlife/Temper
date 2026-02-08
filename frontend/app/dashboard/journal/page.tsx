@@ -167,14 +167,14 @@ export default function JournalPage() {
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
             Reflection
           </p>
-          <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl mb-2">
+          <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl">
             <span className="text-white">Smart </span>
             <span className="relative text-emerald-400">
               Journal
-              <span className="absolute -bottom-2 left-0 h-[2px] w-full rounded-full bg-emerald-400/40" />
+              <span className="absolute -bottom-1 left-0 h-[2px] w-full rounded-full bg-emerald-400/40" />
             </span>
           </h1>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-gray-400 mt-2">
             Track your psychology before and after every trade.
           </p>
         </header>
