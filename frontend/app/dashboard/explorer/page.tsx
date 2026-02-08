@@ -27,6 +27,7 @@ import {
   SessionAnalysis,
 } from '@/lib/biasDetector';
 import { fetchTradesFromJob, getLastJobId } from '@/lib/backend-bridge';
+import { loadCachedSessionTrades, saveCachedSessionTrades } from '@/lib/session-cache';
 import type { TradeNode } from '@/components/charts/TradeScene3D';
 import type { GraphNode, GraphLink } from '@/components/charts/TradeGraph';
 
@@ -82,15 +83,8 @@ export default function ExplorerPage() {
     setMounted(true);
 
     let trades = demoTrades;
-    const savedSession = localStorage.getItem('temper_current_session');
-    if (savedSession) {
-      try {
-        const parsed: Trade[] = JSON.parse(savedSession);
-        if (Array.isArray(parsed) && parsed.length > 0) trades = parsed;
-      } catch {
-        /* fallback to demo */
-      }
-    }
+    const parsed = loadCachedSessionTrades();
+    if (parsed && parsed.length > 0) trades = parsed;
     setAnalysis(analyzeSession(trades));
 
     const jobId = searchParams.get('jobId') || getLastJobId();
@@ -98,7 +92,7 @@ export default function ExplorerPage() {
       void fetchTradesFromJob(jobId)
         .then((rows) => {
           if (cancelled || rows.length === 0) return;
-          localStorage.setItem('temper_current_session', JSON.stringify(rows));
+          saveCachedSessionTrades(rows);
           setAnalysis(analyzeSession(rows));
         })
         .catch(() => {

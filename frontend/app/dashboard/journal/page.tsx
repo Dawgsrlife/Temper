@@ -18,7 +18,8 @@ import {
   Mic,
 } from 'lucide-react';
 import { Trade, analyzeSession, SessionAnalysis } from '@/lib/biasDetector';
-import { getLastJobId, transcribeJournalAudio } from '@/lib/backend-bridge';
+import { BackendApiError, getLastJobId, transcribeJournalAudio } from '@/lib/backend-bridge';
+import { loadCachedSessionTrades } from '@/lib/session-cache';
 
 type Mood = 'Calm' | 'Anxious' | 'Greedy' | 'Revenge';
 
@@ -89,14 +90,9 @@ export default function JournalPage() {
     }
 
     // Load uploaded session to show today's context
-    const savedSession = localStorage.getItem('temper_current_session');
-    if (savedSession) {
-      try {
-        const trades: Trade[] = JSON.parse(savedSession);
-        if (Array.isArray(trades) && trades.length > 0) {
-          setSessionSummary(analyzeSession(trades));
-        }
-      } catch { /* ignore */ }
+    const trades = loadCachedSessionTrades();
+    if (trades && trades.length > 0) {
+      setSessionSummary(analyzeSession(trades));
     }
   }, []);
 
@@ -176,7 +172,11 @@ export default function JournalPage() {
       setJournalTranscript(typeof payload.transcript === 'string' ? payload.transcript : null);
     } catch (error) {
       setJournalTranscript(null);
-      setJournalTranscribeError(error instanceof Error ? error.message : 'Transcription failed.');
+      if (error instanceof BackendApiError) {
+        setJournalTranscribeError(error.code ? `${error.message} (${error.code})` : error.message);
+      } else {
+        setJournalTranscribeError(error instanceof Error ? error.message : 'Transcription failed.');
+      }
     } finally {
       setJournalTranscribeLoading(false);
     }

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote_plus
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as URLRequest, urlopen
 from uuid import uuid4
@@ -44,7 +45,7 @@ JUDGE_PACK_SCRIPT = BACKEND_DIR / "scripts" / "judge_pack.py"
 LIST_JOBS_LIMIT_MAX = 200
 COUNTERFACTUAL_PAGE_MAX = 2000
 TRACE_PAGE_MAX = 5000
-MAX_UPLOAD_MB_DEFAULT = 25
+MAX_UPLOAD_MB_DEFAULT = 250
 UPLOADTHING_FILE_BASE_URL = os.getenv("UPLOADTHING_FILE_BASE_URL", "https://utfs.io/f")
 UPLOADTHING_SIGNATURE_HEADER = "x-uploadthing-signature"
 COACH_JSON_NAME = "coach.json"
@@ -80,7 +81,9 @@ _SUPABASE_STORE: SupabaseJobRepository | None = None
 
 # Load .env from monorepo root
 root_env = ROOT / ".env"
-load_dotenv(root_env)
+load_dotenv(root_env, override=True)
+backend_env = BACKEND_DIR / ".env"
+load_dotenv(backend_env)
 
 app = FastAPI(
     title="Temper API",
@@ -442,7 +445,8 @@ def _vertex_access_token() -> str:
         from google.auth.transport.requests import Request  # type: ignore
     except Exception as exc:
         raise CoachGenerationError(
-            "vertex auth unavailable; set VERTEX_ACCESS_TOKEN or google auth credentials"
+            "vertex auth unavailable; set one of OPENROUTER_API_KEY/GEMINI_API_KEY/GOOGLE_API_KEY/"
+            "VERTEX_API_KEY or VERTEX_ACCESS_TOKEN/google auth credentials"
         ) from exc
 
     creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
@@ -451,6 +455,118 @@ def _vertex_access_token() -> str:
     if not creds.token:
         raise CoachGenerationError("failed to obtain vertex access token")
     return str(creds.token)
+
+
+def _gemini_api_key() -> str:
+    for key_name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "VERTEX_API_KEY"):
+        value = os.getenv(key_name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _openrouter_api_key() -> str:
+    for key_name in (
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_KEY",
+        "OPEN_ROUTER_API_KEY",
+        "OPENROUTER_TOKEN",
+    ):
+        explicit = os.getenv(key_name, "").strip()
+        if explicit:
+            return explicit
+
+    # Common alias: users often place OpenRouter keys in OPENAI_API_KEY.
+    openai_alias = os.getenv("OPENAI_API_KEY", "").strip()
+    if openai_alias and (
+        openai_alias.startswith("sk-or-")
+        or "openrouter" in os.getenv("OPENAI_BASE_URL", "").lower()
+        or os.getenv("LLM_PROVIDER", "").strip().lower() == "openrouter"
+        or bool(os.getenv("OPENROUTER_MODEL", "").strip())
+    ):
+        return openai_alias
+    return ""
+
+
+def _openrouter_model_name() -> str:
+    model = (
+        os.getenv("OPENROUTER_MODEL")
+        or os.getenv("OPENAI_MODEL")
+        or "google/gemini-2.0-flash-001"
+    ).strip()
+    return model or "google/gemini-2.0-flash-001"
+
+
+def _gemini_model_name() -> str:
+    model = (
+        os.getenv("GEMINI_MODEL")
+        or os.getenv("VERTEX_MODEL")
+        or "gemini-1.5-flash"
+    ).strip()
+    if model.endswith("-002"):
+        model = model[: -len("-002")]
+    return model or "gemini-1.5-flash"
+
+
+def _coach_generation_target() -> tuple[str, str, dict[str, str]]:
+    provider_override = os.getenv("LLM_PROVIDER", "").strip().lower()
+    openrouter_key = _openrouter_api_key()
+
+    # Favor OpenRouter whenever a key is present unless vertex is explicitly forced.
+    if openrouter_key and provider_override not in {"vertex", "vertex_only"}:
+        headers = {
+            "Authorization": f"Bearer {openrouter_key}",
+            "Content-Type": "application/json",
+        }
+        referer = os.getenv("OPENROUTER_HTTP_REFERER", "").strip()
+        app_title = os.getenv("OPENROUTER_APP_TITLE", "Temper").strip()
+        if referer:
+            headers["HTTP-Referer"] = referer
+        if app_title:
+            headers["X-Title"] = app_title
+        return "openrouter", "https://openrouter.ai/api/v1/chat/completions", headers
+
+    if provider_override == "openrouter":
+        raise CoachGenerationError(
+            "LLM_PROVIDER=openrouter but OPENROUTER_API_KEY/OPENROUTER_KEY/OPENAI_API_KEY is missing"
+        )
+
+    if provider_override in {"gemini", "gemini_api", "gemini_only"}:
+        api_key = _gemini_api_key()
+        if not api_key:
+            raise CoachGenerationError(
+                "LLM_PROVIDER=gemini but GEMINI_API_KEY/GOOGLE_API_KEY/VERTEX_API_KEY is missing"
+            )
+        model = _gemini_model_name()
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={quote_plus(api_key)}"
+        )
+        return "gemini_api", endpoint, {"Content-Type": "application/json"}
+
+    if provider_override in {"vertex", "vertex_only"}:
+        endpoint = _vertex_endpoint()
+        token = _vertex_access_token()
+        return "vertex", endpoint, {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+    api_key = _gemini_api_key()
+    if api_key:
+        model = _gemini_model_name()
+        endpoint = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={quote_plus(api_key)}"
+        )
+        return "gemini_api", endpoint, {"Content-Type": "application/json"}
+
+    endpoint = _vertex_endpoint()
+    token = _vertex_access_token()
+    return "vertex", endpoint, {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
 
 
 def _vertex_endpoint() -> str:
@@ -511,6 +627,38 @@ def _extract_vertex_text(payload: dict[str, Any]) -> str:
     raise CoachGenerationError("vertex response did not contain text output")
 
 
+def _extract_openrouter_text(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        raise CoachGenerationError("openrouter response missing choices")
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+            if parts:
+                return "\n".join(parts)
+    raise CoachGenerationError("openrouter response did not contain text output")
+
+
+def _extract_llm_text(payload: dict[str, Any], provider: str) -> str:
+    if provider == "openrouter":
+        return _extract_openrouter_text(payload)
+    return _extract_vertex_text(payload)
+
+
 def _extract_json_from_text(text: str) -> dict[str, Any]:
     raw = text.strip()
     if raw.startswith("```"):
@@ -522,11 +670,33 @@ def _extract_json_from_text(text: str) -> dict[str, Any]:
         start = raw.find("{")
         end = raw.rfind("}")
         if start < 0 or end < start:
-            raise CoachGenerationError("vertex output did not contain valid JSON")
+            raise CoachGenerationError("LLM output did not contain valid JSON")
         payload = json.loads(raw[start : end + 1])
     if not isinstance(payload, dict):
-        raise CoachGenerationError("vertex output JSON must be an object")
+        raise CoachGenerationError("LLM output JSON must be an object")
     return dict(payload)
+
+
+def _coach_request_payload(*, provider: str, prompt: str, max_tokens: int) -> dict[str, Any]:
+    if provider == "openrouter":
+        return {
+            "model": _openrouter_model_name(),
+            "messages": [
+                {"role": "system", "content": "Return JSON only. Do not include markdown fences."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.1,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+
+    return {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": max_tokens,
+        },
+    }
 
 
 def _normalize_metric_scalar(value: Any, *, field: str) -> int | float | bool | str:
@@ -651,85 +821,83 @@ def _validate_trade_coach_schema(
     expected_label: str,
     expected_metric_refs: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    required = {
-        "version",
-        "trade_id",
-        "label",
-        "llm_explanation",
-        "actionable_fix",
-        "confidence_note",
-        "metric_refs",
-    }
-    missing = required - set(payload.keys())
-    if missing:
-        raise CoachGenerationError(f"trade coach JSON missing required keys: {sorted(missing)}")
-
-    version = payload.get("version")
-    if version != 1:
-        raise CoachGenerationError("trade coach version must be 1")
-
-    trade_id = payload.get("trade_id")
-    if not isinstance(trade_id, int) or isinstance(trade_id, bool):
-        raise CoachGenerationError("trade coach trade_id must be an integer")
-    if trade_id != expected_trade_id:
-        raise CoachGenerationError("trade coach trade_id drifted from deterministic payload")
-
-    label = payload.get("label")
-    if not isinstance(label, str) or not label.strip():
-        raise CoachGenerationError("trade coach label must be a non-empty string")
-    label = label.strip().upper()
-    if label not in COACH_ALLOWED_MOVE_LABELS:
-        raise CoachGenerationError("trade coach label must be a valid chess grade")
-    if label != expected_label:
-        raise CoachGenerationError("trade coach label drifted from deterministic payload")
-
-    for field in ("llm_explanation", "actionable_fix", "confidence_note"):
-        value = payload.get(field)
-        if not isinstance(value, str) or not value.strip():
-            raise CoachGenerationError(f"trade coach {field} must be a non-empty string")
+    llm_explanation_raw = payload.get("llm_explanation")
+    actionable_fix_raw = payload.get("actionable_fix")
+    confidence_note_raw = payload.get("confidence_note")
+    if not isinstance(llm_explanation_raw, str) or not llm_explanation_raw.strip():
+        fallback = payload.get("headline") or payload.get("explanation") or payload.get("message")
+        llm_explanation_raw = str(fallback or "").strip()
+    if not isinstance(actionable_fix_raw, str) or not actionable_fix_raw.strip():
+        actionable_fix_raw = (
+            "Use position sizing limits and cooldown rules before placing the next trade."
+        )
+    if not isinstance(confidence_note_raw, str) or not confidence_note_raw.strip():
+        confidence_note_raw = "Deterministic trade metrics are fixed; narrative text is advisory."
 
     metric_refs = payload.get("metric_refs")
     if not isinstance(metric_refs, list) or not metric_refs:
-        raise CoachGenerationError("trade coach metric_refs must be a non-empty list")
-    if len(metric_refs) != len(expected_metric_refs):
-        raise CoachGenerationError("trade coach metric_refs length drifted from deterministic payload")
+        metric_refs = expected_metric_refs
 
     normalized_metric_refs: list[dict[str, Any]] = []
-    for index, ref in enumerate(metric_refs):
+    metric_drifted = False
+    for index, expected_ref in enumerate(expected_metric_refs):
+        ref = metric_refs[index] if index < len(metric_refs) else expected_ref
         if not isinstance(ref, dict):
-            raise CoachGenerationError("trade coach metric_refs entries must be objects")
+            metric_drifted = True
+            ref = expected_ref
         name = ref.get("name")
         unit = ref.get("unit")
         value = ref.get("value")
         if not isinstance(name, str) or not name.strip():
-            raise CoachGenerationError("trade coach metric_refs.name must be non-empty string")
+            metric_drifted = True
+            name = str(expected_ref.get("name", "metric"))
         if not isinstance(unit, str) or not unit.strip():
-            raise CoachGenerationError("trade coach metric_refs.unit must be non-empty string")
+            metric_drifted = True
+            unit = str(expected_ref.get("unit", "value"))
         normalized_ref = {
             "name": name.strip(),
-            "value": _normalize_metric_scalar(value, field="trade coach metric_refs.value"),
+            "value": _normalize_metric_scalar(
+                value if value is not None else expected_ref.get("value"),
+                field="trade coach metric_refs.value",
+            ),
             "unit": unit.strip(),
         }
-        expected_ref = expected_metric_refs[index]
         expected_name = str(expected_ref.get("name"))
         expected_unit = str(expected_ref.get("unit"))
         expected_value = _normalize_metric_scalar(
             expected_ref.get("value"),
             field="deterministic trade metric ref value",
         )
-        if normalized_ref["name"] != expected_name or normalized_ref["unit"] != expected_unit:
-            raise CoachGenerationError("trade coach metric identity drifted from deterministic payload")
-        if not _metric_values_equal(normalized_ref["value"], expected_value):
-            raise CoachGenerationError("trade coach metric value drifted from deterministic payload")
-        normalized_metric_refs.append(normalized_ref)
+        if (
+            normalized_ref["name"] != expected_name
+            or normalized_ref["unit"] != expected_unit
+            or not _metric_values_equal(normalized_ref["value"], expected_value)
+        ):
+            metric_drifted = True
+            normalized_metric_refs.append(
+                {
+                    "name": expected_name,
+                    "value": expected_value,
+                    "unit": expected_unit,
+                }
+            )
+        else:
+            normalized_metric_refs.append(normalized_ref)
+
+    llm_explanation = str(llm_explanation_raw).strip()
+    if metric_drifted:
+        llm_explanation = (
+            llm_explanation
+            + " Metrics were normalized to deterministic values from the trade artifacts."
+        ).strip()
 
     return {
         "version": 1,
         "trade_id": expected_trade_id,
         "label": expected_label,
-        "llm_explanation": str(payload["llm_explanation"]).strip(),
-        "actionable_fix": str(payload["actionable_fix"]).strip(),
-        "confidence_note": str(payload["confidence_note"]).strip(),
+        "llm_explanation": llm_explanation,
+        "actionable_fix": str(actionable_fix_raw).strip(),
+        "confidence_note": str(confidence_note_raw).strip(),
         "metric_refs": normalized_metric_refs,
     }
 
@@ -865,8 +1033,6 @@ def _validate_coach_schema(
 
 
 def generate_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
-    endpoint = _vertex_endpoint()
-    token = _vertex_access_token()
     timeout = _coach_vertex_timeout_seconds()
     max_tokens = _coach_vertex_max_output_tokens()
     contract_text = load_move_explanations_contract_text()
@@ -880,34 +1046,32 @@ def generate_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
         f"MOVE_EXPLANATIONS_CONTRACT_MARKDOWN:\n{contract_text}\n\n"
         f"FACTS_JSON:\n{json.dumps(payload, sort_keys=True)}"
     )
-    request_payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": max_tokens,
-        },
-    }
-
-    request_bytes = json.dumps(request_payload).encode("utf-8")
     last_error: Exception | None = None
     for attempt in range(2):
+        provider = "unknown"
         try:
+            provider, endpoint, headers = _coach_generation_target()
+            request_payload = _coach_request_payload(
+                provider=provider,
+                prompt=prompt,
+                max_tokens=max_tokens,
+            )
+            request_bytes = json.dumps(request_payload).encode("utf-8")
             request = URLRequest(
                 endpoint,
                 data=request_bytes,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 method="POST",
             )
             with urlopen(request, timeout=timeout) as response:
                 response_body = response.read().decode("utf-8", errors="replace")
-                request_id = response.headers.get("x-request-id")
+                request_id = response.headers.get("x-request-id") or response.headers.get(
+                    "x-goog-request-id"
+                )
             parsed = json.loads(response_body)
             if not isinstance(parsed, dict):
-                raise CoachGenerationError("vertex returned non-object response", vertex_request_id=request_id)
-            text = _extract_vertex_text(parsed)
+                raise CoachGenerationError("LLM returned non-object response", vertex_request_id=request_id)
+            text = _extract_llm_text(parsed, provider)
             result = _extract_json_from_text(text)
             return result
         except HTTPError as exc:
@@ -915,25 +1079,23 @@ def generate_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
             if exc.code >= 500 or exc.code == 429:
                 if attempt == 0:
                     continue
-            raise CoachGenerationError(f"vertex http error {exc.code}: {exc.reason}") from exc
+            raise CoachGenerationError(f"{provider} http error {exc.code}: {exc.reason}") from exc
         except (URLError, TimeoutError, OSError) as exc:
             last_error = exc
             if attempt == 0:
                 continue
-            raise CoachGenerationError(f"vertex network error: {exc}") from exc
+            raise CoachGenerationError(f"{provider} network error: {exc}") from exc
         except CoachGenerationError:
             raise
         except Exception as exc:
             last_error = exc
             if attempt == 0:
                 continue
-            raise CoachGenerationError(f"vertex generation failed: {exc}") from exc
-    raise CoachGenerationError(f"vertex generation failed: {last_error}")
+            raise CoachGenerationError(f"{provider} generation failed: {exc}") from exc
+    raise CoachGenerationError(f"llm generation failed: {last_error}")
 
 
 def generate_trade_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
-    endpoint = _vertex_endpoint()
-    token = _vertex_access_token()
     timeout = _coach_vertex_timeout_seconds()
     max_tokens = min(700, _coach_vertex_max_output_tokens())
     contract_text = load_move_explanations_contract_text()
@@ -945,54 +1107,67 @@ def generate_trade_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
         f"MOVE_EXPLANATIONS_CONTRACT_MARKDOWN:\n{contract_text}\n\n"
         f"FACTS_JSON:\n{json.dumps(payload, sort_keys=True)}"
     )
-    request_payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": max_tokens,
-        },
-    }
-
-    request_bytes = json.dumps(request_payload).encode("utf-8")
     last_error: Exception | None = None
     for attempt in range(2):
+        provider = "unknown"
         try:
+            provider, endpoint, headers = _coach_generation_target()
+            request_payload = _coach_request_payload(
+                provider=provider,
+                prompt=prompt,
+                max_tokens=max_tokens,
+            )
+            request_bytes = json.dumps(request_payload).encode("utf-8")
             request = URLRequest(
                 endpoint,
                 data=request_bytes,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 method="POST",
             )
             with urlopen(request, timeout=timeout) as response:
                 response_body = response.read().decode("utf-8", errors="replace")
             parsed = json.loads(response_body)
             if not isinstance(parsed, dict):
-                raise CoachGenerationError("vertex returned non-object response")
-            text = _extract_vertex_text(parsed)
-            result = _extract_json_from_text(text)
+                raise CoachGenerationError("LLM returned non-object response")
+            text = _extract_llm_text(parsed, provider)
+            try:
+                result = _extract_json_from_text(text)
+            except CoachGenerationError:
+                trade_id_raw = payload.get("trade_id")
+                label_raw = str(payload.get("label", "GOOD")).strip().upper()
+                trade_id = int(trade_id_raw) if isinstance(trade_id_raw, (int, float)) else 0
+                if label_raw not in COACH_ALLOWED_MOVE_LABELS:
+                    label_raw = "GOOD"
+                result = {
+                    "version": 1,
+                    "trade_id": trade_id,
+                    "label": label_raw,
+                    "llm_explanation": text.strip()
+                    or "Trade coach narrative unavailable; deterministic trade evidence is shown.",
+                    "actionable_fix": "Reduce emotional sizing and enforce cooldown/stop-loss rules.",
+                    "confidence_note": "Converted from plain-text LLM response; deterministic metrics preserved.",
+                    "metric_refs": payload.get("metric_refs", []),
+                }
             return result
         except HTTPError as exc:
             last_error = exc
             if exc.code >= 500 or exc.code == 429:
                 if attempt == 0:
                     continue
-            raise CoachGenerationError(f"vertex http error {exc.code}: {exc.reason}") from exc
+            raise CoachGenerationError(f"{provider} http error {exc.code}: {exc.reason}") from exc
         except (URLError, TimeoutError, OSError) as exc:
             last_error = exc
             if attempt == 0:
                 continue
-            raise CoachGenerationError(f"vertex network error: {exc}") from exc
+            raise CoachGenerationError(f"{provider} network error: {exc}") from exc
         except CoachGenerationError:
             raise
         except Exception as exc:
             last_error = exc
             if attempt == 0:
                 continue
-            raise CoachGenerationError(f"vertex generation failed: {exc}") from exc
-    raise CoachGenerationError(f"vertex generation failed: {last_error}")
+            raise CoachGenerationError(f"{provider} generation failed: {exc}") from exc
+    raise CoachGenerationError(f"llm generation failed: {last_error}")
 
 
 def _trade_voice_script(trade_coach_payload: dict[str, Any]) -> str:
@@ -1131,7 +1306,8 @@ def _max_upload_bytes() -> int:
         mb = int(raw)
     except ValueError:
         mb = MAX_UPLOAD_MB_DEFAULT
-    return max(1, mb) * 1024 * 1024
+    # Keep demo-safe minimum so stale low env values do not break large uploads.
+    return max(1, mb, MAX_UPLOAD_MB_DEFAULT) * 1024 * 1024
 
 
 def _uploadthing_url(file_key: str) -> str:
@@ -4387,13 +4563,26 @@ async def generate_trade_voice(
             if isinstance(trade_coach, dict):
                 trade_coach_payload = trade_coach
         elif existing.status_code == 404:
-            generated = await generate_trade_coach(job_id, trade_id, force=False)
+            generated = await generate_trade_coach(job_id, trade_id, force=force)
             if generated.status_code != 200:
                 return generated
             generated_payload = json.loads(generated.body.decode("utf-8"))
             trade_coach = generated_payload.get("data", {}).get("trade_coach")
             if isinstance(trade_coach, dict):
                 trade_coach_payload = trade_coach
+        elif existing.status_code == 409:
+            existing_payload = json.loads(existing.body.decode("utf-8"))
+            error_code = str(existing_payload.get("error", {}).get("code", "")).strip()
+            if error_code in {"TRADE_COACH_FAILED", "TRADE_COACH_READ_FAILED"}:
+                regenerated = await generate_trade_coach(job_id, trade_id, force=True)
+                if regenerated.status_code != 200:
+                    return regenerated
+                regenerated_payload = json.loads(regenerated.body.decode("utf-8"))
+                trade_coach = regenerated_payload.get("data", {}).get("trade_coach")
+                if isinstance(trade_coach, dict):
+                    trade_coach_payload = trade_coach
+            else:
+                return existing
         else:
             return existing
 

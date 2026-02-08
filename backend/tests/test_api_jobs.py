@@ -1400,6 +1400,68 @@ def test_trade_voice_provider_failure_returns_502_and_error_artifact() -> None:
         tmp.cleanup()
 
 
+def test_trade_voice_force_true_recovers_after_cached_trade_coach_failure() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    original_generate_trade_coach = main_module.generate_trade_coach_via_vertex
+    original_synthesize = main_module.synthesize_with_elevenlabs
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("voice_force_recovery_source.csv", csv, "text/csv")},
+            data={"user_id": "voice_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        trade_id = 0
+        trade_response = client.get(f"/jobs/{job_id}/trade/{trade_id}")
+        assert trade_response.status_code == 200
+        trade_payload = trade_response.json()["data"]["trade"]
+        metric_refs = main_module._trade_metric_refs(trade_payload)
+        label = str(trade_payload["label"]).upper()
+
+        calls = {"count": 0}
+
+        def _flaky_trade_vertex(_: dict) -> dict:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("forced first failure")
+            return {
+                "version": 1,
+                "trade_id": trade_id,
+                "label": label,
+                "llm_explanation": "Keep composure after losses.",
+                "actionable_fix": "Use your median size until momentum stabilizes.",
+                "confidence_note": "Derived from deterministic replay metrics only.",
+                "metric_refs": metric_refs,
+            }
+
+        main_module.generate_trade_coach_via_vertex = _flaky_trade_vertex
+        main_module.synthesize_with_elevenlabs = lambda _text: b"recovered-mp3-bytes"
+
+        first = client.post(f"/jobs/{job_id}/trade/{trade_id}/voice?provider=elevenlabs&force=false")
+        assert first.status_code == 502
+        assert first.json()["error"]["code"] == "TRADE_COACH_GENERATION_FAILED"
+
+        second = client.post(f"/jobs/{job_id}/trade/{trade_id}/voice?provider=elevenlabs&force=true")
+        assert second.status_code == 200
+        second_payload = second.json()
+        assert second_payload["ok"] is True
+        assert second_payload["data"]["voice"]["provider"] == "elevenlabs"
+
+        audio_path = Path(tmp.name) / "outputs" / job_id / f"trade_coach_voice_{trade_id}.mp3"
+        assert audio_path.exists()
+        assert audio_path.read_bytes() == b"recovered-mp3-bytes"
+    finally:
+        main_module.generate_trade_coach_via_vertex = original_generate_trade_coach
+        main_module.synthesize_with_elevenlabs = original_synthesize
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
 def test_journal_transcribe_happy_path_persists_transcript_artifact() -> None:
     client, tmp, original_outputs = _client_with_temp_outputs()
     original_transcribe = main_module.transcribe_with_gradium

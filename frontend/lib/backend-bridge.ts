@@ -17,6 +17,20 @@ type Envelope<T> = {
   error?: { code?: string; message?: string } | null;
 };
 
+export class BackendApiError extends Error {
+  code?: string;
+  status?: number;
+  details?: unknown;
+
+  constructor(message: string, opts?: { code?: string; status?: number; details?: unknown }) {
+    super(message);
+    this.name = 'BackendApiError';
+    this.code = opts?.code;
+    this.status = opts?.status;
+    this.details = opts?.details;
+  }
+}
+
 type JobStatusData = { status?: string };
 
 type CounterfactualData = {
@@ -152,17 +166,33 @@ function rowToTrade(row: Record<string, unknown>): Trade | null {
     quantity,
     pnl,
     price,
+    tradeId: parseNumber(row.trade_id) ?? parseNumber(row.index),
+    serverLabel: typeof row.trade_grade === 'string'
+      ? (row.trade_grade.trim().toUpperCase() as Trade['serverLabel'])
+      : (typeof row.label === 'string' ? (row.label.trim().toUpperCase() as Trade['serverLabel']) : undefined),
+    serverOutcome: typeof row.outcome === 'string' ? row.outcome.trim().toUpperCase() : undefined,
+    reasonLabel: typeof row.reason_label === 'string' ? row.reason_label : undefined,
+    blockedReason: typeof row.blocked_reason === 'string' ? row.blocked_reason : undefined,
   };
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
   const response = await fetch(`${API_BASE}${path}`, init);
-  const payload = (await response.json()) as Envelope<T>;
-  if (!response.ok || !payload.ok) {
-    const message = payload?.error?.message || `Request failed (${response.status})`;
-    throw new Error(message);
+  let payload: Envelope<T> | null = null;
+  try {
+    payload = (await response.json()) as Envelope<T>;
+  } catch {
+    payload = null;
   }
-  return payload;
+  if (!response.ok || !payload?.ok) {
+    const message = payload?.error?.message || `Request failed (${response.status})`;
+    throw new BackendApiError(message, {
+      code: payload?.error?.code,
+      status: response.status,
+      details: payload?.error,
+    });
+  }
+  return payload as Envelope<T>;
 }
 
 export function getUserId(): string {
@@ -228,17 +258,22 @@ export async function createAndWaitForJob(file: File, userId?: string, opts?: Cr
   throw new Error('Timed out waiting for backend job completion');
 }
 
-export async function fetchTradesFromJob(jobId: string): Promise<Trade[]> {
+export async function fetchTradesFromJob(jobId: string, maxRows = 250000): Promise<Trade[]> {
   const pageSize = 2000;
   let offset = 0;
   let totalRows = Number.POSITIVE_INFINITY;
   const rows: Array<Record<string, unknown>> = [];
+  const cap = Math.max(500, maxRows);
 
-  while (offset < totalRows) {
+  while (offset < totalRows && rows.length < cap) {
     const payload = await request<CounterfactualData>(`/jobs/${jobId}/counterfactual?offset=${offset}&limit=${pageSize}`);
     const data = payload.data;
     totalRows = Number(data.total_rows || 0);
     const pageRows = Array.isArray(data.rows) ? data.rows : [];
+    if (rows.length + pageRows.length > cap) {
+      rows.push(...pageRows.slice(0, cap - rows.length));
+      break;
+    }
     rows.push(...pageRows);
     if (pageRows.length === 0) break;
     offset += pageRows.length;

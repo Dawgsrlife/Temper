@@ -220,6 +220,8 @@ export const LABEL_ICON_MAP: Record<string, React.FC<IconProps>> = {
   WINNER: BrilliantIcon,
   DRAW: ForcedIcon,
   RESIGN: MistakeIcon,
+  TIMEOUT: TimeoutIcon,
+  ABANDON: MistakeIcon,
 };
 
 /* ── Map bias types to icons ── */

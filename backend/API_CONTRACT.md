@@ -124,7 +124,7 @@ curl -X POST "http://127.0.0.1:8000/jobs/from-uploadthing" \
 ```
 
 ## 2.1c POST `/jobs/{job_id}/coach`
-Generate post-hoc coaching guidance via Vertex AI (Gemini). Does not alter deterministic engine outputs.
+Generate post-hoc coaching guidance via configured LLM provider (OpenRouter preferred; Gemini/Vertex fallback). Does not alter deterministic engine outputs.
 
 - Query params:
   - `force` (optional, default `false`)
@@ -179,6 +179,70 @@ Trade inspector example:
 ```bash
 curl "http://127.0.0.1:8000/jobs/<JOB_ID>/trade/21"
 ```
+
+## 2.1f POST `/jobs/{job_id}/trade/{trade_id}/coach`
+Generate per-trade post-hoc coach text using deterministic trade inspector payload as the immutable fact base.
+
+- Query params:
+  - `force` (optional, default `false`)
+- Preconditions:
+  - job exists
+  - job `execution_status=COMPLETED`
+- Failure codes:
+  - `404 JOB_NOT_FOUND`
+  - `404 TRADE_NOT_FOUND`
+  - `409 JOB_NOT_READY`
+  - `409 TRADE_COACH_FAILED` (prior failed artifact exists)
+  - `502 TRADE_COACH_GENERATION_FAILED`
+
+Example:
+```bash
+curl -X POST "http://127.0.0.1:8000/jobs/<JOB_ID>/trade/42/coach?force=false"
+```
+
+## 2.1g GET `/jobs/{job_id}/trade/{trade_id}/coach`
+Read per-trade coach artifact.
+
+- Success: `200` with `data.trade_coach`
+- Failure codes:
+  - `404 TRADE_COACH_NOT_FOUND`
+  - `409 TRADE_COACH_FAILED` (includes `data.trade_coach_error`)
+
+## 2.1h POST `/jobs/{job_id}/trade/{trade_id}/voice`
+Generate trade-coach narration audio (`audio/mpeg`) from the cached/generated trade coach text.
+
+- Query params:
+  - `provider=auto|elevenlabs|gradium` (default `auto`)
+  - `force` (optional, default `false`)
+- Notes:
+  - `provider=auto` tries ElevenLabs first and falls back to Gradium TTS.
+  - If prior trade-coach generation failed, calling with `force=true` retries coach generation before voice synthesis.
+- Failure codes:
+  - `404 TRADE_COACH_NOT_FOUND`
+  - `409 JOB_NOT_READY`
+  - `502 TRADE_VOICE_GENERATION_FAILED`
+
+Example:
+```bash
+curl -X POST "http://127.0.0.1:8000/jobs/<JOB_ID>/trade/42/voice?provider=auto&force=false"
+```
+
+## 2.1i GET `/jobs/{job_id}/trade/{trade_id}/voice`
+Read generated voice artifact stream.
+
+- Success: `200` with `Content-Type: audio/mpeg`
+- Failure codes:
+  - `404 TRADE_VOICE_NOT_FOUND`
+  - `409 TRADE_VOICE_FAILED`
+
+## 2.1j POST `/jobs/{job_id}/journal/transcribe`
+Transcribe short journal audio snippets (Gradium STT seam) and persist transcript artifact under the job.
+
+- Request: `multipart/form-data` with `audio` file part
+- Success: `200` with transcript payload
+- Failure codes:
+  - `400 INVALID_AUDIO`
+  - `502 TRANSCRIPTION_FAILED`
 
 ## 2.1 POST `/jobs`
 Create a new analysis job. Non-blocking by default; client polls job endpoints.

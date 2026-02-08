@@ -34,6 +34,34 @@ from app.risk import (
 )
 
 
+def _first_present_column(df: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    lookup = {str(col).strip().lower(): str(col) for col in df.columns}
+    for candidate in candidates:
+        resolved = lookup.get(candidate.strip().lower())
+        if resolved:
+            return resolved
+    return None
+
+
+def _infer_dayfirst(raw: pd.DataFrame) -> bool:
+    """
+    Infer dayfirst parsing mode using the timestamp column with the fewest NaT values.
+    Tie-breaker preserves prior behavior (dayfirst=False).
+    """
+    ts_col = _first_present_column(raw, ("timestamp ist", "timestamp", "time", "date", "datetime"))
+    if not ts_col:
+        return False
+
+    series = raw[ts_col]
+    parsed_false = pd.to_datetime(series, dayfirst=False, errors="coerce")
+    parsed_true = pd.to_datetime(series, dayfirst=True, errors="coerce")
+    nat_false = int(parsed_false.isna().sum())
+    nat_true = int(parsed_true.isna().sum())
+    if nat_true < nat_false:
+        return True
+    return False
+
+
 def _sha256_file(path: Path) -> str:
     digest = sha256()
     with path.open("rb") as handle:
@@ -260,8 +288,10 @@ def main() -> int:
         stage_seconds["load_and_repeat"] = time.perf_counter() - raw_start
         _assert_not_timed_out(t0)
 
+        dayfirst = _infer_dayfirst(raw)
+
         quality_start = time.perf_counter()
-        data_quality = evaluate_data_quality(raw, dayfirst=False)
+        data_quality = evaluate_data_quality(raw, dayfirst=dayfirst)
         stage_seconds["data_quality"] = time.perf_counter() - quality_start
         _assert_not_timed_out(t0)
 
@@ -270,7 +300,7 @@ def main() -> int:
             raw.to_csv(working_input, index=False)
 
             normalize_start = time.perf_counter()
-            normalized = DataNormalizer(source=working_input, dayfirst=False).normalize()
+            normalized = DataNormalizer(source=working_input, dayfirst=dayfirst).normalize()
             stage_seconds["normalize"] = time.perf_counter() - normalize_start
         _assert_not_timed_out(t0)
 

@@ -14,9 +14,52 @@ interface EquityChartProps {
     onTradeClick?: (index: number) => void;
     /** Full analysis — when present, draws the hypothetical disciplined P/L path */
     analysis?: SessionAnalysis;
+    /** Backend-authoritative timeline series (preferred when available). */
+    backendSeries?: {
+        points: Array<{
+            timestamp: string;
+            actual_equity: number;
+            simulated_equity: number;
+            policy_replay_equity?: number;
+        }>;
+    };
 }
 
-export default function EquityChart({ trades, currentIndex, height = 400, onTradeClick, analysis }: EquityChartProps) {
+type ReplayPoint = { time: number; actual: number; replay: number };
+
+function sanitizeReplayPoints(points: ReplayPoint[]): ReplayPoint[] {
+    const sorted = points
+        .filter((p) => Number.isFinite(p.time) && Number.isFinite(p.actual) && Number.isFinite(p.replay))
+        .sort((a, b) => a.time - b.time);
+    if (sorted.length === 0) return [];
+
+    const normalized: ReplayPoint[] = [];
+    let lastTime = Number.NEGATIVE_INFINITY;
+    for (const point of sorted) {
+        const nextTime = point.time <= lastTime ? lastTime + 1 : point.time;
+        normalized.push({ ...point, time: nextTime });
+        lastTime = nextTime;
+    }
+    return normalized;
+}
+
+function sanitizeLinePoints(points: Array<{ time: number; value: number }>): Array<{ time: number; value: number }> {
+    const sorted = points
+        .filter((p) => Number.isFinite(p.time) && Number.isFinite(p.value))
+        .sort((a, b) => a.time - b.time);
+    if (sorted.length === 0) return [];
+
+    const normalized: Array<{ time: number; value: number }> = [];
+    let lastTime = Number.NEGATIVE_INFINITY;
+    for (const point of sorted) {
+        const nextTime = point.time <= lastTime ? lastTime + 1 : point.time;
+        normalized.push({ time: nextTime, value: point.value });
+        lastTime = nextTime;
+    }
+    return normalized;
+}
+
+export default function EquityChart({ trades, currentIndex, height = 400, onTradeClick, analysis, backendSeries }: EquityChartProps) {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const [focusedTrade, setFocusedTrade] = useState<TradeWithAnalysis | null>(null);
@@ -57,13 +100,29 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
 
         chartRef.current = chart;
 
-        // Build equity curve
-        const equityData = trades.map((trade) => ({
-            time: Math.floor(new Date(trade.timestamp).getTime() / 1000) as Time,
-            value: trade.sessionPnL,
-        }));
+        const backendPoints = sanitizeReplayPoints((backendSeries?.points || [])
+            .map((point) => {
+                const unix = Math.floor(new Date(point.timestamp).getTime() / 1000);
+                if (!Number.isFinite(unix) || !Number.isFinite(point.actual_equity)) return null;
+                return {
+                    time: unix,
+                    actual: point.actual_equity,
+                    replay: point.policy_replay_equity ?? point.simulated_equity,
+                };
+            })
+            .filter((point): point is ReplayPoint => Boolean(point)));
 
-        if (equityData.length > 0) {
+        // Build equity curve (backend-authoritative when available).
+        const equityData = sanitizeLinePoints(
+            backendPoints.length > 0
+                ? backendPoints.map((point) => ({ time: point.time, value: point.actual }))
+                : trades.map((trade) => ({
+                    time: Math.floor(new Date(trade.timestamp).getTime() / 1000),
+                    value: trade.sessionPnL,
+                })),
+        ).map((p) => ({ time: p.time as Time, value: p.value }));
+
+        if (equityData.length > 0 && backendPoints.length === 0) {
             const firstTime = new Date(trades[0].timestamp).getTime();
             equityData.unshift({
                 time: Math.floor((firstTime - 60000) / 1000) as Time,
@@ -119,16 +178,43 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
         }
 
         // ── Hypothetical disciplined replay line (purple, dashed) ──
-        const replay = analysis?.report?.disciplinedReplay;
-        // Map UUID-based removedTradeIds → index-based set via session trades
-        const removedIndices = new Set<number>();
-        if (replay && replay.removedTradeIds.length > 0 && analysis?.report?.session?.trades) {
-            const idSet = new Set(replay.removedTradeIds);
-            for (const st of analysis.report.session.trades) {
-                if (idSet.has(st.id)) removedIndices.add(st.index);
+        if (backendPoints.length > 1) {
+            const disciplinedSeries = chart.addSeries(LineSeries, {
+                color: 'rgba(168, 85, 247, 0.75)',
+                lineWidth: 2,
+                lineStyle: 2,
+                crosshairMarkerVisible: false,
+                priceLineVisible: false,
+                lastValueVisible: false,
+            });
+            const replayData = sanitizeLinePoints(
+                backendPoints.map((point) => ({ time: point.time, value: point.replay })),
+            ).map((p) => ({ time: p.time as Time, value: p.value }));
+            disciplinedSeries.setData(replayData);
+        } else {
+            const replay = analysis?.report?.disciplinedReplay;
+            // Map UUID-based removedTradeIds → index-based set via session trades
+            const removedIndices = new Set<number>();
+            if (replay && replay.removedTradeIds.length > 0 && analysis?.report?.session?.trades) {
+                const idSet = new Set(replay.removedTradeIds);
+                for (const st of analysis.report.session.trades) {
+                    if (idSet.has(st.id)) removedIndices.add(st.index);
+                }
             }
-        }
-        if (replay && removedIndices.size > 0) {
+            if (!(replay && removedIndices.size > 0)) {
+                chart.timeScale().fitContent();
+                const handleResize = () => {
+                    if (chartContainerRef.current) {
+                        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+                    }
+                };
+                window.addEventListener('resize', handleResize);
+
+                return () => {
+                    window.removeEventListener('resize', handleResize);
+                    chart.remove();
+                };
+            }
             const disciplinedSeries = chart.addSeries(LineSeries, {
                 color: 'rgba(168, 85, 247, 0.75)',   // purple-500
                 lineWidth: 2,
@@ -158,7 +244,10 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                 });
             });
 
-            disciplinedSeries.setData(disciplinedData);
+            const normalizedDisciplinedData = sanitizeLinePoints(
+                disciplinedData.map((point) => ({ time: Number(point.time), value: point.value })),
+            ).map((p) => ({ time: p.time as Time, value: p.value }));
+            disciplinedSeries.setData(normalizedDisciplinedData);
 
             // Add markers for removed trades (ghost markers in purple, lower opacity)
             const removedMarkers = trades
@@ -226,7 +315,7 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
             window.removeEventListener('resize', handleResize);
             chart.remove();
         };
-    }, [trades, currentIndex, height, onTradeClick]);
+    }, [trades, currentIndex, height, onTradeClick, analysis, backendSeries]);
 
     const resetZoom = useCallback(() => {
         chartRef.current?.timeScale().fitContent();

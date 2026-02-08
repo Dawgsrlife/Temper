@@ -31,14 +31,19 @@ import {
 import { getLabelIcon, BIAS_ICON_MAP } from '@/components/icons/CoachIcons';
 import TemperMascot from '@/components/mascot/TemperMascot';
 import {
+  BackendApiError,
   fetchTradeCoach,
   fetchTradeInspector,
   fetchTradesFromJob,
+  fetchJobSeries,
   generateTradeVoice,
   generateTradeCoach,
   getTradeVoiceUrl,
   getLastJobId,
+  type SeriesData,
 } from '@/lib/backend-bridge';
+import { loadCachedSessionTrades, saveCachedSessionTrades } from '@/lib/session-cache';
+import { SessionLoadState, isSessionReady } from '@/lib/session-load-state';
 
 const EquityChart = dynamic(() => import('@/components/EquityChart'), {
   ssr: false,
@@ -78,6 +83,8 @@ const labelStyles: Record<string, { bg: string; text: string; border: string }> 
   WINNER: { bg: 'bg-yellow-300/20', text: 'text-yellow-300', border: 'ring-yellow-300/30' },
   DRAW: { bg: 'bg-slate-400/10', text: 'text-slate-400', border: 'ring-slate-400/20' },
   RESIGN: { bg: 'bg-stone-500/15', text: 'text-stone-500', border: 'ring-stone-500/25' },
+  TIMEOUT: { bg: 'bg-red-500/15', text: 'text-red-500', border: 'ring-red-500/25' },
+  ABANDON: { bg: 'bg-zinc-500/15', text: 'text-zinc-400', border: 'ring-zinc-500/25' },
 };
 
 type SortMode = 'chronological' | 'profit_desc' | 'profit_asc' | 'impact_desc';
@@ -103,6 +110,7 @@ const BIAS_RULEBOOK: Array<{ key: BiasFilter; title: string; definition: string 
       'Triggered by asymmetric payoff behavior: losses dominate wins in magnitude or discipline rules must cap downside.',
   },
 ];
+const MAX_LOCAL_ANALYSIS_TRADES = 250000;
 
 export default function AnalyzePage() {
   const container = useRef<HTMLDivElement>(null);
@@ -110,7 +118,9 @@ export default function AnalyzePage() {
   const [mounted, setMounted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [trades, setTrades] = useState<Trade[]>(demoTrades);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [sessionLoadState, setSessionLoadState] = useState<SessionLoadState>('idle');
+  const [sessionLoadMessage, setSessionLoadMessage] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ coach: true, biases: true });
   const [modalTrade, setModalTrade] = useState<TradeWithAnalysis | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,6 +140,7 @@ export default function AnalyzePage() {
   const [tradeVoicePlaying, setTradeVoicePlaying] = useState(false);
   const [tradeVoiceError, setTradeVoiceError] = useState<string | null>(null);
   const tradeVoiceRef = useRef<HTMLAudioElement | null>(null);
+  const [backendSeries, setBackendSeries] = useState<SeriesData | null>(null);
 
   const toggleSection = (key: string) =>
     setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -147,12 +158,27 @@ export default function AnalyzePage() {
       setTradeVoiceError('Trade voice requires a completed backend job.');
       return;
     }
+    const sourceTrade = trades[currentTrade.index];
+    const tradeId = typeof sourceTrade?.tradeId === 'number' ? sourceTrade.tradeId : currentTrade.index;
 
     setTradeVoiceLoading(true);
     setTradeVoiceError(null);
     try {
-      await generateTradeVoice(activeJobId, currentTrade.index, 'elevenlabs', false);
-      const audio = new Audio(`${getTradeVoiceUrl(activeJobId, currentTrade.index)}?ts=${Date.now()}`);
+      try {
+        await generateTradeVoice(activeJobId, tradeId, 'auto', false);
+      } catch (error) {
+        if (
+          error instanceof BackendApiError &&
+          ['TRADE_COACH_FAILED', 'TRADE_VOICE_FAILED', 'TRADE_VOICE_GENERATION_FAILED'].includes(
+            error.code || '',
+          )
+        ) {
+          await generateTradeVoice(activeJobId, tradeId, 'auto', true);
+        } else {
+          throw error;
+        }
+      }
+      const audio = new Audio(`${getTradeVoiceUrl(activeJobId, tradeId)}?ts=${Date.now()}`);
       audio.onended = () => setTradeVoicePlaying(false);
       audio.onerror = () => {
         setTradeVoicePlaying(false);
@@ -163,7 +189,11 @@ export default function AnalyzePage() {
       await audio.play();
       setTradeVoicePlaying(true);
     } catch (error) {
-      setTradeVoiceError(error instanceof Error ? error.message : 'Voice generation failed.');
+      if (error instanceof BackendApiError) {
+        setTradeVoiceError(error.code ? `${error.message} (${error.code})` : error.message);
+      } else {
+        setTradeVoiceError(error instanceof Error ? error.message : 'Voice generation failed.');
+      }
       setTradeVoicePlaying(false);
     } finally {
       setTradeVoiceLoading(false);
@@ -172,30 +202,53 @@ export default function AnalyzePage() {
 
   useEffect(() => {
     let cancelled = false;
-    const savedSession = localStorage.getItem('temper_current_session');
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession);
-        if (Array.isArray(parsed) && parsed.length > 0) setTrades(parsed);
-      } catch { /* ignore */ }
-    }
-
     const jobId = searchParams.get('jobId') || getLastJobId();
     if (jobId) {
       setActiveJobId(jobId);
-      void fetchTradesFromJob(jobId)
-        .then((rows) => {
+      setSessionLoadState('loading_backend');
+      setSessionLoadMessage(null);
+      void Promise.all([fetchTradesFromJob(jobId), fetchJobSeries(jobId, 2000)])
+        .then(([rows, series]) => {
           if (cancelled) return;
           if (rows.length > 0) {
             setTrades(rows);
-            localStorage.setItem('temper_current_session', JSON.stringify(rows));
+            setBackendSeries(series);
+            saveCachedSessionTrades(rows);
+            setSessionLoadState('ready_backend');
+            setSessionLoadMessage(null);
+          } else {
+            setSessionLoadState('failed');
+            setSessionLoadMessage('Backend returned an empty trade set for this session.');
           }
         })
         .catch(() => {
-          // Keep existing local session fallback for UI continuity.
+          if (cancelled) return;
+          const parsed = loadCachedSessionTrades();
+          if (parsed && parsed.length > 0) {
+            setTrades(parsed);
+            setBackendSeries(null);
+            setSessionLoadState('fallback_local');
+            setSessionLoadMessage('Backend unavailable — local fallback active.');
+            return;
+          }
+          setTrades(demoTrades);
+          setBackendSeries(null);
+          setSessionLoadState('fallback_local');
+          setSessionLoadMessage('Backend unavailable — local fallback active.');
         });
     } else {
       setActiveJobId(null);
+      setBackendSeries(null);
+      const parsed = loadCachedSessionTrades();
+      if (parsed && parsed.length > 0) {
+        setTrades(parsed);
+        setSessionLoadState('fallback_local');
+        setSessionLoadMessage('No backend job selected — showing local session cache.');
+        return;
+      }
+      setTrades(demoTrades);
+      setSessionLoadState('fallback_local');
+      setSessionLoadMessage('No backend job selected — showing local demo data.');
     }
 
     return () => {
@@ -205,7 +258,33 @@ export default function AnalyzePage() {
 
   useEffect(() => () => stopTradeVoice(), []);
 
-  const analysis = useMemo(() => analyzeSession(trades), [trades]);
+  const analysisInputTrades = useMemo(
+    () => (trades.length > MAX_LOCAL_ANALYSIS_TRADES ? trades.slice(0, MAX_LOCAL_ANALYSIS_TRADES) : trades),
+    [trades],
+  );
+
+  const analysis = useMemo(() => {
+    const computed = analyzeSession(analysisInputTrades);
+    const patchedTrades = computed.trades.map((trade, idx) => {
+      const sourceTrade = analysisInputTrades[idx];
+      if (!sourceTrade) return trade;
+      const nextTrade = { ...trade };
+      if (sourceTrade.serverLabel) {
+        nextTrade.label = sourceTrade.serverLabel;
+      }
+      if (sourceTrade.reasonLabel && !nextTrade.reasons.includes(sourceTrade.reasonLabel)) {
+        nextTrade.reasons = [...nextTrade.reasons, sourceTrade.reasonLabel];
+      }
+      if (sourceTrade.blockedReason && !nextTrade.reasons.includes(`blocked:${sourceTrade.blockedReason}`)) {
+        nextTrade.reasons = [...nextTrade.reasons, `blocked:${sourceTrade.blockedReason}`];
+      }
+      return nextTrade;
+    });
+    return {
+      ...computed,
+      trades: patchedTrades,
+    };
+  }, [analysisInputTrades]);
   const assetOptions = useMemo(
     () => ['ALL', ...Array.from(new Set(analysis.trades.map((t) => t.asset))).sort()],
     [analysis.trades],
@@ -275,7 +354,8 @@ export default function AnalyzePage() {
 
       setTradeCoachLoading(true);
       setTradeCoachError(null);
-      const tradeId = currentTrade.index;
+      const sourceTrade = trades[currentTrade.index];
+      const tradeId = typeof sourceTrade?.tradeId === 'number' ? sourceTrade.tradeId : currentTrade.index;
       try {
         const inspectorData = await fetchTradeInspector(activeJobId, tradeId);
         const inspectorTrade = inspectorData.trade;
@@ -292,9 +372,20 @@ export default function AnalyzePage() {
       }
 
       try {
-        let coachData = await fetchTradeCoach(activeJobId, tradeId);
-        if (!coachData.trade_coach) {
-          coachData = await generateTradeCoach(activeJobId, tradeId);
+        let coachData;
+        try {
+          coachData = await fetchTradeCoach(activeJobId, tradeId);
+        } catch (error) {
+          if (error instanceof BackendApiError && error.code === 'TRADE_COACH_NOT_FOUND') {
+            coachData = await generateTradeCoach(activeJobId, tradeId, false);
+          } else if (error instanceof BackendApiError && error.code === 'TRADE_COACH_FAILED') {
+            coachData = await generateTradeCoach(activeJobId, tradeId, true);
+          } else {
+            throw error;
+          }
+        }
+        if (!coachData?.trade_coach) {
+          coachData = await generateTradeCoach(activeJobId, tradeId, true);
         }
         if (cancelled) return;
         const tradeCoach = coachData.trade_coach as Record<string, unknown> | undefined;
@@ -308,7 +399,10 @@ export default function AnalyzePage() {
         }
       } catch (error) {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : 'Trade coach unavailable';
+          const message =
+            error instanceof BackendApiError
+              ? (error.code ? `${error.message} (${error.code})` : error.message)
+              : (error instanceof Error ? error.message : 'Trade coach unavailable');
           setTradeCoachText(null);
           setTradeCoachFix(null);
           setTradeCoachError(message);
@@ -322,7 +416,9 @@ export default function AnalyzePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeJobId, currentTrade]);
+  }, [activeJobId, currentTrade, trades]);
+
+  const showLoadingState = !isSessionReady(sessionLoadState) || trades.length === 0;
 
   const navigateByStep = (step: number) => {
     if (activeIndices.length === 0) return;
@@ -393,6 +489,16 @@ export default function AnalyzePage() {
 
   return (
     <div ref={container} className="flex h-full flex-col overflow-hidden bg-[#0a0a0a] text-white">
+      {showLoadingState ? (
+        <div className="flex h-full flex-col items-center justify-center gap-3 text-gray-300">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-400/40 border-t-emerald-400" />
+          <p className="text-sm font-medium">
+            {sessionLoadState === 'loading_backend' ? 'Loading backend session...' : 'Loading session...'}
+          </p>
+          {sessionLoadMessage && <p className="text-xs text-gray-500">{sessionLoadMessage}</p>}
+        </div>
+      ) : (
+      <>
       {/* ── Header ── */}
       <header className="page-header flex shrink-0 items-center justify-between border-b border-white/[0.08] px-6 py-4">
         <div className="flex items-center gap-4">
@@ -438,6 +544,11 @@ export default function AnalyzePage() {
           </span>
         </div>
       </header>
+      {(sessionLoadState === 'fallback_local' || sessionLoadState === 'failed') && sessionLoadMessage && (
+        <div className="border-b border-yellow-400/20 bg-yellow-400/10 px-6 py-2 text-xs text-yellow-200">
+          {sessionLoadMessage}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* ─── Chart + Timeline ─── */}
@@ -449,6 +560,7 @@ export default function AnalyzePage() {
                 currentIndex={currentIndex}
                 height={400}
                 analysis={analysis}
+                backendSeries={backendSeries || undefined}
               />
             )}
             <p className="mt-3 text-xs text-gray-500">
@@ -1095,6 +1207,8 @@ export default function AnalyzePage() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -34,6 +34,7 @@ import {
   getUserId,
   setLastJobId,
 } from '@/lib/backend-bridge';
+import { saveCachedSessionTrades } from '@/lib/session-cache';
 
 function generateSessionTitle(): string {
   const titleCounter = parseInt(localStorage.getItem('temper_session_counter') || '0', 10);
@@ -54,6 +55,7 @@ export default function UploadPage() {
     biases: string[];
     profile: TraderProfile;
   } | null>(null);
+  const [completedJobId, setCompletedJobId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [inputMode, setInputMode] = useState<'file' | 'manual'>('file');
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -192,12 +194,13 @@ export default function UploadPage() {
       const file = new File([csv], 'manual_trades.csv', { type: 'text/csv' });
       const jobId = await createAndWaitForJob(file, getUserId());
       setLastJobId(jobId);
+      setCompletedJobId(jobId);
 
       // Prefer backend-normalized rows when available.
       const backendTrades = await fetchTradesFromJob(jobId);
       const effectiveTrades = backendTrades.length > 0 ? backendTrades : validTrades;
       generateSessionTitle();
-      localStorage.setItem('temper_current_session', JSON.stringify(effectiveTrades));
+      saveCachedSessionTrades(effectiveTrades);
       setIsUploading(false);
       setIsComplete(true);
       await resultFromBackend(jobId, effectiveTrades);
@@ -283,11 +286,12 @@ export default function UploadPage() {
 
       const jobId = await createAndWaitForJob(backendFile, getUserId());
       setLastJobId(jobId);
+      setCompletedJobId(jobId);
       const backendTrades = await fetchTradesFromJob(jobId);
       const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
 
       generateSessionTitle();
-      localStorage.setItem('temper_current_session', JSON.stringify(effectiveTrades));
+      saveCachedSessionTrades(effectiveTrades);
       setIsUploading(false);
       setIsComplete(true);
       await resultFromBackend(jobId, effectiveTrades);
@@ -342,7 +346,7 @@ export default function UploadPage() {
 
     // Immediately analyze and store in localStorage so it reflects everywhere
     generateSessionTitle();
-    localStorage.setItem('temper_current_session', JSON.stringify(trades));
+    saveCachedSessionTrades(trades);
     const csv = tradesToCsv(trades);
     const sampleFile = new File([csv], `${profile}.csv`, { type: 'text/csv' });
     setIsUploading(true);
@@ -350,9 +354,10 @@ export default function UploadPage() {
     void createAndWaitForJob(sampleFile, getUserId(), { maxSeconds: 600 })
       .then(async (jobId) => {
         setLastJobId(jobId);
+        setCompletedJobId(jobId);
         const backendTrades = await fetchTradesFromJob(jobId);
         const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
-        localStorage.setItem('temper_current_session', JSON.stringify(effectiveTrades));
+        saveCachedSessionTrades(effectiveTrades);
         setIsComplete(true);
         await resultFromBackend(jobId, effectiveTrades, profile);
       })
@@ -526,7 +531,7 @@ export default function UploadPage() {
                   )}
 
                   <Link
-                    href="/dashboard/analyze"
+                    href={completedJobId ? `/dashboard/analyze?jobId=${encodeURIComponent(completedJobId)}` : '/dashboard/analyze'}
                     className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110"
                   >
                     View Full Analysis
@@ -692,7 +697,7 @@ export default function UploadPage() {
                     </div>
                   </div>
                   <Link
-                    href="/dashboard/analyze"
+                    href={completedJobId ? `/dashboard/analyze?jobId=${encodeURIComponent(completedJobId)}` : '/dashboard/analyze'}
                     className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110"
                   >
                     View Full Analysis

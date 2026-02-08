@@ -16,6 +16,7 @@ import {
 import { analyzeSession, Trade, SessionAnalysis, getRatingBracket } from '@/lib/biasDetector';
 import TemperMascot from '@/components/mascot/TemperMascot';
 import { fetchTradesFromJob, getLastJobId } from '@/lib/backend-bridge';
+import { loadCachedSessionTrades, saveCachedSessionTrades } from '@/lib/session-cache';
 
 /* ------------------------------------------------------------------ */
 /*  Score Ring                                                         */
@@ -111,23 +112,16 @@ export default function DashboardPage() {
     let cancelled = false;
     setMounted(true);
 
-    const savedSession = localStorage.getItem('temper_current_session');
-    if (savedSession) {
-      try {
-        const trades: Trade[] = JSON.parse(savedSession);
-        if (Array.isArray(trades) && trades.length > 0) {
-          setAnalysis(analyzeSession(trades));
-        }
-      } catch (e) {
-        console.error('Failed to parse session', e);
-      }
+    const cachedTrades = loadCachedSessionTrades();
+    if (cachedTrades && cachedTrades.length > 0) {
+      setAnalysis(analyzeSession(cachedTrades));
     } else {
       const lastJobId = getLastJobId();
       if (lastJobId) {
         void fetchTradesFromJob(lastJobId)
           .then((rows) => {
             if (cancelled || rows.length === 0) return;
-            localStorage.setItem('temper_current_session', JSON.stringify(rows));
+            saveCachedSessionTrades(rows);
             setAnalysis(analyzeSession(rows));
           })
           .catch((error) => {
