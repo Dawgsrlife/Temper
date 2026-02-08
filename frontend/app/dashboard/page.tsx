@@ -266,7 +266,7 @@ export default function DashboardPage() {
             <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
               Bias Detector
             </p>
-            <h1 className="font-coach text-3xl font-semibold tracking-tight text-white md:text-4xl">
+            <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl brand-gradient-text">
               Welcome back
             </h1>
             <p className="text-sm text-gray-500">
@@ -285,7 +285,7 @@ export default function DashboardPage() {
         {/* ──────────────── Main Grid ──────────────── */}
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Score Card — big discipline ring */}
-          <div className="score-card flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.04] border border-white/[0.06] p-8 lg:row-span-2">
+          <div className="score-card score-pulse flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.04] border border-white/[0.06] p-8 lg:row-span-2">
             <div className="flex items-center gap-2 text-gray-500">
               <Shield className="h-4 w-4" />
               <span className="text-xs font-semibold uppercase tracking-wider">
@@ -483,10 +483,11 @@ export default function DashboardPage() {
         {/* ──────────────── 3D Explorer CTA ──────────────── */}
         <Link
           href="/dashboard/explorer"
-          className="explorer-cta group relative flex items-center justify-between overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.06] p-6 transition-all hover:bg-white/[0.06] hover:border-emerald-400/20"
+          className="explorer-cta group relative flex items-center justify-between overflow-hidden rounded-2xl bg-white/[0.04] border border-emerald-400/10 p-6 transition-all hover:bg-white/[0.06] hover:border-emerald-400/30"
         >
-          {/* Decorative glow */}
+          {/* Decorative glow — teal and gold from the logo */}
           <div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full bg-emerald-500/10 blur-3xl transition-all group-hover:bg-emerald-500/20" />
+          <div className="pointer-events-none absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-amber-500/5 blur-3xl transition-all group-hover:bg-amber-500/10" />
 
           <div className="relative flex items-center gap-5">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 ring-1 ring-emerald-400/20">

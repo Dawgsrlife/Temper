@@ -14,10 +14,10 @@ import {
   SkipForward,
   Brain,
   AlertTriangle,
-  Target,
   Zap,
 } from 'lucide-react';
 import { analyzeSession, Trade, TradeWithAnalysis, TRADER_PROFILES, TraderProfile } from '@/lib/biasDetector';
+import { getLabelIcon, BIAS_ICON_MAP } from '@/components/icons/CoachIcons';
 
 const EquityChart = dynamic(() => import('@/components/EquityChart'), { ssr: false });
 
@@ -222,7 +222,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
       <div className="flex flex-1 overflow-hidden">
         {/* Main Content */}
-        <div className="flex flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <div className="chart-panel flex-1 p-6">
             {mounted && (
               <EquityChart
@@ -253,6 +253,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       }`}
                   >
                     <div className="flex items-center gap-2">
+                      {(() => { const Icon = getLabelIcon(trade.label); return <Icon size={16} />; })()}
                       <span className={`text-xs font-bold ${isActive ? style.text : 'text-white'}`}>
                         {trade.label}
                       </span>
@@ -274,14 +275,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         {/* Analysis Panel */}
-        <div className="analysis-panel w-96 shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[#0a0a0a]">
+        <div className="analysis-panel w-80 max-w-[320px] shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.06] bg-[#0a0a0a]">
           <div className="p-6">
             <div className="trade-detail space-y-6">
               {/* Label Badge */}
               <div>
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">Trade Rating</p>
                 <div className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 ${labelStyles[currentTrade.label].bg} ${labelStyles[currentTrade.label].text} ring-1 ${labelStyles[currentTrade.label].border}`}>
-                  <Target className="h-4 w-4" />
+                  {(() => { const Icon = getLabelIcon(currentTrade.label); return <Icon size={20} />; })()}
                   <span className="text-sm font-bold">{currentTrade.label}</span>
                 </div>
               </div>
@@ -321,12 +322,18 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                     <AlertTriangle className="h-4 w-4 text-red-400" />
                     <p className="text-sm font-semibold text-red-400">Bias Detected</p>
                   </div>
-                  {currentTrade.biases.map((bias, i) => (
-                    <div key={i} className="mt-2">
-                      <p className="text-xs font-medium text-white">{bias.type.replace('_', ' ')}</p>
-                      <p className="mt-1 text-xs text-gray-500">{bias.description}</p>
-                    </div>
-                  ))}
+                  {currentTrade.biases.map((bias, i) => {
+                    const BiasIcon = BIAS_ICON_MAP[bias.type];
+                    return (
+                      <div key={i} className="mt-2 flex items-start gap-2">
+                        {BiasIcon && <BiasIcon size={18} className="mt-0.5 shrink-0" />}
+                        <div>
+                          <p className="text-xs font-medium text-white">{bias.type.replace('_', ' ')}</p>
+                          <p className="mt-1 text-xs text-gray-500">{bias.description}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -336,7 +343,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   <Brain className="h-4 w-4 text-emerald-400" />
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Coach Notes</p>
                 </div>
-                <p className="text-sm leading-relaxed text-white">
+                <p className="text-sm leading-relaxed text-white break-words">
                   {currentTrade.annotation}
                 </p>
               </div>

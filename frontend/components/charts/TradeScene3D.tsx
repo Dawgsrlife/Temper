@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -40,26 +40,27 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
     const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
     const controlsRef = useRef<OrbitControls | null>(null);
     const meshesRef = useRef<THREE.Mesh[]>([]);
-    const linesRef = useRef<THREE.Group | null>(null);
     const raycasterRef = useRef(new THREE.Raycaster());
     const mouseRef = useRef(new THREE.Vector2());
     const hoveredRef = useRef<THREE.Mesh | null>(null);
+    const frameRef = useRef<number>(0);
+    const isAnimatingRef = useRef(false);
+    const [selectedTrade, setSelectedTrade] = useState<TradeNode | null>(null);
     const [hoveredTrade, setHoveredTrade] = useState<TradeNode | null>(null);
     const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
-    const frameRef = useRef<number>(0);
 
     useEffect(() => {
         if (!containerRef.current) return;
         const container = containerRef.current;
 
-        // Scene setup
+        // Scene
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0a0a0a);
-        scene.fog = new THREE.FogExp2(0x0a0a0a, 0.02);
+        scene.fog = new THREE.FogExp2(0x0a0a0a, 0.015);
         sceneRef.current = scene;
 
         const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
-        camera.position.set(0, 5, 20);
+        camera.position.set(0, 8, 22);
         cameraRef.current = camera;
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -74,37 +75,32 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
         controls.maxDistance = 50;
-        controls.minDistance = 5;
+        controls.minDistance = 3;
         controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.5;
+        controls.autoRotateSpeed = 0.4;
         controlsRef.current = controls;
 
         // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-        scene.add(ambientLight);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+        const ptLight1 = new THREE.PointLight(0x06d6a0, 2, 60);
+        ptLight1.position.set(12, 12, 12);
+        scene.add(ptLight1);
+        const ptLight2 = new THREE.PointLight(0xef476f, 1.5, 50);
+        ptLight2.position.set(-10, -5, -10);
+        scene.add(ptLight2);
+        const ptLight3 = new THREE.PointLight(0xf59e0b, 0.8, 40);
+        ptLight3.position.set(0, 15, 0);
+        scene.add(ptLight3);
 
-        const pointLight1 = new THREE.PointLight(0x06d6a0, 2, 50);
-        pointLight1.position.set(10, 10, 10);
-        scene.add(pointLight1);
+        // Grid
+        const grid = new THREE.GridHelper(40, 40, 0x1a1a1a, 0x111111);
+        grid.position.y = -3;
+        scene.add(grid);
 
-        const pointLight2 = new THREE.PointLight(0xef476f, 1.5, 50);
-        pointLight2.position.set(-10, -5, -10);
-        scene.add(pointLight2);
-
-        const pointLight3 = new THREE.PointLight(0x3b82f6, 1, 40);
-        pointLight3.position.set(0, 15, 0);
-        scene.add(pointLight3);
-
-        // Grid helper
-        const gridHelper = new THREE.GridHelper(40, 40, 0x1a1a1a, 0x111111);
-        gridHelper.position.y = -3;
-        scene.add(gridHelper);
-
-        // Create trade nodes as spheres distributed in 3D space based on time and P/L
+        // Create trade meshes
         const meshes: THREE.Mesh[] = [];
         const lineGroup = new THREE.Group();
         scene.add(lineGroup);
-        linesRef.current = lineGroup;
 
         if (trades.length > 0) {
             const timeRange = trades.length > 1
@@ -117,7 +113,6 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                     ? (new Date(trade.timestamp).getTime() - new Date(trades[0].timestamp).getTime()) / timeRange
                     : 0.5;
 
-                // Position: X = time progression, Y = session P/L, Z = variation by asset
                 const x = (timeFrac - 0.5) * 20;
                 const y = (trade.sessionPnL / maxAbsPnL) * 6;
                 const assetHash = trade.asset.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
@@ -141,7 +136,7 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                 scene.add(mesh);
                 meshes.push(mesh);
 
-                // Glow ring for biased trades
+                // Bias ring
                 if (trade.biases.length > 0) {
                     const ringGeo = new THREE.RingGeometry(size + 0.1, size + 0.2, 32);
                     const ringMat = new THREE.MeshBasicMaterial({
@@ -156,47 +151,73 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                     scene.add(ring);
                 }
 
-                // Connection lines between consecutive trades
+                // Connecting lines
                 if (i > 0) {
-                    const prevMesh = meshes[i - 1];
-                    const points = [prevMesh.position.clone(), mesh.position.clone()];
+                    const prev = meshes[i - 1];
+                    const points = [prev.position.clone(), mesh.position.clone()];
                     const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
                     const lineMat = new THREE.LineBasicMaterial({
                         color: trade.pnl >= 0 ? 0x06d6a0 : 0xef476f,
                         transparent: true,
                         opacity: 0.2,
                     });
-                    const line = new THREE.Line(lineGeo, lineMat);
-                    lineGroup.add(line);
+                    lineGroup.add(new THREE.Line(lineGeo, lineMat));
                 }
             });
         }
 
         meshesRef.current = meshes;
 
-        // Particles background
-        const particleCount = 500;
-        const particleGeo = new THREE.BufferGeometry();
-        const positions = new Float32Array(particleCount * 3);
-        for (let i = 0; i < particleCount * 3; i++) {
-            positions[i] = (Math.random() - 0.5) * 60;
-        }
-        particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        const particleMat = new THREE.PointsMaterial({
-            color: 0x06d6a0,
-            size: 0.05,
-            transparent: true,
-            opacity: 0.4,
-        });
-        const particles = new THREE.Points(particleGeo, particleMat);
+        // Particles
+        const pCount = 400;
+        const pGeo = new THREE.BufferGeometry();
+        const pos = new Float32Array(pCount * 3);
+        for (let i = 0; i < pCount * 3; i++) pos[i] = (Math.random() - 0.5) * 60;
+        pGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const pMat = new THREE.PointsMaterial({ color: 0x06d6a0, size: 0.05, transparent: true, opacity: 0.35 });
+        const particles = new THREE.Points(pGeo, pMat);
         scene.add(particles);
+
+        // Smooth camera fly-to function
+        const flyToNode = (mesh: THREE.Mesh) => {
+            if (isAnimatingRef.current) return;
+            isAnimatingRef.current = true;
+            controls.autoRotate = false;
+
+            const targetPos = mesh.position.clone();
+            const offset = new THREE.Vector3(2, 1.5, 4);
+            const destination = targetPos.clone().add(offset);
+
+            const startPos = camera.position.clone();
+            const startTarget = controls.target.clone();
+            const endTarget = targetPos.clone();
+
+            let progress = 0;
+            const duration = 60; // frames
+
+            const animateCamera = () => {
+                progress++;
+                const t = Math.min(progress / duration, 1);
+                // Smooth ease-in-out
+                const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+                camera.position.lerpVectors(startPos, destination, ease);
+                controls.target.lerpVectors(startTarget, endTarget, ease);
+                controls.update();
+
+                if (t < 1) {
+                    requestAnimationFrame(animateCamera);
+                } else {
+                    isAnimatingRef.current = false;
+                }
+            };
+            animateCamera();
+        };
 
         // Animation loop
         const animate = () => {
             frameRef.current = requestAnimationFrame(animate);
             controls.update();
-
-            // Gentle particle rotation
             particles.rotation.y += 0.0003;
 
             // Raycasting for hover
@@ -221,12 +242,12 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                 container.style.cursor = 'default';
             }
 
-            // Pulse biased node rings
-            meshes.forEach((mesh) => {
-                const trade = mesh.userData.trade as TradeNode;
-                if (trade.biases.length > 0) {
-                    const scale = 1 + Math.sin(Date.now() * 0.003 + mesh.userData.index) * 0.05;
-                    mesh.scale.setScalar(scale);
+            // Pulse biased rings
+            meshes.forEach(m => {
+                const t = m.userData.trade as TradeNode;
+                if (t.biases.length > 0) {
+                    const sc = 1 + Math.sin(Date.now() * 0.003 + m.userData.index) * 0.05;
+                    if (hoveredRef.current !== m) m.scale.setScalar(sc);
                 }
             });
 
@@ -242,9 +263,9 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
             setHoverPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
 
             raycasterRef.current.setFromCamera(mouseRef.current, camera);
-            const intersects = raycasterRef.current.intersectObjects(meshes);
-            if (intersects.length > 0) {
-                const trade = intersects[0].object.userData.trade as TradeNode;
+            const hits = raycasterRef.current.intersectObjects(meshes);
+            if (hits.length > 0) {
+                const trade = hits[0].object.userData.trade as TradeNode;
                 setHoveredTrade(trade);
                 onNodeHover?.(trade);
             } else {
@@ -259,18 +280,18 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
             mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
             raycasterRef.current.setFromCamera(mouseRef.current, camera);
-            const intersects = raycasterRef.current.intersectObjects(meshes);
-            if (intersects.length > 0) {
-                const trade = intersects[0].object.userData.trade as TradeNode;
+            const hits = raycasterRef.current.intersectObjects(meshes);
+            if (hits.length > 0) {
+                const trade = hits[0].object.userData.trade as TradeNode;
+                setSelectedTrade(trade);
                 onNodeClick?.(trade);
-                controls.autoRotate = false;
+                flyToNode(hits[0].object as THREE.Mesh);
             }
         };
 
         container.addEventListener('mousemove', handleMouseMove);
         container.addEventListener('click', handleClick);
 
-        // Resize handler
         const handleResize = () => {
             camera.aspect = container.clientWidth / container.clientHeight;
             camera.updateProjectionMatrix();
@@ -285,9 +306,7 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
             window.removeEventListener('resize', handleResize);
             renderer.dispose();
             controls.dispose();
-            if (container.contains(renderer.domElement)) {
-                container.removeChild(renderer.domElement);
-            }
+            if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
         };
     }, [trades, onNodeClick, onNodeHover]);
 
@@ -295,7 +314,7 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
         <div className={`relative ${className || ''}`}>
             <div ref={containerRef} className="h-full w-full" />
 
-            {/* Hover tooltip */}
+            {/* Floating hover tooltip */}
             {hoveredTrade && (
                 <div
                     className="pointer-events-none absolute z-20 rounded-xl bg-[#1a1a1a]/95 p-3 shadow-2xl ring-1 ring-white/10 backdrop-blur-md"
@@ -303,9 +322,7 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                 >
                     <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs font-bold text-white">{hoveredTrade.asset}</span>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                            hoveredTrade.pnl >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-                        }`}>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${hoveredTrade.pnl >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
                             {hoveredTrade.pnl >= 0 ? '+' : ''}{hoveredTrade.pnl.toFixed(0)}
                         </span>
                     </div>
@@ -313,10 +330,56 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                         {hoveredTrade.side} · {hoveredTrade.label} · {hoveredTrade.timestamp.split(' ')[1]?.slice(0, 5)}
                     </p>
                     {hoveredTrade.biases.length > 0 && (
-                        <p className="text-[10px] text-red-400 mt-1">
-                            ⚠ {hoveredTrade.biases.join(', ')}
-                        </p>
+                        <p className="text-[10px] text-red-400 mt-1">⚠ {hoveredTrade.biases.join(', ')}</p>
                     )}
+                </div>
+            )}
+
+            {/* Selected trade info card (top-right) */}
+            {selectedTrade && (
+                <div className="absolute top-4 right-4 w-72 rounded-xl bg-[#141414]/95 p-4 shadow-2xl ring-1 ring-white/10 backdrop-blur-md z-30">
+                    <div className="flex items-center justify-between mb-3">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                            selectedTrade.label === 'BRILLIANT' || selectedTrade.label === 'EXCELLENT' || selectedTrade.label === 'GOOD'
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : selectedTrade.label === 'BLUNDER' || selectedTrade.label === 'MISTAKE'
+                                    ? 'bg-red-500/20 text-red-400'
+                                    : 'bg-yellow-500/20 text-yellow-400'
+                        }`}>{selectedTrade.label}</span>
+                        <button onClick={() => setSelectedTrade(null)} className="cursor-pointer rounded-md p-1 text-gray-500 hover:bg-white/10 hover:text-white transition-colors">
+                            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                        <div className="rounded-lg bg-white/[0.06] p-2">
+                            <p className="text-[9px] text-gray-500 uppercase">Asset</p>
+                            <p className="text-sm font-bold text-white">{selectedTrade.asset}</p>
+                        </div>
+                        <div className="rounded-lg bg-white/[0.06] p-2">
+                            <p className="text-[9px] text-gray-500 uppercase">Side</p>
+                            <p className={`text-sm font-bold ${selectedTrade.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{selectedTrade.side}</p>
+                        </div>
+                        <div className="rounded-lg bg-white/[0.06] p-2">
+                            <p className="text-[9px] text-gray-500 uppercase">P/L</p>
+                            <p className={`text-sm font-bold ${selectedTrade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {selectedTrade.pnl >= 0 ? '+' : ''}${Math.abs(selectedTrade.pnl).toFixed(0)}
+                            </p>
+                        </div>
+                        <div className="rounded-lg bg-white/[0.06] p-2">
+                            <p className="text-[9px] text-gray-500 uppercase">Session P/L</p>
+                            <p className={`text-sm font-bold ${selectedTrade.sessionPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {selectedTrade.sessionPnL >= 0 ? '+' : ''}${Math.abs(selectedTrade.sessionPnL).toFixed(0)}
+                            </p>
+                        </div>
+                    </div>
+                    {selectedTrade.biases.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                            {selectedTrade.biases.map((b, i) => (
+                                <span key={i} className="rounded-full bg-red-400/10 px-2 py-0.5 text-[10px] font-medium text-red-400">⚠ {b.replace('_', ' ')}</span>
+                            ))}
+                        </div>
+                    )}
+                    <p className="text-[10px] text-gray-500">{selectedTrade.timestamp}</p>
                 </div>
             )}
 
@@ -333,9 +396,8 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                 </div>
             </div>
 
-            {/* Controls hint */}
-            <div className="absolute top-4 right-4 rounded-lg bg-[#0a0a0a]/80 px-3 py-2 backdrop-blur-sm ring-1 ring-white/5">
-                <p className="text-[10px] text-gray-500">Drag to rotate · Scroll to zoom · Click node for details</p>
+            <div className="absolute top-4 left-4 rounded-lg bg-[#0a0a0a]/80 px-3 py-2 backdrop-blur-sm ring-1 ring-white/5">
+                <p className="text-[10px] text-gray-500">Drag to rotate · Scroll to zoom · Click node to focus</p>
             </div>
         </div>
     );

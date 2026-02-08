@@ -76,9 +76,9 @@ export default function DashboardLayout({
               <Link
                 key={item.name}
                 href={item.href}
-                className={`sidebar-nav-item group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${isActive
-                    ? 'bg-white/[0.08] text-white shadow-sm'
-                    : 'text-gray-500 hover:bg-white/[0.04] hover:text-gray-300'
+                className={`sidebar-nav-item group flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${isActive
+                    ? 'bg-emerald-500/[0.08] text-white shadow-sm shadow-emerald-500/5'
+                    : 'text-gray-500 hover:bg-white/[0.06] hover:text-white'
                   }`}
               >
                 <item.icon className={`h-[18px] w-[18px] transition-colors ${isActive ? 'text-emerald-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
@@ -97,7 +97,7 @@ export default function DashboardLayout({
               <p className="truncate text-sm font-medium text-white">Alex Trader</p>
               <p className="truncate text-[11px] text-gray-500">Pro Plan</p>
             </div>
-            <Link href="/login" className="text-gray-600 hover:text-red-400 transition-colors">
+              <Link href="/login" className="cursor-pointer text-gray-600 hover:text-red-400 transition-colors">
               <LogOut className="h-4 w-4" />
             </Link>
           </div>

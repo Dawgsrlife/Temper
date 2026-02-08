@@ -14,7 +14,11 @@ import {
   Save,
   BookOpen,
   Trash2,
+  TrendingUp,
+  TrendingDown,
+  Activity,
 } from 'lucide-react';
+import { Trade, analyzeSession, SessionAnalysis } from '@/lib/biasDetector';
 
 type Mood = 'Calm' | 'Anxious' | 'Greedy' | 'Revenge';
 
@@ -34,18 +38,28 @@ const MOODS: { type: Mood; icon: typeof Smile; color: string; bg: string }[] = [
   { type: 'Revenge', icon: Frown, color: 'text-red-400', bg: 'bg-red-400/10 ring-red-400/20' },
 ];
 
-/* ── deterministic heatmap cell from entries ── */
+/* ── cumulative heatmap: blend followed + deviated per day ── */
 function buildHeatmap(entries: JournalEntry[]) {
-  const cells: { followed: boolean | null }[] = Array.from({ length: 30 }, () => ({ followed: null }));
+  const cells: { followed: number; deviated: number }[] = Array.from({ length: 30 }, () => ({ followed: 0, deviated: 0 }));
   entries.forEach((e) => {
     const dayAgo = Math.floor(
       (Date.now() - new Date(e.date).getTime()) / 86_400_000,
     );
     if (dayAgo >= 0 && dayAgo < 30) {
-      cells[29 - dayAgo] = { followed: e.followedPlan };
+      if (e.followedPlan) cells[29 - dayAgo].followed++;
+      else cells[29 - dayAgo].deviated++;
     }
   });
   return cells;
+}
+
+function heatmapColor(cell: { followed: number; deviated: number }): string {
+  const total = cell.followed + cell.deviated;
+  if (total === 0) return 'bg-white/[0.04]';
+  const ratio = cell.followed / total; // 1.0 = all followed, 0.0 = all deviated
+  if (ratio >= 0.8) return 'bg-emerald-400/70';
+  if (ratio >= 0.5) return 'bg-amber-400/60';
+  return 'bg-red-400/70';
 }
 
 export default function JournalPage() {
@@ -56,13 +70,25 @@ export default function JournalPage() {
   const [asset, setAsset] = useState('');
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [mounted, setMounted] = useState(false);
+  const [sessionSummary, setSessionSummary] = useState<SessionAnalysis | null>(null);
 
-  /* Load entries */
+  /* Load entries + today's session data */
   useEffect(() => {
     setMounted(true);
     const saved = localStorage.getItem('temper_journal_entries');
     if (saved) {
       try { setEntries(JSON.parse(saved)); } catch { /* ignore */ }
+    }
+
+    // Load uploaded session to show today's context
+    const savedSession = localStorage.getItem('temper_current_session');
+    if (savedSession) {
+      try {
+        const trades: Trade[] = JSON.parse(savedSession);
+        if (Array.isArray(trades) && trades.length > 0) {
+          setSessionSummary(analyzeSession(trades));
+        }
+      } catch { /* ignore */ }
     }
   }, []);
 
@@ -140,7 +166,7 @@ export default function JournalPage() {
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
             Reflection
           </p>
-          <h1 className="font-coach text-3xl font-semibold tracking-tight text-white md:text-4xl">
+          <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl brand-gradient-text">
             Smart Journal
           </h1>
           <p className="text-sm text-gray-500">
@@ -154,7 +180,7 @@ export default function JournalPage() {
             {/* Mood */}
             <section className="mood-section space-y-4">
               <h2 className="flex items-center gap-2 border-b border-white/[0.06] pb-2 text-sm font-semibold text-gray-400">
-                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-[10px] font-bold text-emerald-400">
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-500/10 text-[10px] font-bold text-amber-400">
                   1
                 </span>
                 Pre-Trade Mood
@@ -190,7 +216,7 @@ export default function JournalPage() {
             {/* Quick Log */}
             <section className="log-section space-y-4">
               <h2 className="flex items-center gap-2 border-b border-white/[0.06] pb-2 text-sm font-semibold text-gray-400">
-                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-[10px] font-bold text-emerald-400">
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-500/10 text-[10px] font-bold text-amber-400">
                   2
                 </span>
                 Quick Log
@@ -265,8 +291,48 @@ export default function JournalPage() {
             </section>
           </div>
 
-          {/* ═══ Right: Heatmap & Entries ═══ */}
+          {/* ═══ Right: Session Context + Heatmap & Entries ═══ */}
           <div className="space-y-8">
+            {/* Today's Session Context */}
+            {sessionSummary && (
+              <section className="rounded-2xl border border-emerald-400/10 bg-emerald-400/[0.03] p-5 space-y-4">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
+                  <Activity className="h-4 w-4" />
+                  Today&apos;s Session
+                </h2>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-xl bg-white/[0.04] p-3 text-center">
+                    <p className="text-[10px] text-gray-500">Trades</p>
+                    <p className="text-lg font-bold text-white">{sessionSummary.summary.totalTrades}</p>
+                  </div>
+                  <div className="rounded-xl bg-white/[0.04] p-3 text-center">
+                    <p className="text-[10px] text-gray-500">Net P/L</p>
+                    <p className={`text-lg font-bold ${sessionSummary.summary.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {sessionSummary.summary.netPnL >= 0 ? '+' : ''}${sessionSummary.summary.netPnL.toFixed(0)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-white/[0.04] p-3 text-center">
+                    <p className="text-[10px] text-gray-500">Score</p>
+                    <p className="text-lg font-bold text-white">{sessionSummary.disciplineScore}</p>
+                  </div>
+                </div>
+                {sessionSummary.biases.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {sessionSummary.biases.map((b, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 rounded-full bg-red-400/10 px-2.5 py-1 text-[10px] font-medium text-red-400">
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        {b.type.replace('_', ' ')}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {sessionSummary.recommendations.length > 0 && (
+                  <p className="text-xs text-gray-500 italic leading-relaxed">
+                    &ldquo;{sessionSummary.recommendations[0]}&rdquo;
+                  </p>
+                )}
+              </section>
+            )}
             {/* Heatmap */}
             <section className="heatmap-section rounded-2xl border border-white/[0.06] bg-white/[0.03] p-6">
               <div className="mb-5 flex items-center justify-between">
@@ -279,6 +345,9 @@ export default function JournalPage() {
                     <span className="h-2 w-2 rounded-sm bg-emerald-400" /> Followed
                   </span>
                   <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-sm bg-amber-400" /> Mixed
+                  </span>
+                  <span className="flex items-center gap-1">
                     <span className="h-2 w-2 rounded-sm bg-red-400" /> Deviated
                   </span>
                 </div>
@@ -288,14 +357,8 @@ export default function JournalPage() {
                 {heatmap.map((cell, i) => (
                   <div
                     key={i}
-                    className={`aspect-square rounded-md transition-all hover:scale-110 ${
-                      cell.followed === true
-                        ? 'bg-emerald-400/70'
-                        : cell.followed === false
-                          ? 'bg-red-400/70'
-                          : 'bg-white/[0.04]'
-                    }`}
-                    title={`Day ${i + 1}`}
+                    className={`aspect-square rounded-md transition-all hover:scale-110 ${heatmapColor(cell)}`}
+                    title={`Day ${i + 1}${cell.followed + cell.deviated > 0 ? ` · ${cell.followed} followed, ${cell.deviated} deviated` : ''}`}
                   />
                 ))}
               </div>

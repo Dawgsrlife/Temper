@@ -18,6 +18,7 @@ import Link from 'next/link';
 import {
   TRADER_PROFILES,
   TraderProfile,
+  Trade,
   parseCSV,
   analyzeSession,
 } from '@/lib/biasDetector';
@@ -102,8 +103,52 @@ export default function UploadPage() {
   };
 
   const loadSampleData = (profile: TraderProfile) => {
-    const mockFile = new File(['mock data'], `${profile}.csv`, { type: 'text/csv' });
-    setFile(mockFile);
+    // Generate real CSV data for each profile
+    const sampleTrades: Record<TraderProfile, Trade[]> = {
+      calm_trader: [
+        { timestamp: '2025-03-01 10:00:00', asset: 'NVDA', side: 'BUY', quantity: 50, pnl: 85 },
+        { timestamp: '2025-03-01 10:45:00', asset: 'NVDA', side: 'SELL', quantity: 50, pnl: 120 },
+        { timestamp: '2025-03-01 11:30:00', asset: 'AAPL', side: 'BUY', quantity: 100, pnl: 95 },
+        { timestamp: '2025-03-01 12:15:00', asset: 'AAPL', side: 'SELL', quantity: 100, pnl: 75 },
+        { timestamp: '2025-03-01 14:00:00', asset: 'MSFT', side: 'BUY', quantity: 80, pnl: 110 },
+        { timestamp: '2025-03-01 14:30:00', asset: 'MSFT', side: 'SELL', quantity: 80, pnl: 60 },
+      ],
+      revenge_trader: [
+        { timestamp: '2025-03-01 09:30:00', asset: 'TSLA', side: 'BUY', quantity: 100, pnl: -180 },
+        { timestamp: '2025-03-01 09:31:00', asset: 'TSLA', side: 'BUY', quantity: 200, pnl: -320 },
+        { timestamp: '2025-03-01 09:32:00', asset: 'TSLA', side: 'BUY', quantity: 400, pnl: -520 },
+        { timestamp: '2025-03-01 09:33:00', asset: 'TSLA', side: 'SELL', quantity: 700, pnl: -225 },
+        { timestamp: '2025-03-01 10:00:00', asset: 'AAPL', side: 'BUY', quantity: 100, pnl: 45 },
+        { timestamp: '2025-03-01 10:01:30', asset: 'AAPL', side: 'SELL', quantity: 100, pnl: -45 },
+      ],
+      overtrader: [
+        { timestamp: '2025-03-01 09:30:00', asset: 'AAPL', side: 'BUY', quantity: 50, pnl: 15 },
+        { timestamp: '2025-03-01 09:31:00', asset: 'MSFT', side: 'SELL', quantity: 60, pnl: -20 },
+        { timestamp: '2025-03-01 09:32:00', asset: 'NVDA', side: 'BUY', quantity: 70, pnl: 30 },
+        { timestamp: '2025-03-01 09:33:00', asset: 'TSLA', side: 'SELL', quantity: 80, pnl: -45 },
+        { timestamp: '2025-03-01 09:34:00', asset: 'AAPL', side: 'BUY', quantity: 90, pnl: 25 },
+        { timestamp: '2025-03-01 09:35:00', asset: 'MSFT', side: 'SELL', quantity: 100, pnl: -65 },
+        { timestamp: '2025-03-01 09:36:00', asset: 'NVDA', side: 'BUY', quantity: 110, pnl: 40 },
+        { timestamp: '2025-03-01 09:37:00', asset: 'TSLA', side: 'SELL', quantity: 120, pnl: -30 },
+        { timestamp: '2025-03-01 09:38:00', asset: 'AAPL', side: 'BUY', quantity: 130, pnl: 50 },
+        { timestamp: '2025-03-01 09:39:00', asset: 'MSFT', side: 'SELL', quantity: 140, pnl: -55 },
+      ],
+      loss_averse_trader: [
+        { timestamp: '2025-03-01 09:30:00', asset: 'AAPL', side: 'BUY', quantity: 100, pnl: -10 },
+        { timestamp: '2025-03-01 09:31:00', asset: 'AAPL', side: 'SELL', quantity: 100, pnl: -5 },
+        { timestamp: '2025-03-01 10:00:00', asset: 'NVDA', side: 'BUY', quantity: 50, pnl: 180 },
+        { timestamp: '2025-03-01 10:02:00', asset: 'NVDA', side: 'SELL', quantity: 25, pnl: 45 },
+        { timestamp: '2025-03-01 11:00:00', asset: 'MSFT', side: 'BUY', quantity: 80, pnl: 120 },
+        { timestamp: '2025-03-01 11:01:00', asset: 'MSFT', side: 'SELL', quantity: 40, pnl: 30 },
+      ],
+    };
+
+    const trades = sampleTrades[profile];
+    const csvHeader = 'timestamp,asset,side,quantity,pnl';
+    const csvRows = trades.map(t => `${t.timestamp},${t.asset},${t.side},${t.quantity},${t.pnl ?? 0}`);
+    const csvContent = [csvHeader, ...csvRows].join('\n');
+    const csvFile = new File([csvContent], `${profile}.csv`, { type: 'text/csv' });
+    setFile(csvFile);
   };
 
   const removeFile = () => {
