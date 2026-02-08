@@ -129,11 +129,13 @@ export default function UploadPage() {
   useGSAP(
     () => {
       if (!mounted) return;
+      gsap.set(['.page-header', '.upload-zone', '.sample-card', '.format-info', '.mode-tabs'], { clearProps: 'all' });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-      tl.from('.page-header', { y: 30, opacity: 0, duration: 0.6 })
-        .from('.upload-zone', { y: 40, opacity: 0, scale: 0.98, duration: 0.7 }, '-=0.3')
-        .from('.sample-card', { y: 20, opacity: 0, stagger: 0.1, duration: 0.4 }, '-=0.3')
-        .from('.format-info', { y: 20, opacity: 0, duration: 0.5 }, '-=0.2');
+      tl.fromTo('.page-header', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6 })
+        .fromTo('.mode-tabs', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.4 }, '-=0.3')
+        .fromTo('.upload-zone', { y: 40, autoAlpha: 0, scale: 0.98 }, { y: 0, autoAlpha: 1, scale: 1, duration: 0.7 }, '-=0.3')
+        .fromTo('.sample-card', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, stagger: 0.1, duration: 0.4 }, '-=0.3')
+        .fromTo('.format-info', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.2');
     },
     { scope: container, dependencies: [mounted] },
   );
@@ -278,13 +280,13 @@ export default function UploadPage() {
         </header>
 
         {/* Input Mode Tabs */}
-        <div className="flex gap-2">
+        <div className="mode-tabs flex gap-2">
           <button
             onClick={() => { setInputMode('file'); setIsComplete(false); setAnalysisResult(null); }}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+            className={`cursor-pointer flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
               inputMode === 'file'
                 ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400/20'
-                : 'bg-white/[0.04] text-gray-500 hover:text-white'
+                : 'bg-white/[0.07] text-gray-400 hover:text-white'
             }`}
           >
             <FileSpreadsheet className="h-4 w-4" />
@@ -292,10 +294,10 @@ export default function UploadPage() {
           </button>
           <button
             onClick={() => { setInputMode('manual'); setIsComplete(false); setAnalysisResult(null); }}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+            className={`cursor-pointer flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
               inputMode === 'manual'
                 ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400/20'
-                : 'bg-white/[0.04] text-gray-500 hover:text-white'
+                : 'bg-white/[0.07] text-gray-400 hover:text-white'
             }`}
           >
             <Table2 className="h-4 w-4" />
@@ -313,8 +315,8 @@ export default function UploadPage() {
             isDragging
               ? 'scale-[1.02] border-emerald-400 bg-emerald-400/5'
               : file
-                ? 'border-white/[0.10] bg-white/[0.04]'
-                : 'border-white/[0.08] bg-white/[0.03] hover:border-white/[0.12] hover:bg-white/[0.05]'
+                ? 'border-white/[0.12] bg-white/[0.06]'
+                : 'border-white/[0.10] bg-white/[0.05] hover:border-white/[0.15] hover:bg-white/[0.07]'
           }`}
         >
           {isDragging && (
@@ -342,7 +344,7 @@ export default function UploadPage() {
             </div>
           ) : (
             <div className="relative z-10 space-y-5">
-              <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-[#0a0a0a]/60 p-4">
+              <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#111]/80 p-4">
                 <div className="flex items-center gap-3">
                   <div className="rounded-lg bg-emerald-400/10 p-2.5">
                     <FileText className="h-5 w-5 text-emerald-400" />
@@ -372,17 +374,17 @@ export default function UploadPage() {
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-2xl font-bold text-yellow-400">{analysisResult.score}</p>
-                      <p className="text-[10px] text-gray-500">Discipline Score</p>
+                      <p className="text-[10px] text-gray-400">Discipline Score</p>
                     </div>
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-2xl font-bold text-orange-400">{analysisResult.biases.length}</p>
-                      <p className="text-[10px] text-gray-500">Biases Detected</p>
+                      <p className="text-[10px] text-gray-400">Biases Detected</p>
                     </div>
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-sm font-bold text-white">{TRADER_PROFILES[analysisResult.profile].name}</p>
-                      <p className="text-[10px] text-gray-500">Profile Match</p>
+                      <p className="text-[10px] text-gray-400">Profile Match</p>
                     </div>
                   </div>
 
@@ -412,7 +414,7 @@ export default function UploadPage() {
                 <button
                   onClick={handleUpload}
                   disabled={isUploading}
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110 disabled:opacity-50"
+                  className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isUploading ? (
                     <>
@@ -433,7 +435,7 @@ export default function UploadPage() {
         ) : (
           /* ═══ Manual Trade Entry Form ═══ */
           <div className="upload-zone space-y-4">
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-5">
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.06] p-5">
               {!isComplete ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -464,7 +466,7 @@ export default function UploadPage() {
                   {/* Trade rows */}
                   <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
                     {manualTrades.map((trade, idx) => (
-                      <div key={trade.id} className="grid gap-2 sm:grid-cols-[1fr_80px_70px_80px_80px_80px_80px_32px] items-center rounded-xl bg-white/[0.04] p-2.5 ring-1 ring-white/[0.06]">
+                      <div key={trade.id} className="grid gap-2 sm:grid-cols-[1fr_80px_70px_80px_80px_80px_80px_32px] items-center rounded-xl bg-white/[0.06] p-2.5 ring-1 ring-white/[0.08]">
                         <input
                           type="datetime-local"
                           value={trade.timestamp}
@@ -553,17 +555,17 @@ export default function UploadPage() {
                     <span className="text-sm font-semibold">Analysis Complete</span>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-2xl font-bold text-yellow-400">{analysisResult.score}</p>
-                      <p className="text-[10px] text-gray-500">Temper Score</p>
+                      <p className="text-[10px] text-gray-400">Temper Score</p>
                     </div>
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-2xl font-bold text-orange-400">{analysisResult.biases.length}</p>
-                      <p className="text-[10px] text-gray-500">Biases Detected</p>
+                      <p className="text-[10px] text-gray-400">Biases Detected</p>
                     </div>
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-sm font-bold text-white">{TRADER_PROFILES[analysisResult.profile].name}</p>
-                      <p className="text-[10px] text-gray-500">Profile Match</p>
+                      <p className="text-[10px] text-gray-400">Profile Match</p>
                     </div>
                   </div>
                   <Link
@@ -590,7 +592,7 @@ export default function UploadPage() {
                 <button
                   key={profile}
                   onClick={() => loadSampleData(profile)}
-                  className="sample-card group flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-left transition-all hover:bg-white/[0.06] hover:border-white/[0.10]"
+                  className="sample-card group flex cursor-pointer items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-left transition-all hover:bg-white/[0.09] hover:border-white/[0.12]"
                 >
                   <div
                     className="h-3 w-3 rounded-full"
@@ -608,7 +610,7 @@ export default function UploadPage() {
         )}
 
         {/* Format Info */}
-        <div className="format-info space-y-3 rounded-2xl border border-white/[0.06] bg-white/[0.04] p-5">
+        <div className="format-info space-y-3 rounded-2xl border border-white/[0.08] bg-white/[0.06] p-5">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
             Supported Formats
           </p>

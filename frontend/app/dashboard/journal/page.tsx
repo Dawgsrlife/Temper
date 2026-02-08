@@ -103,12 +103,13 @@ export default function JournalPage() {
   useGSAP(
     () => {
       if (!mounted) return;
+      gsap.set(['.journal-header', '.mood-section', '.log-section', '.heatmap-section', '.entries-section'], { clearProps: 'all' });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-      tl.from('.journal-header', { y: 30, opacity: 0, duration: 0.5 })
-        .from('.mood-section', { y: 25, opacity: 0, duration: 0.5 }, '-=0.3')
-        .from('.log-section', { y: 25, opacity: 0, duration: 0.5 }, '-=0.3')
-        .from('.heatmap-section', { y: 25, opacity: 0, duration: 0.5 }, '-=0.3')
-        .from('.entries-section', { y: 25, opacity: 0, duration: 0.5 }, '-=0.3');
+      tl.fromTo('.journal-header', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 })
+        .fromTo('.mood-section', { y: 25, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3')
+        .fromTo('.log-section', { y: 25, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3')
+        .fromTo('.heatmap-section', { y: 25, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3')
+        .fromTo('.entries-section', { y: 25, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3');
     },
     { scope: container, dependencies: [mounted] },
   );
@@ -169,7 +170,7 @@ export default function JournalPage() {
           <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl brand-gradient-text">
             Smart Journal
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-400">
             Track your psychology before and after every trade.
           </p>
         </header>
@@ -179,7 +180,7 @@ export default function JournalPage() {
           <div className="space-y-8">
             {/* Mood */}
             <section className="mood-section space-y-4">
-              <h2 className="flex items-center gap-2 border-b border-white/[0.06] pb-2 text-sm font-semibold text-gray-400">
+              <h2 className="flex items-center gap-2 border-b border-white/[0.08] pb-2 text-sm font-semibold text-gray-400">
                 <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-500/10 text-[10px] font-bold text-amber-400">
                   1
                 </span>
@@ -190,20 +191,20 @@ export default function JournalPage() {
                   <button
                     key={m.type}
                     onClick={() => setSelectedMood(m.type)}
-                    className={`flex flex-col items-center justify-center gap-2 rounded-2xl border p-4 transition-all ${
+                    className={`flex flex-col items-center justify-center gap-2 rounded-2xl border p-4 transition-all cursor-pointer ${
                       selectedMood === m.type
                         ? `${m.bg} border-transparent ring-1`
-                        : 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06]'
+                        : 'border-white/[0.08] bg-white/[0.05] hover:bg-white/[0.08]'
                     }`}
                   >
                     <m.icon
                       className={`h-6 w-6 ${
-                        selectedMood === m.type ? m.color : 'text-gray-500'
+                        selectedMood === m.type ? m.color : 'text-gray-400'
                       }`}
                     />
                     <span
                       className={`text-xs font-semibold ${
-                        selectedMood === m.type ? 'text-white' : 'text-gray-500'
+                        selectedMood === m.type ? 'text-white' : 'text-gray-400'
                       }`}
                     >
                       {m.type}
@@ -215,7 +216,7 @@ export default function JournalPage() {
 
             {/* Quick Log */}
             <section className="log-section space-y-4">
-              <h2 className="flex items-center gap-2 border-b border-white/[0.06] pb-2 text-sm font-semibold text-gray-400">
+              <h2 className="flex items-center gap-2 border-b border-white/[0.08] pb-2 text-sm font-semibold text-gray-400">
                 <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-500/10 text-[10px] font-bold text-amber-400">
                   2
                 </span>
@@ -224,7 +225,7 @@ export default function JournalPage() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-gray-500">
+                  <label className="mb-1.5 block text-xs font-medium text-gray-400">
                     Asset Ticker
                   </label>
                   <input
@@ -232,21 +233,21 @@ export default function JournalPage() {
                     value={asset}
                     onChange={(e) => setAsset(e.target.value.toUpperCase())}
                     placeholder="e.g. AAPL"
-                    className="w-full rounded-xl border border-white/[0.06] bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-gray-600 focus:border-emerald-400/40 focus:ring-1 focus:ring-emerald-400/30"
+                    className="w-full rounded-xl border border-white/[0.08] bg-white/[0.06] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-gray-500 focus:border-emerald-400/40 focus:ring-1 focus:ring-emerald-400/30"
                   />
                 </div>
 
                 <div>
-                  <span className="mb-2 block text-xs font-medium text-gray-500">
+                  <span className="mb-2 block text-xs font-medium text-gray-400">
                     Did you follow your plan?
                   </span>
                   <div className="flex gap-3">
                     <button
                       onClick={() => setFollowedPlan(true)}
-                      className={`flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all ${
+                      className={`flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all cursor-pointer ${
                         followedPlan === true
                           ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-400'
-                          : 'border-white/[0.06] bg-white/[0.03] text-gray-500 hover:bg-white/[0.06]'
+                          : 'border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08]'
                       }`}
                     >
                       <CheckCircle2 className="h-4 w-4" />
@@ -254,10 +255,10 @@ export default function JournalPage() {
                     </button>
                     <button
                       onClick={() => setFollowedPlan(false)}
-                      className={`flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all ${
+                      className={`flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all cursor-pointer ${
                         followedPlan === false
                           ? 'border-red-400/30 bg-red-400/10 text-red-400'
-                          : 'border-white/[0.06] bg-white/[0.03] text-gray-500 hover:bg-white/[0.06]'
+                          : 'border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08]'
                       }`}
                     >
                       <XCircle className="h-4 w-4" />
@@ -267,7 +268,7 @@ export default function JournalPage() {
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-gray-500">
+                  <label className="mb-1.5 block text-xs font-medium text-gray-400">
                     Notes (Optional)
                   </label>
                   <textarea
@@ -275,14 +276,14 @@ export default function JournalPage() {
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="What triggered your decision?"
                     rows={3}
-                    className="w-full resize-none rounded-xl border border-white/[0.06] bg-white/[0.04] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-gray-600 focus:border-emerald-400/40 focus:ring-1 focus:ring-emerald-400/30"
+                    className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.06] px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-gray-500 focus:border-emerald-400/40 focus:ring-1 focus:ring-emerald-400/30"
                   />
                 </div>
 
                 <button
                   onClick={handleSave}
                   disabled={!selectedMood || followedPlan === null}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3.5 text-sm font-bold text-black transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3.5 text-sm font-bold text-black transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
                 >
                   <Save className="h-4 w-4" />
                   Log Entry
@@ -301,18 +302,18 @@ export default function JournalPage() {
                   Today&apos;s Session
                 </h2>
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-xl bg-white/[0.04] p-3 text-center">
-                    <p className="text-[10px] text-gray-500">Trades</p>
+                  <div className="rounded-xl bg-white/[0.06] p-3 text-center">
+                    <p className="text-[10px] text-gray-400">Trades</p>
                     <p className="text-lg font-bold text-white">{sessionSummary.summary.totalTrades}</p>
                   </div>
-                  <div className="rounded-xl bg-white/[0.04] p-3 text-center">
-                    <p className="text-[10px] text-gray-500">Net P/L</p>
+                  <div className="rounded-xl bg-white/[0.06] p-3 text-center">
+                    <p className="text-[10px] text-gray-400">Net P/L</p>
                     <p className={`text-lg font-bold ${sessionSummary.summary.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       {sessionSummary.summary.netPnL >= 0 ? '+' : ''}${sessionSummary.summary.netPnL.toFixed(0)}
                     </p>
                   </div>
-                  <div className="rounded-xl bg-white/[0.04] p-3 text-center">
-                    <p className="text-[10px] text-gray-500">Score</p>
+                  <div className="rounded-xl bg-white/[0.06] p-3 text-center">
+                    <p className="text-[10px] text-gray-400">Score</p>
                     <p className="text-lg font-bold text-white">{sessionSummary.disciplineScore}</p>
                   </div>
                 </div>
@@ -327,7 +328,7 @@ export default function JournalPage() {
                   </div>
                 )}
                 {sessionSummary.recommendations.length > 0 && (
-                  <p className="text-xs text-gray-500 italic leading-relaxed">
+                  <p className="text-xs text-gray-400 italic leading-relaxed">
                     &ldquo;{sessionSummary.recommendations[0]}&rdquo;
                   </p>
                 )}
@@ -344,7 +345,7 @@ export default function JournalPage() {
                 {sessionSummary.coachResponse.journalPrompts.length > 0 && (
                   <div className="space-y-2.5">
                     {sessionSummary.coachResponse.journalPrompts.map((prompt, i) => (
-                      <div key={i} className="flex gap-2.5 rounded-xl bg-white/[0.04] p-3">
+                      <div key={i} className="flex gap-2.5 rounded-xl bg-white/[0.06] p-3">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-400/20 text-[9px] font-bold text-purple-400 mt-0.5">
                           {i + 1}
                         </span>
@@ -378,13 +379,13 @@ export default function JournalPage() {
               </section>
             )}
             {/* Heatmap */}
-            <section className="heatmap-section rounded-2xl border border-white/[0.06] bg-white/[0.03] p-6">
+            <section className="heatmap-section rounded-2xl border border-white/[0.08] bg-white/[0.05] p-6">
               <div className="mb-5 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
                   <Calendar className="h-4 w-4 text-emerald-400" />
                   Discipline Heatmap
                 </h2>
-                <div className="flex items-center gap-3 text-[10px] text-gray-500">
+                <div className="flex items-center gap-3 text-[10px] text-gray-400">
                   <span className="flex items-center gap-1">
                     <span className="h-2 w-2 rounded-sm bg-emerald-400" /> Followed
                   </span>
@@ -407,22 +408,22 @@ export default function JournalPage() {
                 ))}
               </div>
 
-              <p className="mt-3 text-center text-[10px] text-gray-600">
+              <p className="mt-3 text-center text-[10px] text-gray-500">
                 Last 30 days
               </p>
             </section>
 
             {/* Recent logs */}
             <section className="entries-section space-y-4">
-              <h2 className="flex items-center gap-2 border-b border-white/[0.06] pb-2 text-sm font-semibold text-gray-400">
+              <h2 className="flex items-center gap-2 border-b border-white/[0.08] pb-2 text-sm font-semibold text-gray-400">
                 <BookOpen className="h-4 w-4" />
                 Recent Logs
               </h2>
 
               {entries.length === 0 ? (
-                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-8 text-center">
-                  <BookOpen className="mx-auto mb-2 h-8 w-8 text-gray-600" />
-                  <p className="text-sm text-gray-500">
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.05] p-8 text-center">
+                  <BookOpen className="mx-auto mb-2 h-8 w-8 text-gray-500" />
+                  <p className="text-sm text-gray-400">
                     No entries yet — log your first mood above.
                   </p>
                 </div>
@@ -433,7 +434,7 @@ export default function JournalPage() {
                     return (
                       <div
                         key={entry.id}
-                        className="group flex items-start gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 transition-all hover:bg-white/[0.06]"
+                        className="group flex items-start gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.05] p-4 transition-all hover:bg-white/[0.08]"
                       >
                         <div
                           className={`mt-0.5 rounded-full p-1.5 ${
@@ -453,7 +454,7 @@ export default function JournalPage() {
                             <span className="text-sm font-bold text-white">
                               {entry.asset || 'General'}
                             </span>
-                            <span className="text-[10px] text-gray-500">
+                            <span className="text-[10px] text-gray-400">
                               {new Date(entry.date).toLocaleTimeString([], {
                                 hour: '2-digit',
                                 minute: '2-digit',
@@ -462,20 +463,20 @@ export default function JournalPage() {
                           </div>
                           <div className="mt-1">
                             <span
-                              className={`inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium ${moodMeta?.color ?? 'text-gray-400'}`}
+                              className={`inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium ${moodMeta?.color ?? 'text-gray-400'}`}
                             >
                               {entry.mood}
                             </span>
                           </div>
                           {entry.notes && (
-                            <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
+                            <p className="mt-1.5 text-xs leading-relaxed text-gray-400">
                               {entry.notes}
                             </p>
                           )}
                         </div>
                         <button
                           onClick={() => deleteEntry(entry.id)}
-                          className="rounded-lg p-1.5 text-gray-600 opacity-0 transition-all hover:bg-red-400/10 hover:text-red-400 group-hover:opacity-100"
+                          className="cursor-pointer rounded-lg p-1.5 text-gray-500 opacity-0 transition-all hover:bg-red-400/10 hover:text-red-400 group-hover:opacity-100"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>

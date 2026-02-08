@@ -83,12 +83,13 @@ export default function AnalyzePage() {
   useGSAP(
     () => {
       if (!mounted) return;
+      gsap.set(['.page-header', '.chart-panel', '.timeline-bar', '.analysis-panel', '.summary-cards'], { clearProps: 'all' });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-      tl.from('.page-header', { y: 30, opacity: 0, duration: 0.6 })
-        .from('.chart-panel', { y: 40, opacity: 0, duration: 0.7 }, '-=0.3')
-        .from('.timeline-bar', { y: 20, opacity: 0, duration: 0.5 }, '-=0.3')
-        .from('.analysis-panel', { x: 30, opacity: 0, duration: 0.6 }, '-=0.4')
-        .from('.summary-cards', { y: 20, opacity: 0, stagger: 0.1, duration: 0.4 }, '-=0.3');
+      tl.fromTo('.page-header', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6 })
+        .fromTo('.chart-panel', { y: 40, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.7 }, '-=0.3')
+        .fromTo('.timeline-bar', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3')
+        .fromTo('.analysis-panel', { x: 30, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: 0.6 }, '-=0.4')
+        .fromTo('.summary-cards', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, stagger: 0.1, duration: 0.4 }, '-=0.3');
     },
     { scope: container, dependencies: [mounted] },
   );
@@ -97,7 +98,7 @@ export default function AnalyzePage() {
   useGSAP(
     () => {
       if (!mounted) return;
-      gsap.from('.trade-detail', { opacity: 0, y: 10, duration: 0.3, ease: 'power2.out' });
+      gsap.fromTo('.trade-detail', { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.3, ease: 'power2.out' });
     },
     { dependencies: [currentIndex, mounted] },
   );
@@ -128,18 +129,18 @@ export default function AnalyzePage() {
   return (
     <div ref={container} className="flex h-[calc(100vh-3.5rem)] flex-col bg-[#0a0a0a] text-white md:h-screen">
       {/* ── Header ── */}
-      <header className="page-header flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
+      <header className="page-header flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard"
-            className="flex items-center gap-2 text-sm text-gray-500 transition-colors hover:text-white"
+            className="flex items-center gap-2 text-sm text-gray-400 transition-colors hover:text-white cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div className="h-4 w-px bg-white/10" />
           <div>
             <h1 className="font-coach text-lg font-bold text-white">Session Analysis</h1>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-400">
               {analysis.trades.length} trades
             </p>
           </div>
@@ -147,27 +148,27 @@ export default function AnalyzePage() {
 
         {/* Playback */}
         <div className="flex items-center gap-3">
-          <div className="mr-4 hidden text-xs text-gray-600 sm:block">
-            <kbd className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-gray-400">←</kbd>{' '}
-            <kbd className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-gray-400">→</kbd>{' '}
+          <div className="mr-4 hidden text-xs text-gray-500 sm:block">
+            <kbd className="rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-gray-400">←</kbd>{' '}
+            <kbd className="rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-gray-400">→</kbd>{' '}
             navigate
           </div>
-          <button onClick={() => setCurrentIndex(0)} className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white">
+          <button onClick={() => setCurrentIndex(0)} className="cursor-pointer rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white">
             <SkipBack className="h-4 w-4" />
           </button>
-          <button onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))} disabled={currentIndex === 0} className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30">
+          <button onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))} disabled={currentIndex === 0} className="cursor-pointer rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed">
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <button onClick={() => setIsPlaying(!isPlaying)} className="rounded-xl bg-emerald-500 p-3 text-black transition-all hover:brightness-110">
+          <button onClick={() => setIsPlaying(!isPlaying)} className="cursor-pointer rounded-xl bg-emerald-500 p-3 text-black transition-all hover:brightness-110">
             {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           </button>
-          <button onClick={() => setCurrentIndex(Math.min(analysis.trades.length - 1, currentIndex + 1))} disabled={currentIndex >= analysis.trades.length - 1} className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30">
+          <button onClick={() => setCurrentIndex(Math.min(analysis.trades.length - 1, currentIndex + 1))} disabled={currentIndex >= analysis.trades.length - 1} className="cursor-pointer rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed">
             <ArrowRight className="h-4 w-4" />
           </button>
-          <button onClick={() => setCurrentIndex(analysis.trades.length - 1)} className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white">
+          <button onClick={() => setCurrentIndex(analysis.trades.length - 1)} className="cursor-pointer rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white">
             <SkipForward className="h-4 w-4" />
           </button>
-          <span className="ml-2 min-w-[60px] text-center font-mono text-sm text-gray-500">
+          <span className="ml-2 min-w-[60px] text-center font-mono text-sm text-gray-400">
             {currentIndex + 1} / {analysis.trades.length}
           </span>
         </div>
@@ -187,24 +188,42 @@ export default function AnalyzePage() {
           </div>
 
           {/* Timeline */}
-          <div className="timeline-bar border-t border-white/[0.06] p-4">
+          <div className="timeline-bar border-t border-white/[0.08] p-4">
             <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarColor: '#282828 transparent' }}>
-              {analysis.trades.map((trade, i) => {
-                const style = labelStyles[trade.label] || labelStyles.BOOK;
-                const isActive = i === currentIndex;
-                const isPast = i < currentIndex;
+              {(() => {
+                /* windowed rendering: show ±50 around current for large datasets */
+                const total = analysis.trades.length;
+                const WINDOW = 50;
+                const start = total > WINDOW * 2 ? Math.max(0, currentIndex - WINDOW) : 0;
+                const end = total > WINDOW * 2 ? Math.min(total, currentIndex + WINDOW) : total;
+                const visible = analysis.trades.slice(start, end);
                 return (
-                  <button
-                    key={i}
-                    onClick={() => setCurrentIndex(i)}
-                    className={`group relative flex-shrink-0 rounded-xl px-4 py-3 text-left transition-all ${
-                      isActive
-                        ? `${style.bg} ring-2 ${style.border}`
-                        : isPast
-                          ? 'bg-white/[0.06]'
-                          : 'bg-white/[0.03] opacity-60 hover:opacity-100'
-                    }`}
-                  >
+                  <>
+                    {start > 0 && (
+                      <button
+                        onClick={() => setCurrentIndex(start - 1)}
+                        className="flex-shrink-0 rounded-xl bg-white/[0.06] px-3 py-3 text-xs text-gray-400 hover:bg-white/[0.08] cursor-pointer"
+                      >
+                        ← {start} earlier
+                      </button>
+                    )}
+                    {visible.map((trade, vi) => {
+                      const i = start + vi;
+                      const style = labelStyles[trade.label] || labelStyles.BOOK;
+                      const isActive = i === currentIndex;
+                      const isPast = i < currentIndex;
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => setCurrentIndex(i)}
+                          className={`group relative flex-shrink-0 rounded-xl px-4 py-3 text-left transition-all cursor-pointer ${
+                            isActive
+                              ? `${style.bg} ring-2 ${style.border}`
+                              : isPast
+                                ? 'bg-white/[0.06]'
+                                : 'bg-white/[0.04] opacity-60 hover:opacity-100'
+                          }`}
+                        >
                     <div className="flex items-center gap-2">
                       {(() => { const Icon = getLabelIcon(trade.label); return <Icon size={16} />; })()}
                       <span className={`text-xs font-bold ${isActive ? style.text : 'text-white'}`}>
@@ -214,7 +233,7 @@ export default function AnalyzePage() {
                         <AlertTriangle className="h-3 w-3 text-orange-400" />
                       )}
                     </div>
-                    <p className="mt-1 text-[10px] text-gray-500">
+                    <p className="mt-1 text-[10px] text-gray-400">
                       {trade.side} {trade.asset} · {trade.timestamp.split(' ')[1]?.slice(0, 5)}
                     </p>
                     <div className={`mt-1 text-xs font-semibold ${(trade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -223,17 +242,28 @@ export default function AnalyzePage() {
                   </button>
                 );
               })}
+                    {end < total && (
+                      <button
+                        onClick={() => setCurrentIndex(end)}
+                        className="flex-shrink-0 rounded-xl bg-white/[0.06] px-3 py-3 text-xs text-gray-400 hover:bg-white/[0.08] cursor-pointer"
+                      >
+                        {total - end} later →
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
 
         {/* ─── Analysis Side Panel ─── */}
-        <div className="analysis-panel w-80 max-w-[320px] shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.06] bg-[#0a0a0a]">
+        <div className="analysis-panel w-80 max-w-[320px] shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a]">
           <div className="p-6">
             <div className="trade-detail space-y-6">
               {/* Label Badge */}
               <div>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                   Trade Rating
                 </p>
                 <div
@@ -246,24 +276,24 @@ export default function AnalyzePage() {
 
               {/* Info Grid */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Asset</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Asset</p>
                   <p className="text-lg font-bold text-white">{currentTrade.asset}</p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Side</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Side</p>
                   <p className={`text-lg font-bold ${currentTrade.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>
                     {currentTrade.side}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">P/L</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">P/L</p>
                   <p className={`text-lg font-bold ${(currentTrade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {(currentTrade.pnl || 0) >= 0 ? '+' : ''}${Math.abs(currentTrade.pnl || 0)}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Time Since Last</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Time Since Last</p>
                   <p className="text-lg font-bold text-white">
                     {currentTrade.timeSinceLast > 60
                       ? `${Math.floor(currentTrade.timeSinceLast / 60)}m`
@@ -286,7 +316,7 @@ export default function AnalyzePage() {
                         {BiasIcon && <BiasIcon size={18} className="mt-0.5 shrink-0" />}
                         <div>
                           <p className="text-xs font-medium text-white">{bias.type.replace('_', ' ')}</p>
-                          <p className="mt-1 text-xs text-gray-500">{bias.description}</p>
+                          <p className="text-xs text-gray-400">{bias.description}</p>
                         </div>
                       </div>
                     );
@@ -298,7 +328,7 @@ export default function AnalyzePage() {
               <div>
                 <div className="mb-2 flex items-center gap-2">
                   <Brain className="h-4 w-4 text-emerald-400" />
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                     Coach Notes
                   </p>
                 </div>
@@ -308,8 +338,8 @@ export default function AnalyzePage() {
               </div>
 
               {/* Running P/L */}
-              <div className="rounded-xl bg-white/[0.04] p-4">
-                <p className="text-[10px] text-gray-500">Session P/L at this point</p>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400">Session P/L at this point</p>
                 <p className={`text-2xl font-bold ${currentTrade.sessionPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {currentTrade.sessionPnL >= 0 ? '+' : ''}${currentTrade.sessionPnL.toFixed(0)}
                 </p>
@@ -318,12 +348,12 @@ export default function AnalyzePage() {
 
             {/* Session Summary */}
             {currentIndex === analysis.trades.length - 1 && (
-              <div className="summary-cards mt-8 space-y-4 border-t border-white/[0.06] pt-6">
+              <div className="summary-cards mt-8 space-y-4 border-t border-white/[0.08] pt-6">
                 <h3 className="text-sm font-semibold text-white">Session Summary</h3>
 
                 {/* Psychological P&L → Disciplined Replay */}
-                <div className="rounded-xl bg-white/[0.04] p-4 ring-1 ring-white/[0.06]">
-                  <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                <div className="rounded-xl bg-white/[0.06] p-4 ring-1 ring-white/[0.08]">
+                  <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                     Disciplined Replay
                   </p>
                   <div className="space-y-3">
@@ -345,7 +375,7 @@ export default function AnalyzePage() {
                         {analysis.psychologicalPnL.strategyPnL >= 0 ? '+' : '-'}${Math.abs(analysis.psychologicalPnL.strategyPnL).toFixed(0)}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between border-t border-white/[0.06] pt-2">
+                    <div className="flex items-center justify-between border-t border-white/[0.08] pt-2">
                       <span className="text-sm font-medium text-white">Savings</span>
                       <span className={`font-mono font-bold ${analysis.report.disciplinedReplay.savings >= 0 ? 'text-purple-400' : 'text-red-400'}`}>
                         {analysis.report.disciplinedReplay.savings >= 0 ? '+' : ''}${analysis.report.disciplinedReplay.savings.toFixed(0)}
@@ -353,7 +383,7 @@ export default function AnalyzePage() {
                     </div>
                   </div>
                   {analysis.report.disciplinedReplay.tradesRemoved > 0 && (
-                    <p className="mt-3 text-xs italic text-gray-500">
+                    <p className="mt-3 text-xs italic text-gray-400">
                       {analysis.report.disciplinedReplay.savings >= 0 ? 'Following discipline rules would have saved you' : 'Net impact of rule enforcement'}:{' '}
                       <span className="font-bold text-purple-400">
                         ${Math.abs(analysis.report.disciplinedReplay.savings).toFixed(0)}
@@ -364,8 +394,8 @@ export default function AnalyzePage() {
 
                 {/* Bias Score Bars */}
                 {analysis.biases.length > 0 && (
-                  <div className="rounded-xl bg-white/[0.04] p-4 ring-1 ring-white/[0.06]">
-                    <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                  <div className="rounded-xl bg-white/[0.06] p-4 ring-1 ring-white/[0.08]">
+                    <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                       Bias Scores
                     </p>
                     <div className="space-y-2.5">
@@ -394,7 +424,7 @@ export default function AnalyzePage() {
                     <span className="text-sm text-gray-400">Discipline Score</span>
                     <span className="text-lg font-bold text-emerald-400">{analysis.disciplineScore}</span>
                   </div>
-                  <div className="flex items-center justify-between rounded-xl bg-white/[0.04] p-3">
+                  <div className="flex items-center justify-between rounded-xl bg-white/[0.06] p-3">
                     <span className="text-sm text-gray-400">Win Rate</span>
                     <span className="text-lg font-bold text-white">{analysis.summary.winRate.toFixed(0)}%</span>
                   </div>
@@ -402,7 +432,7 @@ export default function AnalyzePage() {
 
                 {analysis.recommendations.length > 0 && (
                   <div className="mt-4">
-                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                       Personalized Recommendations
                     </p>
                     <ul className="space-y-2">

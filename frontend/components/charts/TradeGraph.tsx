@@ -102,9 +102,9 @@ export default function TradeGraph({ nodes, links, onNodeClick, className }: Tra
                     const dx = simNodes[j].x - simNodes[i].x;
                     const dy = simNodes[j].y - simNodes[i].y;
                     const distSq = dx * dx + dy * dy;
-                    if (distSq > 50000) continue;
+                    if (distSq > 90000) continue;
                     const dist = Math.sqrt(distSq) || 1;
-                    const force = 500 / (distSq + 100);
+                    const force = 1200 / (distSq + 150);
                     const fx = (dx / dist) * force;
                     const fy = (dy / dist) * force;
                     simNodes[i].vx -= fx * alpha;
@@ -122,7 +122,7 @@ export default function TradeGraph({ nodes, links, onNodeClick, className }: Tra
                 const dx = target.x - source.x;
                 const dy = target.y - source.y;
                 const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                const idealDist = source.group === target.group ? 60 : 130;
+                const idealDist = source.group === target.group ? 100 : 200;
                 const force = (dist - idealDist) * 0.006;
                 const fx = (dx / dist) * force;
                 const fy = (dy / dist) * force;

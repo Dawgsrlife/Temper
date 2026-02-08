@@ -221,11 +221,11 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                            <p className="text-gray-500">Side</p>
+                            <p className="text-gray-400">Side</p>
                             <p className={focusedTrade.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}>{focusedTrade.side}</p>
                         </div>
                         <div>
-                            <p className="text-gray-500">P/L</p>
+                            <p className="text-gray-400">P/L</p>
                             <p className={`font-semibold ${(focusedTrade.pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                 {(focusedTrade.pnl ?? 0) >= 0 ? '+' : ''}${Math.abs(focusedTrade.pnl ?? 0).toFixed(0)}
                             </p>
@@ -240,7 +240,7 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                             ))}
                         </div>
                     )}
-                    <p className="mt-2 text-[10px] text-gray-500">{focusedTrade.timestamp}</p>
+                    <p className="mt-2 text-[10px] text-gray-400">{focusedTrade.timestamp}</p>
                     <button 
                         onClick={() => { setFocusedTrade(null); setTooltipPos(null); resetZoom(); }}
                         className="mt-2 cursor-pointer text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
@@ -250,11 +250,11 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                 </div>
             )}
 
-            <div ref={chartContainerRef} className="h-full w-full rounded-xl chart-container" />
+            <div ref={chartContainerRef} className="h-full w-full rounded-xl chart-container cursor-crosshair" />
 
             {/* Scroll zoom hint */}
             <div className="absolute bottom-2 right-4 z-10">
-                <p className="text-[9px] text-gray-600">Scroll to zoom · Click data point to inspect</p>
+                <p className="text-[9px] text-gray-500">Scroll to zoom · Click data point to inspect</p>
             </div>
         </div>
     );

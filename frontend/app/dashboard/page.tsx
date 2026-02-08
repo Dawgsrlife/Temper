@@ -89,7 +89,7 @@ function ScoreRing({ score, size = 180 }: { score: number; size?: number }) {
         <span ref={numberRef} className="text-5xl font-bold text-white">
           0
         </span>
-        <span className="text-xs text-gray-500 uppercase tracking-widest mt-1">
+        <span className="text-xs text-gray-400 uppercase tracking-widest mt-1">
           Temper Score
         </span>
       </div>
@@ -140,32 +140,38 @@ export default function DashboardPage() {
     () => {
       if (!mounted) return;
 
+      gsap.set(['.page-header', '.score-card', '.stat-card', '.insight-card', '.session-item', '.explorer-cta'], { clearProps: 'all' });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
 
-      tl.from('.page-header', { y: 30, opacity: 0, duration: 0.6 })
-        .from(
+      tl.fromTo('.page-header', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6 })
+        .fromTo(
           '.score-card',
-          { y: 40, opacity: 0, scale: 0.95, duration: 0.7 },
+          { y: 40, autoAlpha: 0, scale: 0.95 },
+          { y: 0, autoAlpha: 1, scale: 1, duration: 0.7 },
           '-=0.4',
         )
-        .from(
+        .fromTo(
           '.stat-card',
-          { y: 30, opacity: 0, stagger: 0.08, duration: 0.5 },
+          { y: 30, autoAlpha: 0 },
+          { y: 0, autoAlpha: 1, stagger: 0.08, duration: 0.5 },
           '-=0.4',
         )
-        .from(
+        .fromTo(
           '.insight-card',
-          { y: 20, opacity: 0, stagger: 0.1, duration: 0.4 },
+          { y: 20, autoAlpha: 0 },
+          { y: 0, autoAlpha: 1, stagger: 0.1, duration: 0.4 },
           '-=0.3',
         )
-        .from(
+        .fromTo(
           '.session-item',
-          { x: -20, opacity: 0, stagger: 0.06, duration: 0.4 },
+          { x: -20, autoAlpha: 0 },
+          { x: 0, autoAlpha: 1, stagger: 0.06, duration: 0.4 },
           '-=0.2',
         )
-        .from(
+        .fromTo(
           '.explorer-cta',
-          { y: 30, opacity: 0, duration: 0.5 },
+          { y: 30, autoAlpha: 0 },
+          { y: 0, autoAlpha: 1, duration: 0.5 },
           '-=0.2',
         );
     },
@@ -287,7 +293,7 @@ export default function DashboardPage() {
             <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl brand-gradient-text">
               Welcome back
             </h1>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-400">
               Your trading psychology dashboard
             </p>
           </div>
@@ -303,8 +309,8 @@ export default function DashboardPage() {
         {/* ──────────────── Main Grid ──────────────── */}
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Score Card — big discipline ring */}
-          <div className="score-card score-pulse flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.04] border border-white/[0.06] p-8 lg:row-span-2">
-            <div className="flex items-center gap-2 text-gray-500">
+          <div className="score-card score-pulse flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.06] border border-white/[0.08] p-8 lg:row-span-2">
+            <div className="flex items-center gap-2 text-gray-400">
               <Shield className="h-4 w-4" />
               <span className="text-xs font-semibold uppercase tracking-wider">
                 Discipline Score
@@ -313,7 +319,7 @@ export default function DashboardPage() {
 
             {mounted && <ScoreRing score={currentScore} size={180} />}
 
-            <p className="text-xs text-gray-500 text-center">
+            <p className="text-xs text-gray-400 text-center">
               {hasData
                 ? 'Based on latest session'
                 : 'Upload a session to begin'}
@@ -333,7 +339,7 @@ export default function DashboardPage() {
             {stats.map((stat) => (
               <div
                 key={stat.label}
-                className="stat-card group rounded-2xl bg-white/[0.04] border border-white/[0.06] p-5 transition-all hover:bg-white/[0.06]"
+                className="stat-card group rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5 transition-all hover:bg-white/[0.08]"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <div className="rounded-xl bg-white/[0.06] p-2.5">
@@ -352,14 +358,14 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <p className="text-2xl font-bold text-white">{stat.value}</p>
-                <p className="mt-1 text-xs text-gray-500">{stat.label}</p>
+                <p className="mt-1 text-xs text-gray-400">{stat.label}</p>
               </div>
             ))}
           </div>
 
           {/* AI Insights */}
           <div className="space-y-3 lg:col-span-2">
-            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
               <Brain className="h-4 w-4" />
               AI Insights
             </h3>
@@ -370,7 +376,7 @@ export default function DashboardPage() {
                   <Link
                     key={i}
                     href={insight.href}
-                    className={`insight-card group rounded-2xl bg-white/[0.04] border p-5 transition-all hover:bg-white/[0.06] ${
+                    className={`insight-card group rounded-2xl bg-white/[0.06] border p-5 transition-all hover:bg-white/[0.08] ${
                       insight.type === 'warning'
                         ? 'border-red-400/20'
                         : 'border-emerald-400/20'
@@ -387,7 +393,7 @@ export default function DashboardPage() {
                         >
                           {insight.title}
                         </p>
-                        <p className="text-xs text-gray-500 leading-relaxed">
+                        <p className="text-xs text-gray-400 leading-relaxed">
                           {insight.description}
                         </p>
                       </div>
@@ -406,9 +412,9 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl bg-white/[0.04] border border-white/[0.06] p-6 text-center">
-                <Brain className="mx-auto h-8 w-8 text-gray-500/50 mb-2" />
-                <p className="text-sm text-gray-500">
+              <div className="rounded-2xl bg-white/[0.06] border border-white/[0.08] p-6 text-center">
+                <Brain className="mx-auto h-8 w-8 text-gray-400/50 mb-2" />
+                <p className="text-sm text-gray-400">
                   Upload a session to unlock AI insights
                 </p>
               </div>
@@ -419,23 +425,23 @@ export default function DashboardPage() {
         {/* ──────────────── Recent Sessions ──────────────── */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+            <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
               <Activity className="h-4 w-4" />
               Recent Sessions
             </h2>
             <Link
               href="/dashboard/analyze"
-              className="flex items-center gap-1.5 text-xs font-medium text-gray-500 transition-colors hover:text-emerald-400"
+              className="flex items-center gap-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-emerald-400"
             >
               View Analysis <ArrowUpRight className="h-3 w-3" />
             </Link>
           </div>
 
-          <div className="overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.06] divide-y divide-white/[0.06]">
+          <div className="overflow-hidden rounded-2xl bg-white/[0.06] border border-white/[0.08] divide-y divide-white/[0.08]">
             {analysis ? (
               <Link
                 href="/dashboard/analyze"
-                className="session-item group flex items-center justify-between p-5 transition-colors hover:bg-white/[0.06]"
+                className="session-item group flex items-center justify-between p-5 transition-colors hover:bg-white/[0.08] cursor-pointer"
               >
                 <div className="flex items-center gap-4">
                   <div
@@ -461,7 +467,7 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-400">
                       {analysis.summary.totalTrades} trades &middot; Win rate{' '}
                       {analysis.summary.winRate.toFixed(0)}%
                     </p>
@@ -483,8 +489,8 @@ export default function DashboardPage() {
               </Link>
             ) : (
               <div className="p-10 text-center">
-                <Activity className="mx-auto h-8 w-8 text-gray-500/40 mb-3" />
-                <p className="text-sm text-gray-500">
+                <Activity className="mx-auto h-8 w-8 text-gray-400/40 mb-3" />
+                <p className="text-sm text-gray-400">
                   No sessions analyzed yet.
                 </p>
                 <Link
@@ -501,7 +507,7 @@ export default function DashboardPage() {
         {/* ──────────────── 3D Explorer CTA ──────────────── */}
         <Link
           href="/dashboard/explorer"
-          className="explorer-cta group relative flex items-center justify-between overflow-hidden rounded-2xl bg-white/[0.04] border border-emerald-400/10 p-6 transition-all hover:bg-white/[0.06] hover:border-emerald-400/30"
+          className="explorer-cta group relative flex items-center justify-between overflow-hidden rounded-2xl bg-white/[0.06] border border-emerald-400/10 p-6 transition-all hover:bg-white/[0.08] hover:border-emerald-400/30 cursor-pointer"
         >
           {/* Decorative glow — teal and gold from the logo */}
           <div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full bg-emerald-500/10 blur-3xl transition-all group-hover:bg-emerald-500/20" />
@@ -515,7 +521,7 @@ export default function DashboardPage() {
               <h3 className="font-coach text-lg font-semibold text-white">
                 3D Explorer
               </h3>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-400">
                 Visualize your trading patterns in an interactive 3D graph
               </p>
             </div>

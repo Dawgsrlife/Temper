@@ -100,22 +100,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   useGSAP(() => {
     if (!mounted) return;
-
+    gsap.set(['.page-header', '.chart-panel', '.timeline-bar', '.analysis-panel'], { clearProps: 'all' });
     const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-    tl.from('.page-header', { y: 30, opacity: 0, duration: 0.6 })
-      .from('.chart-panel', { y: 40, opacity: 0, duration: 0.7 }, '-=0.3')
-      .from('.timeline-bar', { y: 20, opacity: 0, duration: 0.5 }, '-=0.3')
-      .from('.analysis-panel', { x: 30, opacity: 0, duration: 0.6 }, '-=0.4');
+    tl.fromTo('.page-header', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6 })
+      .fromTo('.chart-panel', { y: 40, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.7 }, '-=0.3')
+      .fromTo('.timeline-bar', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3')
+      .fromTo('.analysis-panel', { x: 30, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: 0.6 }, '-=0.4');
   }, { scope: container, dependencies: [mounted] });
 
   useGSAP(() => {
     if (!mounted) return;
-    gsap.from('.trade-detail', {
-      opacity: 0,
-      y: 10,
-      duration: 0.3,
-      ease: 'power2.out',
-    });
+    gsap.fromTo('.trade-detail', { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.3, ease: 'power2.out' });
   }, { dependencies: [currentIndex, mounted] });
 
   useEffect(() => {
@@ -148,17 +143,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   }, [analysis.trades.length]);
 
   if (!currentTrade) {
-    return <div className="flex h-screen items-center justify-center text-gray-500">Loading...</div>;
+    return <div className="flex h-screen items-center justify-center text-gray-400">Loading...</div>;
   }
 
   return (
     <div ref={container} className="flex h-[calc(100vh-3.5rem)] flex-col bg-[#0a0a0a] text-white md:h-screen">
       {/* Header */}
-      <header className="page-header flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
+      <header className="page-header flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard/sessions"
-            className="flex items-center gap-2 text-sm text-gray-500 transition-colors hover:text-white"
+            className="flex items-center gap-2 text-sm text-gray-400 transition-colors hover:text-white cursor-pointer"
           >
             <ArrowLeft className="h-4 w-4" />
             Back
@@ -177,7 +172,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 {TRADER_PROFILES[session.profile].name}
               </span>
             </div>
-            <p className="text-xs text-gray-500">{analysis.trades.length} trades · Score: {analysis.disciplineScore}</p>
+            <p className="text-xs text-gray-400">{analysis.trades.length} trades · Score: {analysis.disciplineScore}</p>
           </div>
         </div>
 
@@ -185,37 +180,37 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         <div className="flex items-center gap-2">
           <button
             onClick={() => setCurrentIndex(0)}
-            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+            className="cursor-pointer rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <SkipBack className="h-4 w-4" />
           </button>
           <button
             onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
             disabled={currentIndex === 0}
-            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+            className="cursor-pointer rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className="rounded-xl bg-emerald-500 p-3 text-black transition-all hover:brightness-110"
+            className="cursor-pointer rounded-xl bg-emerald-500 p-3 text-black transition-all hover:brightness-110"
           >
             {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           </button>
           <button
             onClick={() => setCurrentIndex(Math.min(analysis.trades.length - 1, currentIndex + 1))}
             disabled={currentIndex >= analysis.trades.length - 1}
-            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+            className="cursor-pointer rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <ArrowRight className="h-4 w-4" />
           </button>
           <button
             onClick={() => setCurrentIndex(analysis.trades.length - 1)}
-            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+            className="cursor-pointer rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <SkipForward className="h-4 w-4" />
           </button>
-          <span className="ml-2 min-w-[60px] text-center font-mono text-sm text-gray-500">
+          <span className="ml-2 min-w-[60px] text-center font-mono text-sm text-gray-400">
             {currentIndex + 1} / {analysis.trades.length}
           </span>
         </div>
@@ -235,7 +230,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           </div>
 
           {/* Timeline */}
-          <div className="timeline-bar border-t border-white/[0.06] p-4">
+          <div className="timeline-bar border-t border-white/[0.08] p-4">
             <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarColor: '#282828 transparent' }}>
               {analysis.trades.map((trade, i) => {
                 const style = labelStyles[trade.label] || labelStyles.BOOK;
@@ -246,11 +241,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   <button
                     key={i}
                     onClick={() => setCurrentIndex(i)}
-                    className={`group relative flex-shrink-0 rounded-xl px-4 py-3 text-left transition-all ${isActive
+                    className={`group relative flex-shrink-0 rounded-xl px-4 py-3 text-left transition-all cursor-pointer ${isActive
                         ? `${style.bg} ring-2 ${style.border}`
                         : isPast
                           ? 'bg-white/[0.06]'
-                          : 'bg-white/[0.03] opacity-60 hover:opacity-100'
+                          : 'bg-white/[0.04] opacity-60 hover:opacity-100'
                       }`}
                   >
                     <div className="flex items-center gap-2">
@@ -262,7 +257,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         <AlertTriangle className="h-3 w-3 text-orange-400" />
                       )}
                     </div>
-                    <p className="mt-1 text-[10px] text-gray-500">
+                    <p className="mt-1 text-[10px] text-gray-400">
                       {trade.side} {trade.asset}
                     </p>
                     <div className={`mt-1 text-xs font-semibold ${(trade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -276,12 +271,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         {/* Analysis Panel */}
-        <div className="analysis-panel w-80 max-w-[320px] shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.06] bg-[#0a0a0a]">
+        <div className="analysis-panel w-80 max-w-[320px] shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a]">
           <div className="p-6">
             <div className="trade-detail space-y-6">
               {/* Label Badge */}
               <div>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">Trade Rating</p>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Trade Rating</p>
                 <div className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).bg} ${(labelStyles[currentTrade.label] || labelStyles.BOOK).text} ring-1 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).border}`}>
                   {(() => { const Icon = getLabelIcon(currentTrade.label); return <Icon size={20} />; })()}
                   <span className="text-sm font-bold">{currentTrade.label}</span>
@@ -290,24 +285,24 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
               {/* Trade Info */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Asset</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Asset</p>
                   <p className="text-lg font-bold text-white">{currentTrade.asset}</p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Side</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Side</p>
                   <p className={`text-lg font-bold ${currentTrade.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>
                     {currentTrade.side}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">P/L</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">P/L</p>
                   <p className={`text-lg font-bold ${(currentTrade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {(currentTrade.pnl || 0) >= 0 ? '+' : ''}${Math.abs(currentTrade.pnl || 0).toFixed(0)}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/[0.04] p-3">
-                  <p className="text-[10px] text-gray-500">Time Gap</p>
+                <div className="rounded-xl bg-white/[0.06] p-3">
+                  <p className="text-[10px] text-gray-400">Time Gap</p>
                   <p className="text-lg font-bold text-white">
                     {currentTrade.timeSinceLast > 60
                       ? `${Math.floor(currentTrade.timeSinceLast / 60)}m`
@@ -330,7 +325,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         {BiasIcon && <BiasIcon size={18} className="mt-0.5 shrink-0" />}
                         <div>
                           <p className="text-xs font-medium text-white">{bias.type.replace('_', ' ')}</p>
-                          <p className="mt-1 text-xs text-gray-500">{bias.description}</p>
+                          <p className="mt-1 text-xs text-gray-400">{bias.description}</p>
                         </div>
                       </div>
                     );
@@ -342,7 +337,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               <div>
                 <div className="mb-2 flex items-center gap-2">
                   <Brain className="h-4 w-4 text-emerald-400" />
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Coach Notes</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Coach Notes</p>
                 </div>
                 <p className="text-sm leading-relaxed text-white break-words">
                   {currentTrade.annotation}
@@ -350,8 +345,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               </div>
 
               {/* Running P/L */}
-              <div className="rounded-xl bg-white/[0.04] p-4">
-                <p className="text-[10px] text-gray-500">Session P/L at this point</p>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400">Session P/L at this point</p>
                 <p className={`text-2xl font-bold ${currentTrade.sessionPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {currentTrade.sessionPnL >= 0 ? '+' : ''}${currentTrade.sessionPnL.toFixed(0)}
                 </p>
@@ -359,23 +354,23 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
               {/* Summary at end */}
               {currentIndex === analysis.trades.length - 1 && (
-                <div className="space-y-4 border-t border-white/[0.06] pt-6">
+                <div className="space-y-4 border-t border-white/[0.08] pt-6">
                   <h3 className="text-sm font-semibold text-white">Session Complete</h3>
 
                   <div className="space-y-3">
                     <div className="flex items-center justify-between rounded-xl bg-emerald-400/10 p-3">
-                      <span className="text-sm text-gray-500">Final Score</span>
+                      <span className="text-sm text-gray-400">Final Score</span>
                       <span className="text-lg font-bold text-emerald-400">{analysis.disciplineScore}</span>
                     </div>
-                    <div className="flex items-center justify-between rounded-xl bg-white/[0.04] p-3">
-                      <span className="text-sm text-gray-500">Win Rate</span>
+                    <div className="flex items-center justify-between rounded-xl bg-white/[0.06] p-3">
+                      <span className="text-sm text-gray-400">Win Rate</span>
                       <span className="text-lg font-bold text-white">{analysis.summary.winRate.toFixed(0)}%</span>
                     </div>
                   </div>
 
                   {analysis.recommendations.length > 0 && (
                     <div>
-                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">Key Takeaways</p>
+                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Key Takeaways</p>
                       <ul className="space-y-2">
                         {analysis.recommendations.slice(0, 3).map((rec, i) => (
                           <li key={i} className="flex items-start gap-2 text-xs text-white">

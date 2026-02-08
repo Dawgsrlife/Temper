@@ -27,7 +27,8 @@ const LABEL_COLORS: Record<string, number> = {
     BRILLIANT: 0x06d6a0,
     EXCELLENT: 0x06d6a0,
     GOOD: 0x3b82f6,
-    NEUTRAL: 0x6b7280,
+    BOOK: 0x3b82f6,
+    MISSED_WIN: 0x6b7280,
     INACCURACY: 0xf59e0b,
     MISTAKE: 0xf97316,
     BLUNDER: 0xef476f,
@@ -185,7 +186,10 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
             controls.autoRotate = false;
 
             const targetPos = mesh.position.clone();
-            const offset = new THREE.Vector3(2, 1.5, 4);
+            // Preserve current camera viewing angle — compute offset from current direction
+            const currentDir = camera.position.clone().sub(controls.target).normalize();
+            const zoomDist = 5;
+            const offset = currentDir.multiplyScalar(zoomDist);
             const destination = targetPos.clone().add(offset);
 
             const startPos = camera.position.clone();
