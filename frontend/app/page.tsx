@@ -236,11 +236,11 @@ export default function LandingPage() {
           {/* Background image */}
           <div className="absolute inset-0 z-0">
             <img
-              src="/assets/pexels-alphatradezone-5833747.jpg"
+              src="/assets/pexels-themob000-28428587.jpg"
               alt="Trading background"
-              className="h-full w-full object-cover opacity-20"
+              className="h-full w-full object-cover opacity-40"
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-[#080810] via-[#080810]/90 to-[#050505]" />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/30 to-black/60" />
           </div>
 
           <div className="relative z-10 mx-auto max-w-6xl">
@@ -262,7 +262,7 @@ export default function LandingPage() {
               ].map(({ icon: Icon, title, desc, color, glow }) => (
                 <div
                   key={title}
-                  className={`pillar-card group rounded-2xl border border-white/[0.06] bg-white/[0.025] p-6 backdrop-blur-sm transition-all duration-300 hover:border-white/[0.1] hover:bg-white/[0.04] hover:shadow-lg ${glow}`}
+                  className={`pillar-card group rounded-2xl border border-white/[0.15] bg-white/[0.05] p-6 backdrop-blur-xl transition-all duration-300 hover:border-white/[0.25] hover:bg-white/[0.08] hover:shadow-lg ${glow}`}
                 >
                   <Icon className={`mb-4 h-5 w-5 ${color} opacity-80`} />
                   <h3 className="mb-2 text-sm font-semibold">{title}</h3>
