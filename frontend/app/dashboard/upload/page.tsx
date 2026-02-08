@@ -82,7 +82,7 @@ export default function UploadPage() {
         const updated = { ...t, [field]: value };
         // Auto-calc P/L from entry/exit prices
         if ((field === 'entryPrice' || field === 'exitPrice' || field === 'quantity' || field === 'side') &&
-          updated.entryPrice && updated.exitPrice && updated.quantity) {
+            updated.entryPrice && updated.exitPrice && updated.quantity) {
           const entry = parseFloat(updated.entryPrice);
           const exit = parseFloat(updated.exitPrice);
           const qty = parseFloat(updated.quantity);
@@ -275,7 +275,7 @@ export default function UploadPage() {
             Upload Trading Data
           </h1>
           <p className="pt-1 text-sm text-gray-500">
-            Real backend pipeline: upload CSV, run deterministic analysis, then open game review.
+            Import your trade history and let our AI detect behavioral biases.
           </p>
         </header>
 
@@ -283,20 +283,22 @@ export default function UploadPage() {
         <div className="mode-tabs flex gap-2">
           <button
             onClick={() => { setInputMode('file'); setIsComplete(false); setAnalysisResult(null); }}
-            className={`cursor-pointer flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${inputMode === 'file'
+            className={`cursor-pointer flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+              inputMode === 'file'
                 ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400/20'
                 : 'bg-white/[0.07] text-gray-400 hover:text-white'
-              }`}
+            }`}
           >
             <FileSpreadsheet className="h-4 w-4" />
             CSV / Excel
           </button>
           <button
             onClick={() => { setInputMode('manual'); setIsComplete(false); setAnalysisResult(null); }}
-            className={`cursor-pointer flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${inputMode === 'manual'
+            className={`cursor-pointer flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+              inputMode === 'manual'
                 ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400/20'
                 : 'bg-white/[0.07] text-gray-400 hover:text-white'
-              }`}
+            }`}
           >
             <Table2 className="h-4 w-4" />
             Manual Entry
@@ -305,130 +307,131 @@ export default function UploadPage() {
 
         {/* Upload Zone */}
         {inputMode === 'file' ? (
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`upload-zone relative overflow-hidden rounded-2xl border-2 border-dashed p-10 text-center transition-all duration-300 ${isDragging
-                ? 'scale-[1.02] border-emerald-400 bg-emerald-400/5'
-                : file
-                  ? 'border-white/[0.12] bg-white/[0.06]'
-                  : 'border-white/[0.10] bg-white/[0.05] hover:border-white/[0.15] hover:bg-white/[0.07]'
-              }`}
-          >
-            {isDragging && (
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-emerald-400/10 to-transparent" />
-            )}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`upload-zone relative overflow-hidden rounded-2xl border-2 border-dashed p-10 text-center transition-all duration-300 ${
+            isDragging
+              ? 'scale-[1.02] border-emerald-400 bg-emerald-400/5'
+              : file
+                ? 'border-white/[0.12] bg-white/[0.06]'
+                : 'border-white/[0.10] bg-white/[0.05] hover:border-white/[0.15] hover:bg-white/[0.07]'
+          }`}
+        >
+          {isDragging && (
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-emerald-400/10 to-transparent" />
+          )}
 
-            {!file ? (
-              <div className="relative z-10">
-                <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/20 to-emerald-400/5 ring-1 ring-emerald-400/20">
-                  <Upload className="h-7 w-7 text-emerald-400" />
-                </div>
-                <p className="mb-2 text-base font-medium text-white">
-                  Drop your CSV or Excel file here
-                </p>
-                <p className="mb-5 text-sm text-gray-500">or click to browse</p>
-                <label className="inline-block cursor-pointer rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-black transition-all hover:brightness-110">
-                  Choose File
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                </label>
+          {!file ? (
+            <div className="relative z-10">
+              <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/20 to-emerald-400/5 ring-1 ring-emerald-400/20">
+                <Upload className="h-7 w-7 text-emerald-400" />
               </div>
-            ) : (
-              <div className="relative z-10 space-y-5">
-                <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#111]/80 p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-emerald-400/10 p-2.5">
-                      <FileText className="h-5 w-5 text-emerald-400" />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-sm font-medium text-white">{file.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {(file.size / 1024).toFixed(1)} KB
-                      </p>
-                    </div>
+              <p className="mb-2 text-base font-medium text-white">
+                Drop your CSV or Excel file here
+              </p>
+              <p className="mb-5 text-sm text-gray-500">or click to browse</p>
+              <label className="inline-block cursor-pointer rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-black transition-all hover:brightness-110">
+                Choose File
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="relative z-10 space-y-5">
+              <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#111]/80 p-4">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-emerald-400/10 p-2.5">
+                    <FileText className="h-5 w-5 text-emerald-400" />
                   </div>
-                  {!isComplete && !isUploading && (
-                    <button
-                      onClick={removeFile}
-                      className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-white">{file.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {(file.size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
                 </div>
-
-                {isComplete && analysisResult ? (
-                  <div className="result-section space-y-4">
-                    <div className="flex items-center justify-center gap-2 text-emerald-400">
-                      <Check className="h-5 w-5" />
-                      <span className="text-sm font-semibold">Analysis Complete</span>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
-                        <p className="text-2xl font-bold text-yellow-400">{analysisResult.score}</p>
-                        <p className="text-[10px] text-gray-400">Discipline Score</p>
-                      </div>
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
-                        <p className="text-2xl font-bold text-orange-400">{analysisResult.biases.length}</p>
-                        <p className="text-[10px] text-gray-400">Biases Detected</p>
-                      </div>
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
-                        <p className="text-sm font-bold text-white">{TRADER_PROFILES[analysisResult.profile].name}</p>
-                        <p className="text-[10px] text-gray-400">Profile Match</p>
-                      </div>
-                    </div>
-
-                    {analysisResult.biases.length > 0 && (
-                      <div className="flex flex-wrap justify-center gap-2">
-                        {analysisResult.biases.map((bias) => (
-                          <span
-                            key={bias}
-                            className="flex items-center gap-1.5 rounded-full bg-red-400/10 px-3 py-1.5 text-xs font-medium text-red-400"
-                          >
-                            <AlertTriangle className="h-3 w-3" />
-                            {bias}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <Link
-                      href="/dashboard/analyze"
-                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110"
-                    >
-                      View Full Analysis
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </div>
-                ) : (
+                {!isComplete && !isUploading && (
                   <button
-                    onClick={handleUpload}
-                    disabled={isUploading}
-                    className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={removeFile}
+                    className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-white"
                   >
-                    {isUploading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Analyzing Trades...
-                      </>
-                    ) : (
-                      <>
-                        <Brain className="h-4 w-4" />
-                        Detect Biases
-                      </>
-                    )}
+                    <X className="h-4 w-4" />
                   </button>
                 )}
               </div>
-            )}
-          </div>
+
+              {isComplete && analysisResult ? (
+                <div className="result-section space-y-4">
+                  <div className="flex items-center justify-center gap-2 text-emerald-400">
+                    <Check className="h-5 w-5" />
+                    <span className="text-sm font-semibold">Analysis Complete</span>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
+                      <p className="text-2xl font-bold text-yellow-400">{analysisResult.score}</p>
+                      <p className="text-[10px] text-gray-400">Discipline Score</p>
+                    </div>
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
+                      <p className="text-2xl font-bold text-orange-400">{analysisResult.biases.length}</p>
+                      <p className="text-[10px] text-gray-400">Biases Detected</p>
+                    </div>
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
+                      <p className="text-sm font-bold text-white">{TRADER_PROFILES[analysisResult.profile].name}</p>
+                      <p className="text-[10px] text-gray-400">Profile Match</p>
+                    </div>
+                  </div>
+
+                  {analysisResult.biases.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {analysisResult.biases.map((bias) => (
+                        <span
+                          key={bias}
+                          className="flex items-center gap-1.5 rounded-full bg-red-400/10 px-3 py-1.5 text-xs font-medium text-red-400"
+                        >
+                          <AlertTriangle className="h-3 w-3" />
+                          {bias}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <Link
+                    href="/dashboard/analyze"
+                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110"
+                  >
+                    View Full Analysis
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              ) : (
+                <button
+                  onClick={handleUpload}
+                  disabled={isUploading}
+                  className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Analyzing Trades...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="h-4 w-4" />
+                      Detect Biases
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         ) : (
           /* ═══ Manual Trade Entry Form ═══ */
           <div className="upload-zone space-y-4">
@@ -479,10 +482,11 @@ export default function UploadPage() {
                         />
                         <button
                           onClick={() => updateManualTrade(trade.id, 'side', trade.side === 'BUY' ? 'SELL' : 'BUY')}
-                          className={`rounded-lg px-2.5 py-2 text-xs font-bold transition-all ${trade.side === 'BUY'
+                          className={`rounded-lg px-2.5 py-2 text-xs font-bold transition-all ${
+                            trade.side === 'BUY'
                               ? 'bg-emerald-400/10 text-emerald-400 ring-1 ring-emerald-400/20'
                               : 'bg-red-400/10 text-red-400 ring-1 ring-red-400/20'
-                            }`}
+                          }`}
                         >
                           {trade.side}
                         </button>

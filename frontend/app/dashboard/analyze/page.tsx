@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { useGSAP } from '@gsap/react';
@@ -216,31 +216,32 @@ export default function AnalyzePage() {
                         <button
                           key={i}
                           onClick={() => setCurrentIndex(i)}
-                          className={`group relative flex-shrink-0 rounded-xl px-4 py-3 text-left transition-all cursor-pointer ${isActive
+                          className={`group relative flex-shrink-0 rounded-xl px-4 py-3 text-left transition-all cursor-pointer ${
+                            isActive
                               ? `${style.bg} ring-2 ${style.border}`
                               : isPast
                                 ? 'bg-white/[0.06]'
                                 : 'bg-white/[0.04] opacity-60 hover:opacity-100'
-                            }`}
+                          }`}
                         >
-                          <div className="flex items-center gap-2">
-                            {(() => { const Icon = getLabelIcon(trade.label); return <Icon size={16} />; })()}
-                            <span className={`text-xs font-bold ${isActive ? style.text : 'text-white'}`}>
-                              {trade.label}
-                            </span>
-                            {trade.biases.length > 0 && (
-                              <AlertTriangle className="h-3 w-3 text-orange-400" />
-                            )}
-                          </div>
-                          <p className="mt-1 text-[10px] text-gray-400">
-                            {trade.side} {trade.asset} · {trade.timestamp.split(' ')[1]?.slice(0, 5)}
-                          </p>
-                          <div className={`mt-1 text-xs font-semibold ${(trade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {(trade.pnl || 0) >= 0 ? '+' : ''}{trade.pnl?.toFixed(0)}
-                          </div>
-                        </button>
-                      );
-                    })}
+                    <div className="flex items-center gap-2">
+                      {(() => { const Icon = getLabelIcon(trade.label); return <Icon size={16} />; })()}
+                      <span className={`text-xs font-bold ${isActive ? style.text : 'text-white'}`}>
+                        {trade.label}
+                      </span>
+                      {trade.biases.length > 0 && (
+                        <AlertTriangle className="h-3 w-3 text-orange-400" />
+                      )}
+                    </div>
+                    <p className="mt-1 text-[10px] text-gray-400">
+                      {trade.side} {trade.asset} · {trade.timestamp.split(' ')[1]?.slice(0, 5)}
+                    </p>
+                    <div className={`mt-1 text-xs font-semibold ${(trade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {(trade.pnl || 0) >= 0 ? '+' : ''}{trade.pnl?.toFixed(0)}
+                    </div>
+                  </button>
+                );
+              })}
                     {end < total && (
                       <button
                         onClick={() => setCurrentIndex(end)}
@@ -406,8 +407,9 @@ export default function AnalyzePage() {
                           </div>
                           <div className="h-1.5 rounded-full bg-white/[0.06]">
                             <div
-                              className={`h-full rounded-full transition-all ${bias.score >= 70 ? 'bg-red-400' : bias.score >= 40 ? 'bg-orange-400' : 'bg-yellow-400'
-                                }`}
+                              className={`h-full rounded-full transition-all ${
+                                bias.score >= 70 ? 'bg-red-400' : bias.score >= 40 ? 'bg-orange-400' : 'bg-yellow-400'
+                              }`}
                               style={{ width: `${bias.score}%` }}
                             />
                           </div>

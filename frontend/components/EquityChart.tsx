@@ -6,7 +6,6 @@ import {
     createSeriesMarkers, ISeriesApi, SeriesType,
 } from 'lightweight-charts';
 import { TradeWithAnalysis } from '@/lib/biasDetector';
-import { sanitizeIndexedChartPoints } from '@/lib/chart-sanitize';
 
 interface EquityChartProps {
     trades: TradeWithAnalysis[];
@@ -93,10 +92,10 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
         const markers = trades.map((trade, i) => ({
             time: Math.floor(new Date(trade.timestamp).getTime() / 1000) as Time,
             position: 'inBar' as const,
-            color: row.value >= 0 ? '#06D6A0' : '#EF476F',
+            color: trade.sessionPnL >= 0 ? '#06D6A0' : '#EF476F',
             shape: 'circle' as const,
-            size: row.index === currentIndex ? 1.5 : 0.8,
-            text: row.index === currentIndex ? `${row.value >= 0 ? '+' : ''}$${row.value.toFixed(0)}` : undefined,
+            size: i === currentIndex ? 1.5 : 0.8,
+            text: i === currentIndex ? `${trade.sessionPnL >= 0 ? '+' : ''}$${trade.sessionPnL.toFixed(0)}` : undefined,
         }));
 
         createSeriesMarkers(areaSeries, markers);
@@ -213,10 +212,10 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-white">{focusedTrade.asset}</span>
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${focusedTrade.label === 'BRILLIANT' || focusedTrade.label === 'EXCELLENT' || focusedTrade.label === 'GOOD'
-                            ? 'bg-emerald-500/20 text-emerald-400'
-                            : focusedTrade.label === 'BLUNDER' || focusedTrade.label === 'MISTAKE'
-                                ? 'bg-red-500/20 text-red-400'
-                                : 'bg-yellow-500/20 text-yellow-400'
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : focusedTrade.label === 'BLUNDER' || focusedTrade.label === 'MISTAKE'
+                                    ? 'bg-red-500/20 text-red-400'
+                                    : 'bg-yellow-500/20 text-yellow-400'
                             }`}>{focusedTrade.label}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
