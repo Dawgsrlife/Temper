@@ -211,13 +211,12 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                 >
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-white">{focusedTrade.asset}</span>
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                            focusedTrade.label === 'BRILLIANT' || focusedTrade.label === 'EXCELLENT' || focusedTrade.label === 'GOOD'
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${focusedTrade.label === 'BRILLIANT' || focusedTrade.label === 'EXCELLENT' || focusedTrade.label === 'GOOD'
                                 ? 'bg-emerald-500/20 text-emerald-400'
                                 : focusedTrade.label === 'BLUNDER' || focusedTrade.label === 'MISTAKE'
                                     ? 'bg-red-500/20 text-red-400'
                                     : 'bg-yellow-500/20 text-yellow-400'
-                        }`}>{focusedTrade.label}</span>
+                            }`}>{focusedTrade.label}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
@@ -241,7 +240,7 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
                         </div>
                     )}
                     <p className="mt-2 text-[10px] text-gray-400">{focusedTrade.timestamp}</p>
-                    <button 
+                    <button
                         onClick={() => { setFocusedTrade(null); setTooltipPos(null); resetZoom(); }}
                         className="mt-2 cursor-pointer text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
                     >

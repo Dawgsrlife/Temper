@@ -3130,12 +3130,13 @@ async def list_user_jobs(user_id: str, limit: int = 20) -> JSONResponse:
 
     try:
         rows = _supabase_store().list_jobs_for_user(user_id=user_id, limit=limit)
-    except SupabaseSyncError as exc:
-        return _supabase_unavailable_response(user_id=user_id, message=str(exc))
+    except SupabaseSyncError:
+        # Demo-safe fallback: preserve list contract when Supabase is temporarily unavailable.
+        rows = _history_rows_local(user_id=user_id, limit=limit)
 
     jobs: list[dict[str, Any]] = []
     for row in rows:
-        status_value = row.get("status")
+        status_value = row.get("status") or row.get("execution_status")
         status = status_value if status_value in ALLOWED_EXECUTION_STATUS else None
         badge_counts = row.get("badge_counts")
         bias_rates = row.get("bias_rates")
@@ -3150,8 +3151,8 @@ async def list_user_jobs(user_id: str, limit: int = 20) -> JSONResponse:
             upload = None
         jobs.append(
             {
-                "job_id": row.get("id"),
-                "user_id": row.get("user_id"),
+                "job_id": row.get("id") or row.get("job_id"),
+                "user_id": row.get("user_id") or user_id,
                 "created_at": row.get("created_at"),
                 "engine_version": row.get("engine_version"),
                 "input_sha256": row.get("input_sha256"),
@@ -3641,14 +3642,14 @@ async def get_counterfactual(job_id: str, offset: int = 0, limit: int = 500) -> 
 
 @app.get("/jobs/{job_id}/counterfactual/series")
 async def get_counterfactual_series(job_id: str, max_points: int = 2000) -> JSONResponse:
-    if max_points < 10 or max_points > 20000:
+    if max_points < 1 or max_points > 20000:
         return _envelope(
             ok=False,
             job=None,
             fallback_job_id=job_id,
             data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
             error_code="INVALID_MAX_POINTS",
-            error_message="max_points must be between 10 and 20000",
+            error_message="max_points must be between 1 and 20000",
             status_code=400,
         )
 

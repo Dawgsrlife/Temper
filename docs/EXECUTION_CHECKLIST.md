@@ -20,6 +20,10 @@ This is the only board to execute from. Do phases in order. Do not skip gate che
 - `F07_alias_contract.csv` (upload/job contract)
 - `F08_20x_scale_hint.csv` (scale sanity)
 - `F09_overtrading_switches.csv` (switching/churn + post-event burst)
+- `F10_phase8_scale.csv` (20x-like timeline stress for phase 8)
+- `F11_phase8_robust.csv` (anomaly robustness fixture for phase 8)
+- `F12_phase9_demo.csv` (judge-demo contract fixture for phase 9)
+- `F13_phase10_recording.csv` (recording-readiness contract fixture for phase 10)
 
 ## Phase 0 - Environment + Baseline (15 min)
 
@@ -235,12 +239,27 @@ Pass criteria:
 - Script exits `0` on baseline fixture
 - Script exits non-zero with structured error on malformed path
 
-## Phase 10 - Recording Checklist (30 min)
+## Phase 10 - Recording Readiness TDD (30 min)
 
-- [ ] Start with fresh run (no stale cache tabs)
-- [ ] Upload -> analyze -> timeline -> moments -> inspector -> coach
-- [ ] Show deterministic disclaimer once
-- [ ] Show one personalized recommendation with metric refs
+- [ ] Run Phase 10 gate fixture (`F13`)
+- [ ] Verify summary/timeline/moments/trade/coach/history payloads
+- [ ] Verify one personalized recommendation with deterministic metric refs
+
+Commands:
+```bash
+bash /Users/vishnu/Documents/Temper/backend/scripts/run_gate_suite.sh
+```
+
+Pass criteria (from `F13_phase10_recording.csv`):
+- headline=`WINNER`
+- delta_pnl=`3220.0`, cost_of_bias=`3220.0`
+- loss_aversion_rate=`0.2`
+- top moment=`MEGABLUNDER` on `GOOG` with `impact=2860.0`
+- `/counterfactual/series?max_points=5` returns exactly 5 points
+- first point=`2025-03-14T09:00:00` (100.0 vs 100.0)
+- last point=`2025-03-14T09:17:00` (-2330.0 vs 890.0)
+- coach move_review length=3
+- history returns created job id
 
 Narration line (use exactly):
 `We detect behavioral patterns deterministically, replay the same history under explicit guardrails, and show receipts per move. The coach is post-hoc and cannot alter facts.`
