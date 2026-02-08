@@ -46,17 +46,15 @@ const demoTrades: Trade[] = [
   { timestamp: '2025-03-01 14:00:00', asset: 'AAPL', side: 'BUY', quantity: 100, pnl: 85 },
 ];
 
-const labelStyles: Record<
-  TradeWithAnalysis['label'],
-  { bg: string; text: string; border: string }
-> = {
-  BRILLIANT: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'ring-emerald-500/30' },
+const labelStyles: Record<string, { bg: string; text: string; border: string }> = {
+  BRILLIANT: { bg: 'bg-cyan-400/20', text: 'text-cyan-400', border: 'ring-cyan-400/30' },
   EXCELLENT: { bg: 'bg-emerald-400/15', text: 'text-emerald-400', border: 'ring-emerald-400/25' },
-  GOOD: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'ring-blue-500/30' },
-  NEUTRAL: { bg: 'bg-gray-500/20', text: 'text-gray-400', border: 'ring-gray-500/30' },
+  GOOD: { bg: 'bg-green-300/15', text: 'text-green-300', border: 'ring-green-300/25' },
+  BOOK: { bg: 'bg-blue-400/15', text: 'text-blue-400', border: 'ring-blue-400/25' },
   INACCURACY: { bg: 'bg-yellow-400/20', text: 'text-yellow-400', border: 'ring-yellow-400/30' },
   MISTAKE: { bg: 'bg-orange-400/20', text: 'text-orange-400', border: 'ring-orange-400/30' },
   BLUNDER: { bg: 'bg-red-400/20', text: 'text-red-400', border: 'ring-red-400/30' },
+  MISSED_WIN: { bg: 'bg-gray-400/10', text: 'text-gray-400', border: 'ring-gray-400/20' },
 };
 
 export default function AnalyzePage() {
@@ -192,7 +190,7 @@ export default function AnalyzePage() {
           <div className="timeline-bar border-t border-white/[0.06] p-4">
             <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarColor: '#282828 transparent' }}>
               {analysis.trades.map((trade, i) => {
-                const style = labelStyles[trade.label];
+                const style = labelStyles[trade.label] || labelStyles.BOOK;
                 const isActive = i === currentIndex;
                 const isPast = i < currentIndex;
                 return (
@@ -239,7 +237,7 @@ export default function AnalyzePage() {
                   Trade Rating
                 </p>
                 <div
-                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 ${labelStyles[currentTrade.label].bg} ${labelStyles[currentTrade.label].text} ring-1 ${labelStyles[currentTrade.label].border}`}
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).bg} ${(labelStyles[currentTrade.label] || labelStyles.BOOK).text} ring-1 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).border}`}
                 >
                   {(() => { const Icon = getLabelIcon(currentTrade.label); return <Icon size={20} />; })()}
                   <span className="text-sm font-bold">{currentTrade.label}</span>
@@ -323,41 +321,73 @@ export default function AnalyzePage() {
               <div className="summary-cards mt-8 space-y-4 border-t border-white/[0.06] pt-6">
                 <h3 className="text-sm font-semibold text-white">Session Summary</h3>
 
-                {/* Psychological P&L */}
+                {/* Psychological P&L → Disciplined Replay */}
                 <div className="rounded-xl bg-white/[0.04] p-4 ring-1 ring-white/[0.06]">
                   <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                    Psychological P&L
+                    Disciplined Replay
                   </p>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-400">Strategy P&L</span>
+                      <span className="text-sm text-gray-400">Actual P&L</span>
+                      <span className={`font-mono font-bold ${analysis.summary.totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {analysis.summary.totalPnL >= 0 ? '+' : '-'}${Math.abs(analysis.summary.totalPnL).toFixed(0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-400">Trades Filtered</span>
+                      <span className="font-mono font-bold text-orange-400">
+                        {analysis.report.disciplinedReplay.tradesRemoved}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-400">Disciplined P&L</span>
                       <span className={`font-mono font-bold ${analysis.psychologicalPnL.strategyPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {analysis.psychologicalPnL.strategyPnL >= 0 ? '+' : '-'}${Math.abs(analysis.psychologicalPnL.strategyPnL).toFixed(0)}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-400">Emotional Cost</span>
-                      <span className="font-mono font-bold text-red-400">
-                        -${analysis.psychologicalPnL.emotionalCost.toFixed(0)}
-                      </span>
-                    </div>
                     <div className="flex items-center justify-between border-t border-white/[0.06] pt-2">
-                      <span className="text-sm font-medium text-white">Potential P&L</span>
-                      <span className="font-mono font-bold text-purple-400">
-                        ${analysis.psychologicalPnL.potentialPnL.toFixed(0)}
+                      <span className="text-sm font-medium text-white">Savings</span>
+                      <span className={`font-mono font-bold ${analysis.report.disciplinedReplay.savings >= 0 ? 'text-purple-400' : 'text-red-400'}`}>
+                        {analysis.report.disciplinedReplay.savings >= 0 ? '+' : ''}${analysis.report.disciplinedReplay.savings.toFixed(0)}
                       </span>
                     </div>
                   </div>
-                  {analysis.psychologicalPnL.emotionalCost > 0 && (
+                  {analysis.report.disciplinedReplay.tradesRemoved > 0 && (
                     <p className="mt-3 text-xs italic text-gray-500">
-                      You gave back{' '}
-                      <span className="font-bold text-red-400">
-                        ${analysis.psychologicalPnL.emotionalCost.toFixed(0)}
-                      </span>{' '}
-                      to the market due to bias.
+                      {analysis.report.disciplinedReplay.savings >= 0 ? 'Following discipline rules would have saved you' : 'Net impact of rule enforcement'}:{' '}
+                      <span className="font-bold text-purple-400">
+                        ${Math.abs(analysis.report.disciplinedReplay.savings).toFixed(0)}
+                      </span>
                     </p>
                   )}
                 </div>
+
+                {/* Bias Score Bars */}
+                {analysis.biases.length > 0 && (
+                  <div className="rounded-xl bg-white/[0.04] p-4 ring-1 ring-white/[0.06]">
+                    <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                      Bias Scores
+                    </p>
+                    <div className="space-y-2.5">
+                      {analysis.biases.map((bias, i) => (
+                        <div key={i}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-gray-400">{bias.type.replace(/_/g, ' ')}</span>
+                            <span className="text-xs font-bold text-white">{bias.score}/100</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-white/[0.06]">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                bias.score >= 70 ? 'bg-red-400' : bias.score >= 40 ? 'bg-orange-400' : 'bg-yellow-400'
+                              }`}
+                              style={{ width: `${bias.score}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between rounded-xl bg-emerald-400/10 p-3">
@@ -373,16 +403,33 @@ export default function AnalyzePage() {
                 {analysis.recommendations.length > 0 && (
                   <div className="mt-4">
                     <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                      Recommendations
+                      Personalized Recommendations
                     </p>
                     <ul className="space-y-2">
-                      {analysis.recommendations.slice(0, 3).map((rec, i) => (
+                      {analysis.recommendations.slice(0, 6).map((rec, i) => (
                         <li key={i} className="flex items-start gap-2 text-xs text-gray-300">
                           <Zap className="mt-0.5 h-3 w-3 flex-shrink-0 text-yellow-400" />
                           {rec}
                         </li>
                       ))}
                     </ul>
+                  </div>
+                )}
+
+                {/* Coach Summary */}
+                {analysis.coachResponse?.daySummary && (
+                  <div className="mt-4 rounded-xl bg-purple-400/[0.06] p-3 ring-1 ring-purple-400/10">
+                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-purple-400/60">
+                      AI Coach Summary
+                    </p>
+                    <p className="text-xs leading-relaxed text-gray-300">
+                      {analysis.coachResponse.daySummary}
+                    </p>
+                    {analysis.coachResponse.closingMessage && (
+                      <p className="mt-2 text-xs italic text-purple-400/80">
+                        {analysis.coachResponse.closingMessage}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

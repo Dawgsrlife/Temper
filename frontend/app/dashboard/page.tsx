@@ -15,7 +15,7 @@ import {
   Zap,
   Network,
 } from 'lucide-react';
-import { analyzeSession, Trade, SessionAnalysis } from '@/lib/biasDetector';
+import { analyzeSession, Trade, SessionAnalysis, getRatingBracket, BiasType } from '@/lib/biasDetector';
 
 /* ------------------------------------------------------------------ */
 /*  Score Ring                                                         */
@@ -90,7 +90,7 @@ function ScoreRing({ score, size = 180 }: { score: number; size?: number }) {
           0
         </span>
         <span className="text-xs text-gray-500 uppercase tracking-widest mt-1">
-          Discipline
+          Temper Score
         </span>
       </div>
     </div>
@@ -176,33 +176,40 @@ export default function DashboardPage() {
   const hasData = !!analysis;
   const currentScore = analysis ? analysis.disciplineScore : 0;
 
+  /* ELO rating data */
+  const eloRating = analysis ? Math.round(analysis.eloState.rating) : 1200;
+  const eloBracket = getRatingBracket(eloRating);
+  const eloDelta = analysis ? analysis.eloState.lastSessionDelta : 0;
+
   const stats = analysis
     ? [
         {
           label: 'Win Rate',
           value: `${analysis.summary.winRate.toFixed(0)}%`,
           icon: TrendingUp,
-          positive: true,
-          sub: 'Session',
+          positive: analysis.summary.winRate > 50,
+          sub: `${analysis.summary.winners}W / ${analysis.summary.losers}L`,
         },
         {
-          label: 'Avg Interval',
-          value: `${Math.round(analysis.summary.avgTradeInterval)}s`,
-          icon: Activity,
-          positive: true,
-          sub: 'Patience',
+          label: 'ELO Rating',
+          value: eloRating.toString(),
+          icon: Shield,
+          positive: eloDelta >= 0,
+          sub: eloBracket,
         },
         {
           label: 'Biases Detected',
           value: analysis.biases.length.toString(),
           icon: AlertTriangle,
           positive: analysis.biases.length === 0,
-          sub: analysis.biases.length > 0 ? 'Found' : 'Clean',
+          sub: analysis.biases.length > 0
+            ? analysis.biases.map(b => b.type.replace(/_/g, ' ')).slice(0, 2).join(', ')
+            : 'Clean Session',
         },
       ]
     : [
         { label: 'Win Rate', value: '--', icon: TrendingUp, positive: true, sub: '--' },
-        { label: 'Avg Interval', value: '--', icon: Activity, positive: true, sub: '--' },
+        { label: 'ELO Rating', value: '1200', icon: Shield, positive: true, sub: 'Developing' },
         { label: 'Biases Detected', value: '--', icon: AlertTriangle, positive: true, sub: '--' },
       ];
 
@@ -212,7 +219,7 @@ export default function DashboardPage() {
           ? [
               {
                 title: 'Bias Detected',
-                description: `We found ${analysis.biases.length} potential behavioral issue${analysis.biases.length > 1 ? 's' : ''} in your last session.`,
+                description: `${analysis.biases.length} behavioral bias${analysis.biases.length > 1 ? 'es' : ''}: ${analysis.biases.map(b => b.type.replace(/_/g, ' ')).join(', ')}. Top score: ${Math.max(...analysis.biases.map(b => b.score))}/100.`,
                 type: 'warning' as const,
                 action: 'Review',
                 href: '/dashboard/analyze',
@@ -228,6 +235,17 @@ export default function DashboardPage() {
                 href: '/dashboard/analyze',
               },
             ]),
+        ...(analysis.report.disciplinedReplay.tradesRemoved > 0
+          ? [
+              {
+                title: 'Discipline Replay',
+                description: `${analysis.report.disciplinedReplay.tradesRemoved} trades would have been filtered. ${analysis.report.disciplinedReplay.savings >= 0 ? 'Savings' : 'Impact'}: $${Math.abs(analysis.report.disciplinedReplay.savings).toFixed(0)}.`,
+                type: 'warning' as const,
+                action: 'Explore',
+                href: '/dashboard/analyze',
+              },
+            ]
+          : []),
         ...(lastJournalDate
           ? [
               {

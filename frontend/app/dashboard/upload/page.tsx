@@ -13,6 +13,10 @@ import {
   AlertTriangle,
   Brain,
   Loader2,
+  Plus,
+  Trash2,
+  Table2,
+  FileSpreadsheet,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -35,7 +39,90 @@ export default function UploadPage() {
     profile: TraderProfile;
   } | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [inputMode, setInputMode] = useState<'file' | 'manual'>('file');
   const router = useRouter();
+
+  /* ── Manual trade entry state ── */
+  interface ManualTrade {
+    id: string;
+    timestamp: string;
+    asset: string;
+    side: 'BUY' | 'SELL';
+    quantity: string;
+    entryPrice: string;
+    exitPrice: string;
+    pnl: string;
+    balance: string;
+  }
+  const emptyTrade = (): ManualTrade => ({
+    id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+    timestamp: new Date().toISOString().slice(0, 16),
+    asset: '',
+    side: 'BUY',
+    quantity: '',
+    entryPrice: '',
+    exitPrice: '',
+    pnl: '',
+    balance: '',
+  });
+  const [manualTrades, setManualTrades] = useState<ManualTrade[]>([emptyTrade()]);
+
+  const addManualTrade = () => {
+    setManualTrades((prev) => [...prev, emptyTrade()]);
+  };
+
+  const removeManualTrade = (id: string) => {
+    setManualTrades((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const updateManualTrade = (id: string, field: keyof ManualTrade, value: string) => {
+    setManualTrades((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        const updated = { ...t, [field]: value };
+        // Auto-calc P/L from entry/exit prices
+        if ((field === 'entryPrice' || field === 'exitPrice' || field === 'quantity' || field === 'side') &&
+            updated.entryPrice && updated.exitPrice && updated.quantity) {
+          const entry = parseFloat(updated.entryPrice);
+          const exit = parseFloat(updated.exitPrice);
+          const qty = parseFloat(updated.quantity);
+          if (!isNaN(entry) && !isNaN(exit) && !isNaN(qty)) {
+            const sign = updated.side === 'BUY' ? 1 : -1;
+            updated.pnl = ((exit - entry) * qty * sign).toFixed(2);
+          }
+        }
+        return updated;
+      }),
+    );
+  };
+
+  const submitManualTrades = () => {
+    const validTrades: Trade[] = manualTrades
+      .filter((t) => t.asset && t.quantity)
+      .map((t) => ({
+        timestamp: t.timestamp.replace('T', ' ') + ':00',
+        asset: t.asset.toUpperCase(),
+        side: t.side,
+        quantity: parseFloat(t.quantity) || 1,
+        price: parseFloat(t.entryPrice) || undefined,
+        pnl: parseFloat(t.pnl) || 0,
+      }));
+
+    if (validTrades.length === 0) return;
+    setIsUploading(true);
+
+    setTimeout(() => {
+      localStorage.setItem('temper_current_session', JSON.stringify(validTrades));
+      const result = analyzeSession(validTrades);
+      setIsUploading(false);
+      setIsComplete(true);
+      setAnalysisResult({
+        score: result.disciplineScore,
+        biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
+        profile: result.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader',
+      });
+    }, 1200);
+  };
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -74,7 +161,9 @@ export default function UploadPage() {
     e.preventDefault();
     setIsDragging(false);
     const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile?.name.endsWith('.csv')) setFile(droppedFile);
+    if (droppedFile && (droppedFile.name.endsWith('.csv') || droppedFile.name.endsWith('.xlsx') || droppedFile.name.endsWith('.xls'))) {
+      setFile(droppedFile);
+    }
   }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -86,8 +175,20 @@ export default function UploadPage() {
     if (!file) return;
     setIsUploading(true);
 
-    const text = await file.text();
-    const trades = parseCSV(text);
+    let trades: Trade[];
+
+    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+      // Excel handling via dynamic import
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const csvText = XLSX.utils.sheet_to_csv(ws);
+      trades = parseCSV(csvText);
+    } else {
+      const text = await file.text();
+      trades = parseCSV(text);
+    }
 
     setTimeout(() => {
       localStorage.setItem('temper_current_session', JSON.stringify(trades));
@@ -176,7 +277,34 @@ export default function UploadPage() {
           </p>
         </header>
 
+        {/* Input Mode Tabs */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setInputMode('file'); setIsComplete(false); setAnalysisResult(null); }}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+              inputMode === 'file'
+                ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400/20'
+                : 'bg-white/[0.04] text-gray-500 hover:text-white'
+            }`}
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            CSV / Excel
+          </button>
+          <button
+            onClick={() => { setInputMode('manual'); setIsComplete(false); setAnalysisResult(null); }}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+              inputMode === 'manual'
+                ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400/20'
+                : 'bg-white/[0.04] text-gray-500 hover:text-white'
+            }`}
+          >
+            <Table2 className="h-4 w-4" />
+            Manual Entry
+          </button>
+        </div>
+
         {/* Upload Zone */}
+        {inputMode === 'file' ? (
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -199,14 +327,14 @@ export default function UploadPage() {
                 <Upload className="h-7 w-7 text-emerald-400" />
               </div>
               <p className="mb-2 text-base font-medium text-white">
-                Drop your CSV file here
+                Drop your CSV or Excel file here
               </p>
               <p className="mb-5 text-sm text-gray-500">or click to browse</p>
               <label className="inline-block cursor-pointer rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-black transition-all hover:brightness-110">
                 Choose File
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
@@ -302,6 +430,154 @@ export default function UploadPage() {
             </div>
           )}
         </div>
+        ) : (
+          /* ═══ Manual Trade Entry Form ═══ */
+          <div className="upload-zone space-y-4">
+            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-5">
+              {!isComplete ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">
+                      Enter Trades
+                    </p>
+                    <button
+                      onClick={addManualTrade}
+                      className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 transition-all hover:bg-emerald-500/20"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add Trade
+                    </button>
+                  </div>
+
+                  {/* Column headers */}
+                  <div className="hidden sm:grid sm:grid-cols-[1fr_80px_70px_80px_80px_80px_80px_32px] gap-2 text-[9px] font-semibold uppercase tracking-widest text-gray-600 px-1">
+                    <span>Timestamp</span>
+                    <span>Asset</span>
+                    <span>Side</span>
+                    <span>Qty</span>
+                    <span>Entry $</span>
+                    <span>Exit $</span>
+                    <span>P/L</span>
+                    <span />
+                  </div>
+
+                  {/* Trade rows */}
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                    {manualTrades.map((trade, idx) => (
+                      <div key={trade.id} className="grid gap-2 sm:grid-cols-[1fr_80px_70px_80px_80px_80px_80px_32px] items-center rounded-xl bg-white/[0.04] p-2.5 ring-1 ring-white/[0.06]">
+                        <input
+                          type="datetime-local"
+                          value={trade.timestamp}
+                          onChange={(e) => updateManualTrade(trade.id, 'timestamp', e.target.value)}
+                          className="rounded-lg border border-white/[0.06] bg-[#0a0a0a] px-2.5 py-2 text-xs text-white outline-none focus:border-emerald-400/40"
+                        />
+                        <input
+                          type="text"
+                          value={trade.asset}
+                          onChange={(e) => updateManualTrade(trade.id, 'asset', e.target.value.toUpperCase())}
+                          placeholder="AAPL"
+                          className="rounded-lg border border-white/[0.06] bg-[#0a0a0a] px-2.5 py-2 text-xs text-white outline-none placeholder:text-gray-700 focus:border-emerald-400/40"
+                        />
+                        <button
+                          onClick={() => updateManualTrade(trade.id, 'side', trade.side === 'BUY' ? 'SELL' : 'BUY')}
+                          className={`rounded-lg px-2.5 py-2 text-xs font-bold transition-all ${
+                            trade.side === 'BUY'
+                              ? 'bg-emerald-400/10 text-emerald-400 ring-1 ring-emerald-400/20'
+                              : 'bg-red-400/10 text-red-400 ring-1 ring-red-400/20'
+                          }`}
+                        >
+                          {trade.side}
+                        </button>
+                        <input
+                          type="number"
+                          value={trade.quantity}
+                          onChange={(e) => updateManualTrade(trade.id, 'quantity', e.target.value)}
+                          placeholder="100"
+                          className="rounded-lg border border-white/[0.06] bg-[#0a0a0a] px-2.5 py-2 text-xs text-white outline-none placeholder:text-gray-700 focus:border-emerald-400/40"
+                        />
+                        <input
+                          type="number"
+                          value={trade.entryPrice}
+                          onChange={(e) => updateManualTrade(trade.id, 'entryPrice', e.target.value)}
+                          placeholder="150.00"
+                          className="rounded-lg border border-white/[0.06] bg-[#0a0a0a] px-2.5 py-2 text-xs text-white outline-none placeholder:text-gray-700 focus:border-emerald-400/40"
+                        />
+                        <input
+                          type="number"
+                          value={trade.exitPrice}
+                          onChange={(e) => updateManualTrade(trade.id, 'exitPrice', e.target.value)}
+                          placeholder="155.00"
+                          className="rounded-lg border border-white/[0.06] bg-[#0a0a0a] px-2.5 py-2 text-xs text-white outline-none placeholder:text-gray-700 focus:border-emerald-400/40"
+                        />
+                        <input
+                          type="number"
+                          value={trade.pnl}
+                          onChange={(e) => updateManualTrade(trade.id, 'pnl', e.target.value)}
+                          placeholder="auto"
+                          className="rounded-lg border border-white/[0.06] bg-[#0a0a0a] px-2.5 py-2 text-xs text-white outline-none placeholder:text-gray-700 focus:border-emerald-400/40"
+                        />
+                        {manualTrades.length > 1 && (
+                          <button
+                            onClick={() => removeManualTrade(trade.id)}
+                            className="flex items-center justify-center rounded-lg p-1.5 text-gray-600 transition-all hover:bg-red-400/10 hover:text-red-400"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={submitManualTrades}
+                    disabled={isUploading || manualTrades.every((t) => !t.asset)}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-6 py-3.5 text-sm font-bold text-black transition-all hover:brightness-110 disabled:opacity-40"
+                  >
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Brain className="h-4 w-4" />
+                        Analyze {manualTrades.filter((t) => t.asset).length} Trade{manualTrades.filter((t) => t.asset).length !== 1 ? 's' : ''}
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : analysisResult ? (
+                <div className="result-section space-y-4 text-center">
+                  <div className="flex items-center justify-center gap-2 text-emerald-400">
+                    <Check className="h-5 w-5" />
+                    <span className="text-sm font-semibold">Analysis Complete</span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                      <p className="text-2xl font-bold text-yellow-400">{analysisResult.score}</p>
+                      <p className="text-[10px] text-gray-500">Temper Score</p>
+                    </div>
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                      <p className="text-2xl font-bold text-orange-400">{analysisResult.biases.length}</p>
+                      <p className="text-[10px] text-gray-500">Biases Detected</p>
+                    </div>
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] p-4 text-center">
+                      <p className="text-sm font-bold text-white">{TRADER_PROFILES[analysisResult.profile].name}</p>
+                      <p className="text-[10px] text-gray-500">Profile Match</p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/dashboard/analyze"
+                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110"
+                  >
+                    View Full Analysis
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
 
         {/* Sample Data */}
         {!file && (
@@ -334,17 +610,23 @@ export default function UploadPage() {
         {/* Format Info */}
         <div className="format-info space-y-3 rounded-2xl border border-white/[0.06] bg-white/[0.04] p-5">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-            Supported Format
+            Supported Formats
           </p>
           <p className="text-sm text-gray-400">
-            CSV with columns:{' '}
+            <strong className="text-white">CSV / Excel</strong> with columns:{' '}
             <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">timestamp</code>,{' '}
             <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">asset</code>,{' '}
-            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">side</code>,{' '}
-            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">quantity</code>
+            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">side</code>{' '}
+            <span className="text-gray-500">(buy/sell)</span>,{' '}
+            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">quantity</code>,{' '}
+            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">entry_price</code>,{' '}
+            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">exit_price</code>,{' '}
+            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-white">pnl</code>,{' '}
+            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-emerald-400/60">balance</code>{' '}
+            <span className="text-gray-600">(optional)</span>
           </p>
           <p className="text-xs text-gray-500">
-            Works with exports from TradingView, TD Ameritrade, Interactive Brokers, and more.
+            Accepts .csv and .xlsx exports from TradingView, TD Ameritrade, Interactive Brokers, and most brokers. P/L is auto-calculated from entry/exit prices when provided.
           </p>
         </div>
       </div>

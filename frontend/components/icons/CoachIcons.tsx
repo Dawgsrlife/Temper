@@ -205,10 +205,12 @@ export const LABEL_ICON_MAP: Record<string, React.FC<IconProps>> = {
   BRILLIANT: BrilliantIcon,
   EXCELLENT: ExcellentIcon,
   GOOD: GoodIcon,
+  BOOK: ForcedIcon,
   NEUTRAL: ForcedIcon,
   INACCURACY: InaccuracyIcon,
   MISTAKE: MistakeIcon,
   BLUNDER: BlunderIcon,
+  MISSED_WIN: MissIcon,
 };
 
 /* ── Map bias types to icons ── */
@@ -217,6 +219,7 @@ export const BIAS_ICON_MAP: Record<string, React.FC<IconProps>> = {
   REVENGE_TRADING: RevengeIcon,
   FOMO: FomoIcon,
   LOSS_AVERSION: MissIcon,
+  GREED: BrilliantIcon,
   DISCIPLINE_BREAK: TimeoutIcon,
 };
 

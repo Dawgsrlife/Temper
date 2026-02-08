@@ -70,14 +70,15 @@ const sessionData: Record<string, { trades: Trade[]; profile: TraderProfile }> =
 };
 
 // Label colors — consistent with analyze page
-const labelStyles: Record<TradeWithAnalysis['label'], { bg: string; text: string; border: string }> = {
-  BRILLIANT: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'ring-emerald-500/30' },
+const labelStyles: Record<string, { bg: string; text: string; border: string }> = {
+  BRILLIANT: { bg: 'bg-cyan-400/20', text: 'text-cyan-400', border: 'ring-cyan-400/30' },
   EXCELLENT: { bg: 'bg-emerald-400/15', text: 'text-emerald-400', border: 'ring-emerald-400/25' },
-  GOOD: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'ring-blue-500/30' },
-  NEUTRAL: { bg: 'bg-gray-500/20', text: 'text-gray-400', border: 'ring-gray-500/30' },
+  GOOD: { bg: 'bg-green-300/15', text: 'text-green-300', border: 'ring-green-300/25' },
+  BOOK: { bg: 'bg-blue-400/15', text: 'text-blue-400', border: 'ring-blue-400/25' },
   INACCURACY: { bg: 'bg-yellow-400/20', text: 'text-yellow-400', border: 'ring-yellow-400/30' },
   MISTAKE: { bg: 'bg-orange-400/20', text: 'text-orange-400', border: 'ring-orange-400/30' },
   BLUNDER: { bg: 'bg-red-400/20', text: 'text-red-400', border: 'ring-red-400/30' },
+  MISSED_WIN: { bg: 'bg-gray-400/10', text: 'text-gray-400', border: 'ring-gray-400/20' },
 };
 
 export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -237,7 +238,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           <div className="timeline-bar border-t border-white/[0.06] p-4">
             <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarColor: '#282828 transparent' }}>
               {analysis.trades.map((trade, i) => {
-                const style = labelStyles[trade.label];
+                const style = labelStyles[trade.label] || labelStyles.BOOK;
                 const isActive = i === currentIndex;
                 const isPast = i < currentIndex;
 
@@ -281,7 +282,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               {/* Label Badge */}
               <div>
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-500">Trade Rating</p>
-                <div className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 ${labelStyles[currentTrade.label].bg} ${labelStyles[currentTrade.label].text} ring-1 ${labelStyles[currentTrade.label].border}`}>
+                <div className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).bg} ${(labelStyles[currentTrade.label] || labelStyles.BOOK).text} ring-1 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).border}`}>
                   {(() => { const Icon = getLabelIcon(currentTrade.label); return <Icon size={20} />; })()}
                   <span className="text-sm font-bold">{currentTrade.label}</span>
                 </div>

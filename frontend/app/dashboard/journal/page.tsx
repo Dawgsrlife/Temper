@@ -333,6 +333,50 @@ export default function JournalPage() {
                 )}
               </section>
             )}
+
+            {/* Coach Journaling Prompts */}
+            {sessionSummary?.coachResponse && (
+              <section className="rounded-2xl border border-purple-400/10 bg-purple-400/[0.03] p-5 space-y-4">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-purple-400">
+                  <BookOpen className="h-4 w-4" />
+                  Coach Reflection Prompts
+                </h2>
+                {sessionSummary.coachResponse.journalPrompts.length > 0 && (
+                  <div className="space-y-2.5">
+                    {sessionSummary.coachResponse.journalPrompts.map((prompt, i) => (
+                      <div key={i} className="flex gap-2.5 rounded-xl bg-white/[0.04] p-3">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-400/20 text-[9px] font-bold text-purple-400 mt-0.5">
+                          {i + 1}
+                        </span>
+                        <p className="text-xs leading-relaxed text-gray-400">{prompt}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {sessionSummary.coachResponse.positiveReinforcement.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400/60">Wins</p>
+                    {sessionSummary.coachResponse.positiveReinforcement.map((r, i) => (
+                      <p key={i} className="text-xs text-emerald-400/80 leading-relaxed flex items-start gap-1.5">
+                        <TrendingUp className="h-3 w-3 shrink-0 mt-0.5" />
+                        {r}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {sessionSummary.coachResponse.guardrails.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-orange-400/60">Guardrails</p>
+                    {sessionSummary.coachResponse.guardrails.map((g, i) => (
+                      <p key={i} className="text-xs text-orange-400/80 leading-relaxed flex items-start gap-1.5">
+                        <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                        {g}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
             {/* Heatmap */}
             <section className="heatmap-section rounded-2xl border border-white/[0.06] bg-white/[0.03] p-6">
               <div className="mb-5 flex items-center justify-between">

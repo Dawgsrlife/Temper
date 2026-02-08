@@ -233,11 +233,16 @@ export default function LandingPage() {
 
                 {/* Footer */}
                 <footer className="border-t border-temper-border/20 bg-temper-bg px-6 py-8">
-                    <div className="mx-auto flex max-w-6xl items-center justify-between">
+                    <div className="mx-auto flex max-w-6xl flex-col items-center gap-2 sm:flex-row sm:justify-between">
                         <span className="font-coach text-lg font-bold text-temper-text">Temper</span>
-                        <span className="text-xs text-temper-muted">
-                            © {new Date().getFullYear()} All rights reserved
-                        </span>
+                        <div className="flex flex-col items-center gap-1 sm:items-end">
+                            <span className="text-xs text-temper-muted">
+                                National Bank of Canada — Electronic Trading Technology
+                            </span>
+                            <span className="text-[10px] text-temper-muted/60">
+                                © {new Date().getFullYear()} Bias Detector Challenge
+                            </span>
+                        </div>
                     </div>
                 </footer>
             </main>
