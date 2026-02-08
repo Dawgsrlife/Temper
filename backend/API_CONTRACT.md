@@ -6,6 +6,15 @@ Stability rule: required keys are never omitted; unknown values are `null`.
 
 ## 1. Global Contract Rules
 
+### 1.0 Terminology
+- `simulated_*` fields represent the **disciplined replay**, not an optimal strategy engine.
+- Disciplined replay is deterministic and constrained by observed trade history:
+  - overtrading flags defer execution to the next cooldown-eligible same-asset/same-side trade (or 0 if none exists),
+  - revenge flags rescale size impact toward rolling-median size,
+  - loss-aversion flags cap downside using median-loss proxy,
+  - daily max loss still hard-stops later same-day trades.
+- Replay does not invent new market signals or external prices.
+
 ### 1.1 Content Types
 - Request bodies:
   - `POST /jobs`: `multipart/form-data`
@@ -83,6 +92,93 @@ Valid lifecycle:
 No backward transitions.
 
 ## 2. Endpoint Contracts
+
+## 2.1b POST `/jobs/from-uploadthing`
+Create a job from an Uploadthing-hosted CSV via verified file key.
+
+- Inputs:
+  - `user_id` (required)
+  - `file_key` (required, accepts alias `uploadthing_file_key`)
+  - `original_filename` (optional)
+  - `run_async` (optional, default `true`)
+- Required header:
+  - `X-Uploadthing-Signature: <hex hmac sha256>`
+  - Signature payload: `"{user_id}:{file_key}:{original_filename_or_empty}"`
+- Error on invalid signature:
+  - `401` with `error.code = "INVALID_UPLOADTHING_SIGNATURE"`
+
+Frontend/server call example:
+
+```bash
+SIG="$(printf "%s" "user_123:ut_file_abc:trades.csv" | openssl dgst -sha256 -hmac "$UPLOADTHING_SECRET" -binary | xxd -p -c 256)"
+
+curl -X POST "http://127.0.0.1:8000/jobs/from-uploadthing" \
+  -H "Content-Type: application/json" \
+  -H "X-Uploadthing-Signature: ${SIG}" \
+  -d '{
+    "user_id":"user_123",
+    "file_key":"ut_file_abc",
+    "original_filename":"trades.csv",
+    "run_async":true
+  }'
+```
+
+## 2.1c POST `/jobs/{job_id}/coach`
+Generate post-hoc coaching guidance via Vertex AI (Gemini). Does not alter deterministic engine outputs.
+
+- Query params:
+  - `force` (optional, default `false`)
+- Preconditions:
+  - job must exist
+  - job `execution_status` must be `COMPLETED`
+- Failure codes:
+  - `404 JOB_NOT_FOUND`
+  - `409 JOB_NOT_READY`
+  - `502 COACH_GENERATION_FAILED`
+
+Coach generation example:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/jobs/<JOB_ID>/coach?force=false"
+```
+
+## 2.1d GET `/jobs/{job_id}/coach`
+Read generated coach artifact.
+
+- Success: `200` with `data.coach`
+- Failure codes:
+  - `404 JOB_NOT_FOUND`
+  - `404 COACH_NOT_FOUND`
+  - `409 COACH_FAILED` (returns stored `data.coach_error`)
+
+Coach fetch example:
+
+```bash
+curl "http://127.0.0.1:8000/jobs/<JOB_ID>/coach"
+```
+
+## 2.1e GET `/jobs/{job_id}/trade/{trade_id}`
+Inspect a single trade end-to-end using persisted artifacts only (`input.csv`, `counterfactual.csv`, `decision_trace.jsonl`).
+
+- Path params:
+  - `job_id` (required)
+  - `trade_id` (required integer, `>= 0`)
+- Success:
+  - `200` with `data.trade`
+- Failure codes:
+  - `400 INVALID_TRADE_ID`
+  - `404 JOB_NOT_FOUND`
+  - `404 TRADE_NOT_FOUND`
+  - `409 COUNTERFACTUAL_NOT_READY`
+  - `422 COUNTERFACTUAL_PARSE_ERROR`
+  - `422 TRACE_GENERATION_FAILED`
+  - `422 INPUT_PARSE_ERROR`
+
+Trade inspector example:
+
+```bash
+curl "http://127.0.0.1:8000/jobs/<JOB_ID>/trade/21"
+```
 
 ## 2.1 POST `/jobs`
 Create a new analysis job. Non-blocking by default; client polls job endpoints.

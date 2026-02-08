@@ -337,21 +337,48 @@ def build_trade_review(
     working = _sorted_working(graded_df).reset_index(drop=True)
     working["_row_num"] = range(len(working))
     working["counterfactual_impact"] = working["simulated_pnl"] - working["pnl"]
+    working["impact_abs"] = (working["pnl"] - working["simulated_pnl"]).abs()
 
     severe_pool = working[
         working["trade_grade"].isin(["MEGABLUNDER", "BLUNDER", "MISS", "MISTAKE", "INACCURACY"])
     ]
     if severe_pool.empty:
         severe_pool = working
-    top_rows = severe_pool.sort_values(
-        ["counterfactual_impact", "timestamp"],
-        ascending=[False, True],
+
+    ranked = severe_pool.sort_values(
+        ["impact_abs", "counterfactual_impact", "timestamp"],
+        ascending=[False, False, True],
         kind="mergesort",
-    ).head(top_n)
+    )
+    selected_indices: list[int] = []
+    for flag_col in ("is_revenge", "is_overtrading", "is_loss_aversion"):
+        matches = ranked[ranked[flag_col].astype(bool)]
+        if not matches.empty:
+            idx = int(matches.index[0])
+            if idx not in selected_indices:
+                selected_indices.append(idx)
+        if len(selected_indices) >= top_n:
+            break
+    for idx in ranked.index:
+        if len(selected_indices) >= top_n:
+            break
+        idx_int = int(idx)
+        if idx_int in selected_indices:
+            continue
+        selected_indices.append(idx_int)
+
+    top_rows = working.loc[selected_indices]
 
     top_moments: list[dict[str, Any]] = []
     for _, row in top_rows.iterrows():
         center = int(row["_row_num"])
+        bias_category = "fallback"
+        if bool(row.get("is_revenge")):
+            bias_category = "revenge"
+        elif bool(row.get("is_overtrading")):
+            bias_category = "overtrading"
+        elif bool(row.get("is_loss_aversion")):
+            bias_category = "loss_aversion"
         left = max(0, center - critical_window)
         right = min(len(working) - 1, center + critical_window)
         critical = working.iloc[left : right + 1][
@@ -390,6 +417,7 @@ def build_trade_review(
                 "timestamp": pd.to_datetime(row["timestamp"]).strftime("%Y-%m-%dT%H:%M:%S"),
                 "asset": str(row["asset"]),
                 "label": str(row["trade_grade"]),
+                "bias_category": bias_category,
                 "blocked_reason": str(row["blocked_reason"]),
                 "actual_pnl": float(row["pnl"]),
                 "simulated_pnl": float(row["simulated_pnl"]),

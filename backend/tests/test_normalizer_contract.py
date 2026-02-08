@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import tempfile
-import warnings
 
 import pandas as pd
 
@@ -37,7 +36,7 @@ def test_missing_canonical_columns_raise_after_transform() -> None:
             assert re.search(r"missing canonical columns \['pnl'\]", str(exc))
 
 
-def test_residual_nat_timestamps_emit_warning_and_continue() -> None:
+def test_timestamp_parsing_fails_on_any_nat() -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         csv_path = f"{tmp_dir}/residual_nat.csv"
         rows = []
@@ -55,19 +54,12 @@ def test_residual_nat_timestamps_emit_warning_and_continue() -> None:
         rows[3]["timestamp"] = "not-a-date"
         pd.DataFrame(rows).to_csv(csv_path, index=False)
 
-        normalizer = DataNormalizer(source=csv_path, dayfirst=False)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            out = normalizer.normalize()
-
-        assert len(out) == 40
-        assert out["timestamp"].isna().sum() == 1
-        assert any(
-            issubclass(item.category, RuntimeWarning)
-            and "Some timestamps could not be parsed" in str(item.message)
-            for item in caught
-        )
-        assert any(w["code"] == "residual_nat_timestamps" for w in normalizer.warnings)
+        try:
+            DataNormalizer(source=csv_path, dayfirst=False).normalize()
+            assert False, "Expected normalization to fail when any timestamp is invalid."
+        except ValueError as exc:
+            assert "Timestamp parsing failed" in str(exc)
+            assert "1/40 rows" in str(exc)
 
 
 def test_ambiguous_preset_match_emits_warning_and_uses_deterministic_precedence() -> None:

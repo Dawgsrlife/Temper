@@ -36,6 +36,7 @@ class JobRecord:
     input_sha256: str
     status: str
     artifacts: dict[str, str]
+    upload: dict[str, Any] | None = None
     summary: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -43,6 +44,8 @@ class JobRecord:
 
     @staticmethod
     def from_dict(payload: dict[str, Any]) -> "JobRecord":
+        upload_payload = payload.get("upload")
+        upload = dict(upload_payload) if isinstance(upload_payload, dict) else None
         return JobRecord(
             job_id=str(payload["job_id"]),
             user_id=payload.get("user_id"),
@@ -51,6 +54,7 @@ class JobRecord:
             input_sha256=str(payload["input_sha256"]),
             status=str(payload["status"]),
             artifacts=dict(payload.get("artifacts", {})),
+            upload=upload,
             summary=dict(payload.get("summary", {})),
         )
 

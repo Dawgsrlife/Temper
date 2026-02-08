@@ -435,11 +435,15 @@ def main() -> int:
     metrics_path.write_text(json.dumps(runtime_metrics, indent=2, sort_keys=True) + "\n")
 
     existing_created_at = None
+    existing_upload = None
     if job_path.exists():
         try:
-            existing_created_at = json.loads(job_path.read_text()).get("created_at")
+            existing_payload = json.loads(job_path.read_text())
+            existing_created_at = existing_payload.get("created_at")
+            existing_upload = existing_payload.get("upload")
         except Exception:
             existing_created_at = None
+            existing_upload = None
     created_at = (
         str(existing_created_at)
         if existing_created_at
@@ -463,6 +467,7 @@ def main() -> int:
             "data_quality.json": str(quality_path),
             "runtime_metrics.json": str(metrics_path),
         },
+        upload=dict(existing_upload) if isinstance(existing_upload, dict) else None,
         summary={
             "outcome": str(summary.get("outcome", "")),
             "delta_pnl": float(summary.get("delta_pnl", 0.0)),

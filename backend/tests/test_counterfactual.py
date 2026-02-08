@@ -52,7 +52,7 @@ def test_daily_max_loss_breach_trade_allowed_then_block_same_day_and_reset_next_
     assert summary["cost_of_bias"] == 0.0
 
 
-def test_bias_blocking_happens_before_daily_loss_logic() -> None:
+def test_bias_adjustments_apply_before_daily_loss_logic() -> None:
     df = pd.DataFrame(
         {
             "timestamp": _ts(
@@ -72,14 +72,14 @@ def test_bias_blocking_happens_before_daily_loss_logic() -> None:
 
     out, summary = CounterfactualEngine(df, daily_max_loss=100.0).run()
 
-    # Trade 1 is blocked by bias and must not contribute to risk breach.
-    # Breach happens on trade 3 (allowed), trade 4 is then blocked by risk.
+    # Trade 1 is bias-adjusted (rescaled) but still contributes to daily running pnl.
+    # Because loss is still large, risk breach happens immediately and later trades are risk-blocked.
     assert out["is_blocked_bias"].tolist() == [True, False, False, False]
-    assert out["is_blocked_risk"].tolist() == [False, False, False, True]
-    assert out["simulated_pnl"].tolist() == [0.0, -30.0, -80.0, 0.0]
-    assert out["blocked_reason"].tolist() == ["BIAS", "NONE", "NONE", "DAILY_MAX_LOSS"]
+    assert out["is_blocked_risk"].tolist() == [False, True, True, True]
+    assert out["simulated_pnl"].tolist() == [-200.0, 0.0, 0.0, 0.0]
+    assert out["blocked_reason"].tolist() == ["BIAS", "DAILY_MAX_LOSS", "DAILY_MAX_LOSS", "DAILY_MAX_LOSS"]
     assert summary["blocked_bias_count"] == 1
-    assert summary["blocked_risk_count"] == 1
+    assert summary["blocked_risk_count"] == 3
 
 
 def test_missing_flag_columns_default_to_false() -> None:
@@ -120,10 +120,13 @@ def test_counterfactual_invariants() -> None:
 
     out, _ = CounterfactualEngine(df, daily_max_loss=100.0).run()
 
-    blocked = out["blocked_reason"] != "NONE"
-    unblocked = out["blocked_reason"] == "NONE"
-    assert (out.loc[blocked, "simulated_pnl"] == 0.0).all()
-    assert (out.loc[unblocked, "simulated_pnl"] == out.loc[unblocked, "pnl"]).all()
+    risk_blocked = out["blocked_reason"] == "DAILY_MAX_LOSS"
+    assert (out.loc[risk_blocked, "simulated_pnl"] == 0.0).all()
+    assert (out["is_blocked_bias"] == out["blocked_reason"].eq("BIAS")).all()
+    assert (out["is_blocked_risk"] == out["blocked_reason"].eq("DAILY_MAX_LOSS")).all()
+    assert out["replay_deferred"].notna().all()
+    assert out["replay_rescaled"].notna().all()
+    assert out["replay_loss_capped"].notna().all()
 
     # Breach trade is allowed: first day breach row must not be risk-blocked.
     day = out["timestamp"].dt.floor("D")
@@ -141,11 +144,13 @@ def test_cost_metric_sign_behavior() -> None:
                     "2026-01-01 09:30:00",
                     "2026-01-01 09:31:00",
                     "2026-01-01 09:32:00",
+                    "2026-01-01 09:33:00",
                 ]
             ),
-            "pnl": [-200.0, 10.0, 15.0],
-            "is_revenge": [True, False, False],
-            "is_overtrading": [False, False, False],
+            "pnl": [-50.0, -200.0, 15.0, 10.0],
+            "is_revenge": [False, False, False, False],
+            "is_overtrading": [False, False, False, False],
+            "is_loss_aversion": [False, True, False, False],
         }
     )
     _, better_summary = CounterfactualEngine(better_df, daily_max_loss=1000.0).run()
