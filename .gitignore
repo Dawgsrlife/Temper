@@ -66,3 +66,6 @@ yarn-error.log*
 lyrical-epigram-484715-v6-f865e736b70b.json
 service_account.json
 /backend/outputs/
+
+# TypeScript build cache
+frontend/tsconfig.tsbuildinfo
