@@ -982,10 +982,19 @@ def test_moments_returns_joined_rows_with_evidence_fields() -> None:
             "triggering_prior_trade",
             "trace_trade_id",
             "rule_hits",
+            "counterfactual_mechanics",
             "evidence",
             "error_notes",
         ]:
             assert key in moment
+        assert isinstance(moment["counterfactual_mechanics"], dict)
+        assert {
+            "mechanism",
+            "scale_factor",
+            "size_usd_before",
+            "size_usd_after",
+            "cap_used",
+        } <= set(moment["counterfactual_mechanics"].keys())
         assert "metric_refs" in moment["evidence"]
         assert isinstance(moment["evidence"]["metric_refs"], list)
         assert "rule_hits" in moment["evidence"]
@@ -1099,7 +1108,7 @@ def test_golden_bias_csv_triggers_required_bias_rules() -> None:
         assert overtrading_moment is not None
         explanation = str(overtrading_moment.get("explanation_human", ""))
         assert "far more frequently than normal" in explanation
-        assert ("threshold" in explanation) or ("no later cooldown-eligible setup existed" in explanation.lower())
+        assert "skipped during cooldown" in explanation.lower()
     finally:
         main_module.OUTPUTS_DIR = original_outputs
         tmp.cleanup()
@@ -1132,6 +1141,14 @@ def test_trade_inspector_returns_one_trade_with_raw_row_flags_and_decision() -> 
         assert trade["counterfactual"]["actual_pnl"] is not None
         assert trade["counterfactual"]["simulated_pnl"] is not None
         assert trade["counterfactual"]["delta_pnl"] is not None
+        assert isinstance(trade["counterfactual_mechanics"], dict)
+        assert {
+            "mechanism",
+            "scale_factor",
+            "size_usd_before",
+            "size_usd_after",
+            "cap_used",
+        } <= set(trade["counterfactual_mechanics"].keys())
         assert isinstance(trade["explanation_plain_english"], str)
         assert trade["decision"]["triggering_prior_trade"] is not None
         assert isinstance(trade["evidence"]["rule_hits"], list)

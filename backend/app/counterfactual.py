@@ -108,8 +108,8 @@ class CounterfactualEngine:
         Run the counterfactual simulation.
 
         Constrained replay rules:
-        1. Overtrading (`is_overtrading`): defer trade to the next same-asset/same-side
-           trade after cooldown; if no future fill exists, fallback to 0.
+        1. Overtrading (`is_overtrading`): skip trade under cooldown policy
+           (replay pnl = 0 for that row; no replacement trade is assumed).
         2. Revenge (`is_revenge`): rescale size effect to rolling median size.
         3. Loss aversion (`is_loss_aversion`): cap negative pnl at median loss.
         4. Daily max loss guardrail:
@@ -148,64 +148,24 @@ class CounterfactualEngine:
 
         pnl = pd.to_numeric(df["pnl"], errors="coerce").astype(float)
         size_usd = pd.to_numeric(df.get("size_usd"), errors="coerce").fillna(0.0) if "size_usd" in df.columns else pd.Series(0.0, index=df.index, dtype=float)
-        timestamps = pd.to_datetime(df["timestamp"], errors="coerce")
-        timestamp_values = timestamps.to_numpy()
 
         # Start from actual pnl, then apply deterministic discipline adjustments.
         replay_pnl = pnl.to_numpy(dtype=float).copy()
+        replay_effective_scale = np.ones(len(df), dtype=float)
+        replay_rescale_factor = np.ones(len(df), dtype=float)
+        replay_loss_cap_factor = np.ones(len(df), dtype=float)
+        replay_loss_cap_value = np.zeros(len(df), dtype=float)
         replay_deferred = np.zeros(len(df), dtype=bool)
         replay_rescaled = np.zeros(len(df), dtype=bool)
         replay_loss_capped = np.zeros(len(df), dtype=bool)
         deferred_target_index = np.full(len(df), -1, dtype=int)
+        size_values = size_usd.to_numpy(dtype=float)
 
-        # 1) Overtrading defer: same asset + side, earliest trade after cooldown.
-        cooldown_delta = np.timedelta64(int(self.overtrading_cooldown_minutes), "m")
+        # 1) Overtrading cooldown policy: skip flagged trade (no replacement mapping).
         if is_overtrading.any():
-            asset_key = (
-                df["asset"].astype(str).fillna("")
-                if "asset" in df.columns
-                else pd.Series("", index=df.index, dtype=object)
-            )
-            side_key = (
-                df["side"].astype(str).fillna("")
-                if "side" in df.columns
-                else pd.Series("", index=df.index, dtype=object)
-            )
-            grouped: dict[tuple[str, str], dict[str, np.ndarray]] = {}
-            for (asset, side), grp in df.groupby([asset_key, side_key], sort=False):
-                idx = grp.index.to_numpy(dtype=int)
-                grouped[(str(asset), str(side))] = {
-                    "idx": idx,
-                    "ts": timestamp_values[idx],
-                    "pnl": pnl.to_numpy(dtype=float)[idx],
-                    "size": size_usd.to_numpy(dtype=float)[idx],
-                }
-
             for i in np.flatnonzero(is_overtrading.to_numpy()):
-                key = (str(asset_key.iloc[i]), str(side_key.iloc[i]))
-                group = grouped.get(key)
-                if group is None:
-                    replay_pnl[i] = 0.0
-                    replay_deferred[i] = True
-                    continue
-                idx = group["idx"]
-                ts = group["ts"]
-                target_timestamp = timestamp_values[i] + cooldown_delta
-                candidate_pos = int(np.searchsorted(ts, target_timestamp, side="left"))
-                while candidate_pos < len(idx) and int(idx[candidate_pos]) <= i:
-                    candidate_pos += 1
-                if candidate_pos >= len(idx):
-                    replay_pnl[i] = 0.0
-                    replay_deferred[i] = True
-                    continue
-                target_i = int(idx[candidate_pos])
-                deferred_target_index[i] = target_i
-                deferred_pnl = float(group["pnl"][candidate_pos])
-                base_size = float(size_usd.iloc[i])
-                target_size = float(group["size"][candidate_pos])
-                if base_size > 0 and target_size > 0 and math.isfinite(base_size) and math.isfinite(target_size):
-                    deferred_pnl *= base_size / target_size
-                replay_pnl[i] = deferred_pnl
+                replay_pnl[i] = 0.0
+                replay_effective_scale[i] = 0.0
                 replay_deferred[i] = True
 
         # 2) Revenge rescale: scale pnl by rolling median size ratio.
@@ -218,14 +178,33 @@ class CounterfactualEngine:
             ratio = np.clip(ratio, 0.0, 1.0)
             revenge_mask = is_revenge.to_numpy()
             replay_pnl[revenge_mask] = replay_pnl[revenge_mask] * ratio[revenge_mask]
+            replay_effective_scale[revenge_mask] = replay_effective_scale[revenge_mask] * ratio[revenge_mask]
+            replay_rescale_factor[revenge_mask] = ratio[revenge_mask]
             replay_rescaled[revenge_mask] = True
 
-        # 3) Loss aversion cap: cap negative pnl at median loss magnitude.
-        median_loss_abs = float(pnl[pnl < 0].abs().median()) if (pnl < 0).any() else 0.0
-        if median_loss_abs > 0 and is_loss_aversion.any():
+        # 3) Loss aversion cap via exposure scaling on realized price move.
+        # Same entry/exit path; only exposure changes.
+        wins = pnl[pnl > 0]
+        median_win = float(wins.median()) if not wins.empty else 0.0
+        loss_cap_value = (
+            float(self._bias_thresholds.loss_aversion_loss_to_win_multiplier) * median_win
+            if median_win > 0
+            else 0.0
+        )
+        if loss_cap_value > 0 and is_loss_aversion.any():
             loss_mask = is_loss_aversion.to_numpy() & (replay_pnl < 0)
-            replay_pnl[loss_mask] = np.maximum(replay_pnl[loss_mask], -median_loss_abs)
-            replay_loss_capped[loss_mask] = True
+            if loss_mask.any():
+                original_abs = np.abs(pnl.to_numpy(dtype=float)[loss_mask])
+                scale = np.where(
+                    original_abs > 0.0,
+                    np.minimum(1.0, loss_cap_value / original_abs),
+                    1.0,
+                )
+                replay_pnl[loss_mask] = replay_pnl[loss_mask] * scale
+                replay_effective_scale[loss_mask] = replay_effective_scale[loss_mask] * scale
+                replay_loss_cap_factor[loss_mask] = scale
+                replay_loss_cap_value[loss_mask] = loss_cap_value
+                replay_loss_capped[loss_mask] = scale < (1.0 - 1e-12)
 
         bias_modified = is_revenge.to_numpy() | is_overtrading.to_numpy() | is_loss_aversion.to_numpy()
 
@@ -257,6 +236,11 @@ class CounterfactualEngine:
             trade_day, sort=False
         ).cumsum()
         df["simulated_equity"] = df["simulated_pnl"].cumsum()
+        df["simulated_size_usd"] = size_values * replay_effective_scale
+        df["replay_effective_scale"] = replay_effective_scale
+        df["replay_rescale_factor"] = replay_rescale_factor
+        df["replay_loss_cap_factor"] = replay_loss_cap_factor
+        df["replay_loss_cap_value"] = replay_loss_cap_value
         df["replay_deferred"] = replay_deferred
         df["replay_rescaled"] = replay_rescaled
         df["replay_loss_capped"] = replay_loss_capped
