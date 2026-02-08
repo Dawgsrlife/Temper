@@ -313,6 +313,9 @@ def _coach_prompt_payload(
     score = review.get("scoreboard", {}) if isinstance(review.get("scoreboard"), dict) else {}
     bias_rates = review.get("bias_rates", {}) if isinstance(review.get("bias_rates"), dict) else {}
     badge_counts = review.get("badge_counts", {}) if isinstance(review.get("badge_counts"), dict) else {}
+    derived_stats = review.get("derived_stats", {}) if isinstance(review.get("derived_stats"), dict) else {}
+    labeling_rules = review.get("labeling_rules", {}) if isinstance(review.get("labeling_rules"), dict) else {}
+    thresholds = labeling_rules.get("thresholds", {}) if isinstance(labeling_rules.get("thresholds"), dict) else {}
 
     return {
         "job_id": job.job_id,
@@ -323,6 +326,8 @@ def _coach_prompt_payload(
         "cost_of_bias": _safe_float(summary.get("cost_of_bias") or score.get("cost_of_bias")),
         "bias_rates": bias_rates,
         "badge_counts": badge_counts,
+        "derived_stats": derived_stats,
+        "thresholds": thresholds,
         "top_moments": review.get("top_moments", [])[:3] if isinstance(review.get("top_moments"), list) else [],
         "recommendations": review.get("recommendations", [])[:6] if isinstance(review.get("recommendations"), list) else [],
         "move_review": deterministic_move_review,
@@ -3312,6 +3317,121 @@ async def get_review(job_id: str) -> JSONResponse:
     return _envelope(ok=True, job=job, data={"review": review})
 
 
+@app.get("/jobs/{job_id}/elo")
+async def get_job_elo(job_id: str) -> JSONResponse:
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"elo": None},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"elo": None},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    status = _job_payload(job)["execution_status"]
+    summary = dict(job.summary or {})
+    outcome = summary.get("outcome")
+    delta_pnl = _safe_float(summary.get("delta_pnl"))
+    elo_delta = _elo_delta_from_job(
+        outcome=outcome,
+        delta_pnl=delta_pnl,
+        status=status,
+    )
+    base_elo = 1200.0
+
+    badge_counts = summary.get("badge_counts")
+    if not isinstance(badge_counts, dict):
+        badge_counts = {}
+
+    return _envelope(
+        ok=True,
+        job=job,
+        data={
+            "status": status,
+            "outcome": outcome,
+            "delta_pnl": delta_pnl,
+            "badge_counts": badge_counts,
+            "elo": {
+                "base": base_elo,
+                "delta": float(elo_delta),
+                "projected": float(base_elo + float(elo_delta)),
+                "formula": "deterministic outcome/delta-based mapping",
+            },
+        },
+    )
+
+
+@app.get("/jobs/{job_id}/move-review")
+async def get_move_review(job_id: str) -> JSONResponse:
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"move_review": []},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"move_review": []},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    try:
+        review_payload = _read_review_payload(job_id)
+        counterfactual_rows = _read_counterfactual_rows(job_id)
+        move_review = build_deterministic_move_review(
+            review_payload,
+            counterfactual_rows,
+        )
+    except (CoachGenerationError, MoveExplanationError) as exc:
+        error_message = str(exc)
+        lowered = error_message.lower()
+        if "artifact missing" in lowered:
+            return _envelope(
+                ok=False,
+                job=job,
+                data={"move_review": []},
+                error_code="MOVE_REVIEW_NOT_READY",
+                error_message=error_message,
+                status_code=409,
+            )
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"move_review": []},
+            error_code="MOVE_REVIEW_GENERATION_FAILED",
+            error_message=error_message,
+            status_code=422,
+        )
+
+    return _envelope(
+        ok=True,
+        job=job,
+        data={
+            "move_review": move_review,
+            "source": "deterministic_contract_templates",
+        },
+    )
+
+
 @app.post("/jobs/{job_id}/coach")
 async def generate_coach(job_id: str, force: bool = False) -> JSONResponse:
     try:
@@ -3846,6 +3966,170 @@ async def get_counterfactual_series(job_id: str, max_points: int = 2000) -> JSON
                     "by_bias": bias_impact,
                 },
             },
+        },
+    )
+
+
+@app.get("/jobs/{job_id}/counterfactual/heatmap")
+async def get_counterfactual_heatmap(job_id: str, granularity: str = "hour") -> JSONResponse:
+    granularity_norm = granularity.strip().lower()
+    if granularity_norm not in {"hour", "day"}:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"granularity": granularity_norm, "cells": [], "total_cells": 0, "totals": {}},
+            error_code="INVALID_GRANULARITY",
+            error_message="granularity must be one of: hour, day",
+            status_code=400,
+        )
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"granularity": granularity_norm, "cells": [], "total_cells": 0, "totals": {}},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"granularity": granularity_norm, "cells": [], "total_cells": 0, "totals": {}},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    try:
+        frame = _load_counterfactual_frame(job_id)
+    except FileNotFoundError:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"granularity": granularity_norm, "cells": [], "total_cells": 0, "totals": {}},
+            error_code="COUNTERFACTUAL_NOT_READY",
+            error_message="Counterfactual rows are not available yet.",
+            status_code=409,
+        )
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"granularity": granularity_norm, "cells": [], "total_cells": 0, "totals": {}},
+            error_code="COUNTERFACTUAL_PARSE_ERROR",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    required_columns = {"timestamp", "pnl", "simulated_pnl"}
+    missing_required = [column for column in required_columns if column not in frame.columns]
+    if missing_required:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"granularity": granularity_norm, "cells": [], "total_cells": 0, "totals": {}},
+            error_code="COUNTERFACTUAL_SCHEMA_INVALID",
+            error_message=f"counterfactual.csv missing required columns: {sorted(missing_required)}",
+            status_code=422,
+        )
+
+    timestamp_series = pd.to_datetime(frame["timestamp"], errors="coerce")
+    if timestamp_series.isna().any():
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"granularity": granularity_norm, "cells": [], "total_cells": 0, "totals": {}},
+            error_code="COUNTERFACTUAL_SCHEMA_INVALID",
+            error_message="counterfactual.csv has invalid timestamp values",
+            status_code=422,
+        )
+
+    pnl_series = pd.to_numeric(frame["pnl"], errors="coerce")
+    replay_series = pd.to_numeric(frame["simulated_pnl"], errors="coerce")
+    if pnl_series.isna().any() or replay_series.isna().any():
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"granularity": granularity_norm, "cells": [], "total_cells": 0, "totals": {}},
+            error_code="COUNTERFACTUAL_SCHEMA_INVALID",
+            error_message="counterfactual.csv has non-numeric pnl/simulated_pnl values",
+            status_code=422,
+        )
+
+    impact_abs_series = (pnl_series - replay_series).abs()
+    modified_series = impact_abs_series > 1e-9
+    is_revenge_series = (
+        frame["is_revenge"].fillna(False).astype(bool)
+        if "is_revenge" in frame.columns
+        else pd.Series(False, index=frame.index)
+    )
+    is_overtrading_series = (
+        frame["is_overtrading"].fillna(False).astype(bool)
+        if "is_overtrading" in frame.columns
+        else pd.Series(False, index=frame.index)
+    )
+    is_loss_aversion_series = (
+        frame["is_loss_aversion"].fillna(False).astype(bool)
+        if "is_loss_aversion" in frame.columns
+        else pd.Series(False, index=frame.index)
+    )
+    any_bias_series = is_revenge_series | is_overtrading_series | is_loss_aversion_series
+
+    if granularity_norm == "hour":
+        bucket_series = timestamp_series.dt.floor("h")
+    else:
+        bucket_series = timestamp_series.dt.floor("d")
+
+    cells: list[dict[str, Any]] = []
+    for bucket in sorted(bucket_series.unique()):
+        bucket_mask = bucket_series == bucket
+        bucket_pnl = pnl_series[bucket_mask]
+        bucket_replay = replay_series[bucket_mask]
+        bucket_impact = impact_abs_series[bucket_mask]
+        bucket_modified = modified_series[bucket_mask]
+        bucket_any_bias = any_bias_series[bucket_mask]
+        bucket_revenge = is_revenge_series[bucket_mask]
+        bucket_overtrading = is_overtrading_series[bucket_mask]
+        bucket_loss_aversion = is_loss_aversion_series[bucket_mask]
+
+        cells.append(
+            {
+                "bucket_start": bucket.isoformat(),
+                "trade_count": int(bucket_mask.sum()),
+                "modified_count": int(bucket_modified.sum()),
+                "bias_count": int(bucket_any_bias.sum()),
+                "actual_pnl": float(bucket_pnl.sum()),
+                "policy_replay_pnl": float(bucket_replay.sum()),
+                "impact_abs_total": float(bucket_impact.sum()),
+                "bias_breakdown": {
+                    "loss_aversion": int(bucket_loss_aversion.sum()),
+                    "revenge": int(bucket_revenge.sum()),
+                    "overtrading": int(bucket_overtrading.sum()),
+                },
+            }
+        )
+
+    totals = {
+        "trade_count": int(len(frame)),
+        "modified_count": int(modified_series.sum()),
+        "bias_count": int(any_bias_series.sum()),
+        "actual_pnl": float(pnl_series.sum()),
+        "policy_replay_pnl": float(replay_series.sum()),
+        "impact_abs_total": float(impact_abs_series.sum()),
+    }
+
+    return _envelope(
+        ok=True,
+        job=job,
+        data={
+            "granularity": granularity_norm,
+            "total_cells": len(cells),
+            "cells": cells,
+            "totals": totals,
         },
     )
 

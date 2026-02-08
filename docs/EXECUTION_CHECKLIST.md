@@ -24,6 +24,18 @@ This is the only board to execute from. Do phases in order. Do not skip gate che
 - `F11_phase8_robust.csv` (anomaly robustness fixture for phase 8)
 - `F12_phase9_demo.csv` (judge-demo contract fixture for phase 9)
 - `F13_phase10_recording.csv` (recording-readiness contract fixture for phase 10)
+- `F14_phase11_heatmap.csv` (heatmap/timeline contract fixture for phase 11)
+- `F15_phase12_draw.csv` (phase 12 draw/result baseline)
+- `F16_phase12_winner.csv` (phase 12 winner/result baseline)
+- `F17_phase12_resign.csv` (phase 12 resign/result baseline)
+- `F18_phase13_overtrading.csv` (phase 13 overtrading explanation anchor)
+- `F19_phase14_personalization.csv` (phase 14 coach personalization contract)
+- `F20_phase15_uploadthing.csv` (phase 15 uploadthing/supabase integration contract)
+- `F21_phase16_governance.csv` (phase 16 semantic/payload governance contract)
+- `F22_phase17_determinism.csv` (phase 17 fixture-catalog determinism contract)
+- `F23_phase18_selector.csv` (phase 18 review-selector diversity contract)
+- `F24_phase19_judge.csv` (phase 19 judge-demo script contract fixture)
+- `F25_phase20_unseen_scale.csv` (phase 20 final-board unseen scale fixture)
 
 ## Phase 0 - Environment + Baseline (15 min)
 
@@ -261,8 +273,205 @@ Pass criteria (from `F13_phase10_recording.csv`):
 - coach move_review length=3
 - history returns created job id
 
+## Phase 11 - Heatmap Contract TDD (30 min)
+
+- [ ] Run Phase 11 fixture (`F14`) through full API path
+- [ ] Verify hourly heatmap cells and totals
+- [ ] Verify compact series compatibility
+
+Pass criteria (from `F14_phase11_heatmap.csv`):
+- summary delta/cost both `1180.0`
+- loss_aversion_rate `2/7`
+- heatmap `total_cells=3` (09h, 10h, 11h buckets)
+- 09h: trades=3, modified=1, bias=1, actual=-530.0, replay=-90.0, impact=440.0
+- 10h: trades=2, modified=1, bias=1, actual=-820.0, replay=-80.0, impact=740.0
+- 11h: trades=2, modified=0, bias=0, actual=50.0, replay=50.0, impact=0.0
+- totals: trades=7, modified=2, bias=2, actual=-1300.0, replay=-120.0, impact=1180.0
+
+## Phase 12 - Grade and ELO Contract TDD (30 min)
+
+- [ ] Run F15/F16/F17 sequence for one user
+- [ ] Verify per-session result labels and deltas
+- [ ] Verify per-job ELO mapping endpoint + history progression
+
+Pass criteria:
+- F15 summary: `DRAW`, `delta_pnl=0.0`, top label `INACCURACY`, `/jobs/{id}/elo.delta=+4.0`
+- F16 summary: `WINNER`, `delta_pnl=2880.0`, top label `MEGABLUNDER`, `/jobs/{id}/elo.delta=+8.0`
+- F17 summary: `RESIGN`, `delta_pnl=-522.0`, top label `MISS`, `/jobs/{id}/elo.delta=-8.0`
+- `/api/history` for the same user:
+  - 3 reports
+  - current rating `1204.0`
+  - peak rating `1212.0`
+  - sessions played `3`
+
+## Phase 13 - Deterministic Move Explanations TDD (30 min)
+
+- [ ] Run fixtures for revenge/overtrading/loss-aversion explanation anchors
+- [ ] Verify exact deterministic explanation text + numeric rule-hit evidence
+- [ ] Verify dedicated deterministic move review endpoint
+
+Pass criteria:
+- F17 top moment explanation:
+  - `You just had a big loss (-$500.00) and increased size to +$600,000.00, so replay scaled exposure to 2.0000%.`
+  - `prev_trade_pnl=-500.0`, `minutes_since_prev_trade=2.0`, `size_multiplier=12.0`
+- F18 top moment explanation:
+  - `You were trading far more frequently than normal, so this trade was skipped during cooldown (details: 205 trades in last hour, threshold: 200).`
+  - `rolling_trade_count_1h=205.0`, `overtrading_trade_threshold=200`
+- F04 top moment explanation:
+  - `This loss was much larger than your typical win, so replay kept the same price move but scaled exposure to 7.000000% to cap downside near -$140.00.`
+  - `median_win_pnl=35.0`, `loss_cap_value=140.0`, `loss_abs_pnl=2000.0`
+- `/jobs/{id}/move-review` returns 3 deterministic rows with metric refs
+
 Narration line (use exactly):
 `We detect behavioral patterns deterministically, replay the same history under explicit guardrails, and show receipts per move. The coach is post-hoc and cannot alter facts.`
+
+## Phase 14 - Coach Personalization + Drift Guard TDD (30 min)
+
+- [ ] Run `F19_phase14_personalization.csv` through full job pipeline
+- [ ] Assert coach prompt carries deterministic personalization metrics
+- [ ] Assert LLM output is rejected on metric drift
+- [ ] Assert not-ready jobs are guarded with 409
+
+Pass criteria:
+- `POST /jobs/{id}/coach` succeeds with mocked Vertex when payload includes:
+  - `derived_stats` (including `trades_per_hour_p95`)
+  - `thresholds` (including `loss_abs_p85`)
+- Coach response includes `move_review` length `3` unchanged from deterministic payload
+- Drifted `move_review.metric_refs.value` is rejected:
+  - `POST` returns `502 COACH_GENERATION_FAILED`
+  - `GET /jobs/{id}/coach` returns `409 COACH_FAILED`
+- Not-ready job returns `409 JOB_NOT_READY`
+
+## Phase 15 - Uploadthing + Supabase + Vertex Seams TDD (30 min)
+
+- [ ] Validate uploadthing ingest contract with real CSV fixture
+- [ ] Validate signature rejection path
+- [ ] Validate supabase lifecycle + artifact dual-write
+- [ ] Validate coach status persistence after generation
+
+Pass criteria:
+- `POST /jobs/from-uploadthing` on `F20_phase15_uploadthing.csv` returns `202`
+- upload metadata present: `source`, `file_key`, `original_filename`, `byte_size`, `input_sha256`
+- completed F20 summary is deterministic:
+  - `delta_pnl=0.0`
+  - `cost_of_bias=0.0`
+  - `bias_rates.any_bias_rate=0.0`
+- invalid signature returns:
+  - `401`
+  - `error.code=INVALID_UPLOADTHING_SIGNATURE`
+- Supabase upsert lifecycle includes `PENDING`, `RUNNING`, `COMPLETED`
+- `POST /jobs/{id}/coach` (F19 fixture + stubbed Vertex) returns `200`
+- Supabase row for that job has `coach_status=COMPLETED`
+- Supabase artifact pointers include `coach_json`
+
+## Phase 16 - CI Governance + Contract Freeze TDD (20 min)
+
+- [ ] Validate semantic reason strings on real CSV fixture
+- [ ] Validate moments/trade payload shape freeze on real CSV fixture
+- [ ] Validate golden change policy artifact exists
+
+Pass criteria:
+- F21 summary remains deterministic:
+  - `headline=WINNER`
+  - `delta_pnl=6210.0`
+  - `cost_of_bias=6210.0`
+  - `loss_aversion_rate=0.25`
+- `/jobs/{id}/trade/3` deterministic contract:
+  - `reason=LOSS_AVERSION_CAPPED`
+  - `reason_label=Loss aversion (downside capped)`
+  - `counterfactual_mechanics.scale_factor=0.02`
+  - `counterfactual.actual_pnl=-6000.0`
+  - `counterfactual.simulated_pnl=-120.0`
+- `/jobs/{id}/moments` includes shape-critical keys:
+  - `decision`, `reason`, `reason_label`, `counterfactual_mechanics`, `evidence`, `explanation_human`
+- `docs/GOLDEN_CHANGE_POLICY.md` exists and enforces fail-first -> fix -> golden update in same PR
+
+## Phase 17 - Fixture Catalog + Determinism Audit TDD (20 min)
+
+- [ ] Validate core fixture matrix (F01-F08) with expected outcomes
+- [ ] Validate malformed fixture failure contract (`F05`)
+- [ ] Validate repeated-run determinism on F22
+- [ ] Validate fixture catalog document exists
+
+Pass criteria:
+- F01-F08 expected statuses/headlines/delta values are stable:
+  - F01 `WINNER`, `delta_pnl=9900.0`
+  - F02 `DRAW`, `delta_pnl=0.0`
+  - F03 `DRAW`, `delta_pnl=0.0`
+  - F04 `WINNER`, `delta_pnl=1860.0`
+  - F06/F07/F08 `DRAW`, `delta_pnl=0.0`
+- F05 contract:
+  - job status `FAILED`
+  - summary returns `headline=None`, `delta_pnl=0.0`
+  - moments endpoint returns `409 COUNTERFACTUAL_NOT_READY`
+- F22 determinism contract:
+  - summary equality across two runs
+  - moments equality across two runs
+  - artifact hash equality for `counterfactual.csv` and `review.json`
+- `docs/FIXTURE_CATALOG.md` exists and includes F01, F05, F08, F22
+
+## Phase 18 - Review Selector + Signal Compression TDD (20 min)
+
+- [ ] Validate diversity-first top moments on real mixed-bias fixture
+- [ ] Validate deterministic inspector anchor contract
+- [ ] Validate human-first explanation + evidence payload
+- [ ] Validate selector policy document exists
+
+Pass criteria:
+- For `F23_phase18_selector.csv`, `/jobs/{id}/moments` returns exactly 3 moments with:
+  - bias categories in deterministic order: `revenge`, `overtrading`, `loss_aversion`
+  - no repetitive overtrading-only set when other categories exist
+- First moment anchor is deterministic:
+  - use `trace_trade_id`
+  - `/jobs/{id}/trade/{trace_trade_id}` matches the first moment asset/timestamp
+- Human-first explanation contract:
+  - `explanation_human` is non-empty
+  - no quantile jargon (`p95`, `p85`) in first-line explanation text
+  - `evidence.rule_signature` and `evidence.metric_refs` are present
+- `docs/REVIEW_SELECTOR_POLICY.md` exists and defines diversity selection policy
+
+## Phase 19 - Judge Demo Script Contract TDD (20 min)
+
+- [ ] Validate happy-path HTTP walkthrough with real fixture
+- [ ] Validate malformed-file failure behavior
+- [ ] Validate script output contract lines
+
+Pass criteria:
+- For `F24_phase19_judge.csv`:
+  - summary `headline=WINNER`
+  - `delta_pnl=66.0`
+  - top moment is `MEGABLUNDER` on `GOOG`
+  - first inspector reason is `LOSS_AVERSION_CAPPED`
+  - coach returns plan title + move_review metric refs
+- For `F05_malformed.csv`:
+  - terminal status `FAILED`
+  - structured `error_type=ValueError`
+  - `error_message` includes timestamp parse failure
+- `backend/scripts/judge_demo.sh` prints:
+  - `personalized_evidence: ...`
+  - `error_type: ...`
+  - `error_message: ...`
+
+## Phase 20 - Final Rubric Gate TDD (20 min)
+
+- [ ] Validate behavioral rubric demonstration on mixed-bias fixture
+- [ ] Validate unseen scale fixture completion + bounded timeline
+- [ ] Validate final board docs include phase-20 fixture contracts
+
+Pass criteria:
+- `F23_phase18_selector.csv` demonstrates all three required biases in representative moments:
+  - categories: `revenge`, `overtrading`, `loss_aversion`
+- `F25_phase20_unseen_scale.csv` completes successfully and remains bounded:
+  - summary `headline=WINNER`
+  - `delta_pnl=5676.603000000003`
+  - `/counterfactual/series?max_points=2000` returns exactly 2000 points
+  - series first/last timestamps:
+    - `2025-03-25T09:00:00`
+    - `2025-03-25T22:19:40`
+- Docs contain final-board contracts:
+  - `docs/PLAN20.md` references `F23_phase18_selector.csv`
+  - `docs/PLAN20.md` references `F25_phase20_unseen_scale.csv`
+  - this checklist contains `Phase 20 - Final Rubric Gate TDD`
 
 ## Final Go/No-Go
 
