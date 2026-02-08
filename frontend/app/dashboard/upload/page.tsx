@@ -59,6 +59,7 @@ export default function UploadPage() {
   const [mounted, setMounted] = useState(false);
   const [inputMode, setInputMode] = useState<'file' | 'manual'>('file');
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const MAX_LOCAL_PARSE_BYTES = 8 * 1024 * 1024;
   const router = useRouter();
 
   const tradesToCsv = useCallback((trades: Trade[]): string => {
@@ -197,7 +198,7 @@ export default function UploadPage() {
       setCompletedJobId(jobId);
 
       // Prefer backend-normalized rows when available.
-      const backendTrades = await fetchTradesFromJob(jobId);
+      const backendTrades = await fetchTradesFromJob(jobId, 2000);
       const effectiveTrades = backendTrades.length > 0 ? backendTrades : validTrades;
       generateSessionTitle();
       saveCachedSessionTrades(effectiveTrades);
@@ -264,8 +265,9 @@ export default function UploadPage() {
     setIsUploading(true);
     setUploadError(null);
 
-    let trades: Trade[];
+    let trades: Trade[] = [];
     let backendFile: File = file;
+    let parsedLocally = false;
 
     try {
       if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
@@ -275,25 +277,36 @@ export default function UploadPage() {
         const wb = XLSX.read(buffer, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const csvText = XLSX.utils.sheet_to_csv(ws);
-        trades = parseCSV(csvText);
+        if (csvText.length <= MAX_LOCAL_PARSE_BYTES) {
+          trades = parseCSV(csvText);
+          parsedLocally = true;
+        }
         backendFile = new File([csvText], file.name.replace(/\.(xlsx|xls)$/i, '.csv'), {
           type: 'text/csv',
         });
       } else {
-        const text = await file.text();
-        trades = parseCSV(text);
+        if (file.size <= MAX_LOCAL_PARSE_BYTES) {
+          const text = await file.text();
+          trades = parseCSV(text);
+          parsedLocally = true;
+        }
       }
 
       const jobId = await createAndWaitForJob(backendFile, getUserId());
       setLastJobId(jobId);
       setCompletedJobId(jobId);
-      const backendTrades = await fetchTradesFromJob(jobId);
+      const backendTrades = await fetchTradesFromJob(jobId, 2000);
       const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
 
       generateSessionTitle();
-      saveCachedSessionTrades(effectiveTrades);
+      if (effectiveTrades.length > 0) {
+        saveCachedSessionTrades(effectiveTrades);
+      }
       setIsUploading(false);
       setIsComplete(true);
+      if (!parsedLocally && backendTrades.length === 0) {
+        setUploadError('Upload completed. Opening backend session...');
+      }
       await resultFromBackend(jobId, effectiveTrades);
     } catch (error) {
       setIsUploading(false);
@@ -351,12 +364,12 @@ export default function UploadPage() {
     const sampleFile = new File([csv], `${profile}.csv`, { type: 'text/csv' });
     setIsUploading(true);
     setUploadError(null);
-    void createAndWaitForJob(sampleFile, getUserId(), { maxSeconds: 600 })
-      .then(async (jobId) => {
-        setLastJobId(jobId);
-        setCompletedJobId(jobId);
-        const backendTrades = await fetchTradesFromJob(jobId);
-        const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
+      void createAndWaitForJob(sampleFile, getUserId(), { maxSeconds: 600 })
+        .then(async (jobId) => {
+          setLastJobId(jobId);
+          setCompletedJobId(jobId);
+          const backendTrades = await fetchTradesFromJob(jobId, 2000);
+          const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
         saveCachedSessionTrades(effectiveTrades);
         setIsComplete(true);
         await resultFromBackend(jobId, effectiveTrades, profile);

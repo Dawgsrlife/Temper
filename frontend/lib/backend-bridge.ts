@@ -258,7 +258,7 @@ export async function createAndWaitForJob(file: File, userId?: string, opts?: Cr
   throw new Error('Timed out waiting for backend job completion');
 }
 
-export async function fetchTradesFromJob(jobId: string, maxRows = 250000): Promise<Trade[]> {
+export async function fetchTradesFromJob(jobId: string, maxRows = 20000): Promise<Trade[]> {
   const pageSize = 2000;
   let offset = 0;
   let totalRows = Number.POSITIVE_INFINITY;

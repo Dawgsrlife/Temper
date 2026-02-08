@@ -110,7 +110,8 @@ const BIAS_RULEBOOK: Array<{ key: BiasFilter; title: string; definition: string 
       'Triggered by asymmetric payoff behavior: losses dominate wins in magnitude or discipline rules must cap downside.',
   },
 ];
-const MAX_LOCAL_ANALYSIS_TRADES = 250000;
+const MAX_LOCAL_ANALYSIS_TRADES = 20000;
+const MAX_INSPECT_TRADES = 20000;
 
 export default function AnalyzePage() {
   const container = useRef<HTMLDivElement>(null);
@@ -141,6 +142,7 @@ export default function AnalyzePage() {
   const [tradeVoiceError, setTradeVoiceError] = useState<string | null>(null);
   const tradeVoiceRef = useRef<HTMLAudioElement | null>(null);
   const [backendSeries, setBackendSeries] = useState<SeriesData | null>(null);
+  const [backendTotalTrades, setBackendTotalTrades] = useState<number | null>(null);
 
   const toggleSection = (key: string) =>
     setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -207,15 +209,26 @@ export default function AnalyzePage() {
       setActiveJobId(jobId);
       setSessionLoadState('loading_backend');
       setSessionLoadMessage(null);
-      void Promise.all([fetchTradesFromJob(jobId), fetchJobSeries(jobId, 2000)])
+      void Promise.all([fetchTradesFromJob(jobId, MAX_INSPECT_TRADES), fetchJobSeries(jobId, 2000)])
         .then(([rows, series]) => {
           if (cancelled) return;
+          setBackendTotalTrades(
+            typeof series.total_points === 'number' && Number.isFinite(series.total_points)
+              ? series.total_points
+              : null,
+          );
           if (rows.length > 0) {
             setTrades(rows);
             setBackendSeries(series);
             saveCachedSessionTrades(rows);
             setSessionLoadState('ready_backend');
-            setSessionLoadMessage(null);
+            if (series.total_points && series.total_points > rows.length) {
+              setSessionLoadMessage(
+                `Loaded ${rows.length.toLocaleString()} inspection trades from ${series.total_points.toLocaleString()} total backend trades.`,
+              );
+            } else {
+              setSessionLoadMessage(null);
+            }
           } else {
             setSessionLoadState('failed');
             setSessionLoadMessage('Backend returned an empty trade set for this session.');
@@ -239,6 +252,7 @@ export default function AnalyzePage() {
     } else {
       setActiveJobId(null);
       setBackendSeries(null);
+      setBackendTotalTrades(null);
       const parsed = loadCachedSessionTrades();
       if (parsed && parsed.length > 0) {
         setTrades(parsed);
@@ -512,7 +526,7 @@ export default function AnalyzePage() {
           <div>
             <h1 className="font-coach text-lg font-bold text-white">Session Analysis</h1>
             <p className="text-xs text-gray-400">
-              {analysis.trades.length} trades
+              {(backendTotalTrades ?? analysis.trades.length).toLocaleString()} trades
             </p>
           </div>
         </div>
@@ -544,8 +558,14 @@ export default function AnalyzePage() {
           </span>
         </div>
       </header>
-      {(sessionLoadState === 'fallback_local' || sessionLoadState === 'failed') && sessionLoadMessage && (
-        <div className="border-b border-yellow-400/20 bg-yellow-400/10 px-6 py-2 text-xs text-yellow-200">
+      {sessionLoadMessage && (
+        <div
+          className={
+            sessionLoadState === 'ready_backend'
+              ? 'border-b border-cyan-400/20 bg-cyan-400/10 px-6 py-2 text-xs text-cyan-200'
+              : 'border-b border-yellow-400/20 bg-yellow-400/10 px-6 py-2 text-xs text-yellow-200'
+          }
+        >
           {sessionLoadMessage}
         </div>
       )}
