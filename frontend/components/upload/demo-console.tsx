@@ -398,6 +398,14 @@ export function DemoConsole() {
   const [inspectorTradeId, setInspectorTradeId] = useState<string>("0");
   const [inspector, setInspector] = useState<TradeInspectorData["trade"] | null>(null);
   const [activeView, setActiveView] = useState<"overview" | "moments" | "inspector">("overview");
+  const [zoomPercent, setZoomPercent] = useState<number>(100);
+  const [panPercent, setPanPercent] = useState<number>(0);
+  const [hoveredPoint, setHoveredPoint] = useState<{
+    timestamp: string;
+    actual: number;
+    simulated: number;
+    marker: SeriesMarker | null;
+  } | null>(null);
 
   const loadTradeInspector = useCallback(async (id: string, tradeId: number) => {
     setInspectorError(null);
@@ -577,11 +585,25 @@ export function DemoConsole() {
     }
   }, [file, pollJob, userId]);
 
+  const sortedMoments = useMemo(
+    () =>
+      [...moments].sort(
+        (left, right) => (right.impact_abs || 0) - (left.impact_abs || 0),
+      ),
+    [moments],
+  );
+
   const chart = useMemo(() => {
     if (!series || series.points.length === 0) return null;
     const width = 1000;
     const height = 300;
     const padding = 24;
+    const visibleRatio = Math.min(1, Math.max(0.05, zoomPercent / 100));
+    const visibleCount = Math.max(2, Math.min(series.points.length, Math.round(series.points.length * visibleRatio)));
+    const maxStart = Math.max(0, series.points.length - visibleCount);
+    const start = Math.round((Math.min(100, Math.max(0, panPercent)) / 100) * maxStart);
+    const end = start + visibleCount;
+    const visiblePoints = series.points.slice(start, end);
     const values = series.points.flatMap((point) => [
       point.actual_equity,
       point.policy_replay_equity ?? point.simulated_equity,
@@ -591,48 +613,66 @@ export function DemoConsole() {
     const range = Math.max(1e-9, maxValue - minValue);
 
     const x = (index: number) =>
-      series.points.length <= 1
+      visiblePoints.length <= 1
         ? width / 2
-        : padding + (index * (width - padding * 2)) / (series.points.length - 1);
+        : padding + (index * (width - padding * 2)) / (visiblePoints.length - 1);
     const y = (value: number) =>
       height - padding - ((value - minValue) / range) * (height - padding * 2);
 
-    const actual = series.points.map((point, index) => `${x(index)},${y(point.actual_equity)}`).join(" ");
-    const simulated = series.points
+    const actual = visiblePoints.map((point, index) => `${x(index)},${y(point.actual_equity)}`).join(" ");
+    const simulated = visiblePoints
       .map((point, index) => `${x(index)},${y(point.policy_replay_equity ?? point.simulated_equity)}`)
       .join(" ");
 
+    const markerByTimestamp = new Map<string, SeriesMarker>();
+    for (const marker of series.markers) {
+      markerByTimestamp.set(marker.timestamp, marker);
+    }
+
+    const pointNodes = visiblePoints.map((point, idx) => ({
+      key: `${point.timestamp}-${idx}`,
+      cx: x(idx),
+      cy: y(point.actual_equity),
+      timestamp: point.timestamp,
+      actual: point.actual_equity,
+      simulated: point.policy_replay_equity ?? point.simulated_equity,
+      marker: markerByTimestamp.get(point.timestamp) || null,
+    }));
+
     const markerNodes = series.markers
       .map((marker, idx) => {
-        const pointIndex = series.points.findIndex((point) => point.timestamp === marker.timestamp);
-        if (pointIndex < 0) return null;
-        const impactText = fmtMaybeCurrency(marker.impact_abs ?? null);
+        const globalPointIndex = series.points.findIndex((point) => point.timestamp === marker.timestamp);
+        if (globalPointIndex < 0 || globalPointIndex < start || globalPointIndex >= end) return null;
+        const pointIndex = globalPointIndex - start;
         return {
           key: `${marker.timestamp}-${marker.asset}-${idx}`,
           cx: x(pointIndex),
-          cy: y(series.points[pointIndex].actual_equity),
-          title: `${marker.trade_grade} • ${marker.asset} • ${marker.reason_label || marker.blocked_reason} • impact ${impactText}`,
+          cy: y(visiblePoints[pointIndex].actual_equity),
           color: markerColor(marker.trade_grade),
-          reasonLabel: marker.reason_label || "No intervention",
-          blockedReason: marker.blocked_reason,
-          interventionType: marker.intervention_type || "KEEP (no change)",
-          impactAbs: marker.impact_abs ?? null,
+          marker,
         };
       })
       .filter(Boolean) as Array<{
         key: string;
         cx: number;
         cy: number;
-        title: string;
         color: string;
-        reasonLabel: string;
-        blockedReason: string;
-        interventionType: string;
-        impactAbs: number | null;
+        marker: SeriesMarker;
       }>;
 
-    return { width, height, padding, actual, simulated, markerNodes };
-  }, [series]);
+    return {
+      width,
+      height,
+      padding,
+      actual,
+      simulated,
+      markerNodes,
+      pointNodes,
+      start,
+      end,
+      total: series.points.length,
+    };
+  }, [panPercent, series, zoomPercent]);
 
   const loadInspectorFromInput = useCallback(async () => {
     if (!jobId) {
@@ -656,14 +696,6 @@ export function DemoConsole() {
       setInspectorError(toFailure(error));
     }
   }, [inspectorTradeId, jobId, loadTradeInspector]);
-
-  const sortedMoments = useMemo(
-    () =>
-      [...moments].sort(
-        (left, right) => (right.impact_abs || 0) - (left.impact_abs || 0),
-      ),
-    [moments],
-  );
 
   const modifiedMomentsCount = useMemo(
     () =>
@@ -965,19 +997,109 @@ export function DemoConsole() {
                 />
                 <polyline points={chart.actual} fill="none" className="stroke-accent" strokeWidth="2" />
                 <polyline points={chart.simulated} fill="none" className="stroke-muted-foreground" strokeWidth="2" strokeDasharray="6 5" />
+                {chart.pointNodes.map((node) => (
+                  <circle
+                    key={`${node.key}-hover`}
+                    cx={node.cx}
+                    cy={node.cy}
+                    r="4"
+                    fill="transparent"
+                    onMouseEnter={() =>
+                      setHoveredPoint({
+                        timestamp: node.timestamp,
+                        actual: node.actual,
+                        simulated: node.simulated,
+                        marker: node.marker,
+                      })
+                    }
+                    onMouseLeave={() => setHoveredPoint((current) => (current?.timestamp === node.timestamp ? null : current))}
+                  />
+                ))}
                 {chart.markerNodes.map((node) => (
                   <g key={node.key}>
-                    <circle cx={node.cx} cy={node.cy} r="4" fill={node.color} />
-                    <title>{node.title}</title>
+                    <circle
+                      cx={node.cx}
+                      cy={node.cy}
+                      r="4"
+                      fill={node.color}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        if (!jobId) return;
+                        const matchedMoment = sortedMoments.find(
+                          (moment) => moment.timestamp === node.marker.timestamp && moment.asset === node.marker.asset,
+                        );
+                        if (typeof matchedMoment?.trace_trade_id !== "number") return;
+                        setInspectorTradeId(String(matchedMoment.trace_trade_id));
+                        setActiveView("inspector");
+                        void loadTradeInspector(jobId, matchedMoment.trace_trade_id).catch((error: unknown) => {
+                          setInspector(null);
+                          setInspectorError(toFailure(error));
+                        });
+                      }}
+                    />
+                    <title>
+                      {`${node.marker.trade_grade} • ${node.marker.asset} • ${node.marker.reason_label || node.marker.blocked_reason} • impact ${fmtMaybeCurrency(node.marker.impact_abs ?? null)}`}
+                    </title>
                   </g>
                 ))}
               </svg>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <label className="text-xs text-muted-foreground">
+                  Zoom ({zoomPercent}%)
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    step={5}
+                    value={zoomPercent}
+                    onChange={(event) => setZoomPercent(Number(event.target.value))}
+                    className="mt-1 w-full"
+                  />
+                </label>
+                <label className="text-xs text-muted-foreground">
+                  Pan ({panPercent}%)
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={panPercent}
+                    onChange={(event) => setPanPercent(Number(event.target.value))}
+                    className="mt-1 w-full"
+                    disabled={zoomPercent >= 100}
+                  />
+                </label>
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                viewing points{" "}
+                <span className="tabular text-foreground">
+                  {chart.start + 1}-{chart.end}
+                </span>{" "}
+                of <span className="tabular text-foreground">{chart.total}</span>
+              </div>
+              {hoveredPoint ? (
+                <div className="mt-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+                  <div className="text-foreground font-medium">{hoveredPoint.timestamp}</div>
+                  <div>
+                    actual {fmtMaybeCurrency(hoveredPoint.actual)} · replay {fmtMaybeCurrency(hoveredPoint.simulated)}
+                  </div>
+                  {hoveredPoint.marker ? (
+                    <div>
+                      {hoveredPoint.marker.trade_grade} · {hoveredPoint.marker.asset} ·{" "}
+                      {hoveredPoint.marker.reason_label || hoveredPoint.marker.blocked_reason}
+                    </div>
+                  ) : (
+                    <div>No highlighted moment at this point.</div>
+                  )}
+                </div>
+              ) : null}
               <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                 {chart.markerNodes.map((node) => (
                   <div key={`${node.key}-note`}>
-                    marker: <span className="text-foreground">{node.reasonLabel}</span> · {node.interventionType} · impact{" "}
-                    <span className="tabular text-foreground">{fmtMaybeCurrency(node.impactAbs)}</span> · blocked_reason=
-                    {node.blockedReason}
+                    marker: <span className="text-foreground">{node.marker.reason_label || node.marker.blocked_reason}</span> ·{" "}
+                    {node.marker.intervention_type || "KEEP (no change)"} · impact{" "}
+                    <span className="tabular text-foreground">{fmtMaybeCurrency(node.marker.impact_abs ?? null)}</span> · blocked_reason=
+                    {node.marker.blocked_reason}
                   </div>
                 ))}
               </div>
