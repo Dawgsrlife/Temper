@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { analyzeSession, Trade, TradeWithAnalysis, TRADER_PROFILES, TraderProfile } from '@/lib/biasDetector';
 import { getLabelIcon, BIAS_ICON_MAP } from '@/components/icons/CoachIcons';
+import TemperMascot from '@/components/mascot/TemperMascot';
 
 const EquityChart = dynamic(() => import('@/components/EquityChart'), { ssr: false });
 
@@ -274,10 +275,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         <div className="analysis-panel w-80 shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a]">
           <div className="p-6">
             <div className="trade-detail space-y-6">
-              {/* Label Badge */}
-              <div>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Trade Rating</p>
-                <div className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).bg} ${(labelStyles[currentTrade.label] || labelStyles.BOOK).text} ring-1 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).border}`}>
+              {/* Mascot + Label Badge */}
+              <div className="flex flex-col items-center">
+                <TemperMascot
+                  label={currentTrade.label}
+                  size={100}
+                  showBubble
+                  animate
+                />
+                <div className={`mt-2 inline-flex items-center gap-2 rounded-lg px-4 py-2 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).bg} ${(labelStyles[currentTrade.label] || labelStyles.BOOK).text} ring-1 ${(labelStyles[currentTrade.label] || labelStyles.BOOK).border}`}>
                   {(() => { const Icon = getLabelIcon(currentTrade.label); return <Icon size={20} />; })()}
                   <span className="text-sm font-bold">{currentTrade.label}</span>
                 </div>

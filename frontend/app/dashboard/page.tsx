@@ -16,6 +16,7 @@ import {
   Network,
 } from 'lucide-react';
 import { analyzeSession, Trade, SessionAnalysis, getRatingBracket, BiasType } from '@/lib/biasDetector';
+import TemperMascot from '@/components/mascot/TemperMascot';
 
 /* ------------------------------------------------------------------ */
 /*  Score Ring                                                         */
@@ -308,7 +309,7 @@ export default function DashboardPage() {
 
         {/* ──────────────── Main Grid ──────────────── */}
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Score Card — big discipline ring */}
+          {/* Score Card — big discipline ring + mascot */}
           <div className="score-card score-pulse flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.06] border border-white/[0.08] p-8 lg:row-span-2">
             <div className="flex items-center gap-2 text-gray-400">
               <Shield className="h-4 w-4" />
@@ -317,7 +318,33 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            {mounted && <ScoreRing score={currentScore} size={180} />}
+            {mounted && (
+              <div className="relative flex items-center justify-center">
+                <ScoreRing score={currentScore} size={180} />
+                {/* Mascot overlays the ring center area, below the number */}
+                <div className="absolute -bottom-2 -right-4">
+                  <TemperMascot
+                    label={
+                      currentScore >= 80
+                        ? 'BRILLIANT'
+                        : currentScore >= 70
+                          ? 'EXCELLENT'
+                          : currentScore >= 60
+                            ? 'GOOD'
+                            : currentScore >= 50
+                              ? 'BOOK'
+                              : currentScore >= 40
+                                ? 'INACCURACY'
+                                : currentScore >= 25
+                                  ? 'MISTAKE'
+                                  : 'BLUNDER'
+                    }
+                    size={52}
+                    animate
+                  />
+                </div>
+              </div>
+            )}
 
             <p className="text-xs text-gray-400 text-center">
               {hasData
@@ -444,16 +471,33 @@ export default function DashboardPage() {
                 className="session-item group flex items-center justify-between p-5 transition-colors hover:bg-white/[0.08] cursor-pointer"
               >
                 <div className="flex items-center gap-4">
-                  <div
-                    className={`flex h-11 w-11 items-center justify-center rounded-xl text-sm font-bold ${
-                      analysis.disciplineScore >= 80
-                        ? 'text-emerald-400 bg-emerald-400/10'
-                        : analysis.disciplineScore >= 60
-                          ? 'text-yellow-400 bg-yellow-400/10'
-                          : 'text-red-400 bg-red-400/10'
-                    }`}
-                  >
-                    {analysis.disciplineScore}
+                  <div className="relative">
+                    <div
+                      className={`flex h-11 w-11 items-center justify-center rounded-xl text-sm font-bold ${
+                        analysis.disciplineScore >= 80
+                          ? 'text-emerald-400 bg-emerald-400/10'
+                          : analysis.disciplineScore >= 60
+                            ? 'text-yellow-400 bg-yellow-400/10'
+                            : 'text-red-400 bg-red-400/10'
+                      }`}
+                    >
+                      {analysis.disciplineScore}
+                    </div>
+                    <div className="absolute -bottom-1 -right-1">
+                      <TemperMascot
+                        label={
+                          analysis.disciplineScore >= 80
+                            ? 'BRILLIANT'
+                            : analysis.disciplineScore >= 60
+                              ? 'GOOD'
+                              : analysis.disciplineScore >= 40
+                                ? 'MISTAKE'
+                                : 'BLUNDER'
+                        }
+                        size={22}
+                        animate={false}
+                      />
+                    </div>
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
