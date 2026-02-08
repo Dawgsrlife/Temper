@@ -247,11 +247,16 @@ export default function UploadPage() {
     };
 
     const trades = sampleTrades[profile];
-    const csvHeader = 'timestamp,asset,side,quantity,pnl';
-    const csvRows = trades.map(t => `${t.timestamp},${t.asset},${t.side},${t.quantity},${t.pnl ?? 0}`);
-    const csvContent = [csvHeader, ...csvRows].join('\n');
-    const csvFile = new File([csvContent], `${profile}.csv`, { type: 'text/csv' });
-    setFile(csvFile);
+
+    // Immediately analyze and store in localStorage so it reflects everywhere
+    localStorage.setItem('temper_current_session', JSON.stringify(trades));
+    const result = analyzeSession(trades);
+    setIsComplete(true);
+    setAnalysisResult({
+      score: result.disciplineScore,
+      biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
+      profile,
+    });
   };
 
   const removeFile = () => {

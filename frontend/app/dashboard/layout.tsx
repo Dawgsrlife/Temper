@@ -16,7 +16,7 @@ import {
   Network,
   Trophy,
 } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 
@@ -40,8 +40,26 @@ export default function DashboardLayout({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
+  const [displayName, setDisplayName] = useState('Trader');
 
-  useEffect(() => { setMounted(true); }, []);
+  const loadName = useCallback(() => {
+    const saved = localStorage.getItem('temper_display_name');
+    if (saved) setDisplayName(saved);
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
+    loadName();
+    window.addEventListener('temper_name_change', loadName);
+    return () => window.removeEventListener('temper_name_change', loadName);
+  }, [loadName]);
+
+  const initials = displayName
+    .split(/\s+/)
+    .map(w => w[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2) || 'T';
 
   useGSAP(() => {
     if (!mounted) return;
@@ -96,9 +114,9 @@ export default function DashboardLayout({
         {/* User Footer */}
         <div className="border-t border-white/[0.06] p-4">
           <div className="flex items-center gap-3 rounded-xl bg-white/[0.06] p-3">
-            <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-emerald-500 to-cyan-400 flex items-center justify-center text-xs font-bold text-black">AT</div>
+            <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-emerald-500 to-cyan-400 flex items-center justify-center text-xs font-bold text-black">{initials}</div>
             <div className="flex-1 overflow-hidden">
-              <p className="truncate text-sm font-medium text-white">Alex Trader</p>
+              <p className="truncate text-sm font-medium text-white">{displayName || 'Trader'}</p>
               <p className="truncate text-[11px] text-gray-400">Pro Plan</p>
             </div>
               <Link href="/login" className="cursor-pointer text-gray-600 hover:text-red-400 transition-colors">

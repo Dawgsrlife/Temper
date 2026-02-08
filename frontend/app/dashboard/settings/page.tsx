@@ -6,18 +6,17 @@ import gsap from 'gsap';
 import { useRouter } from 'next/navigation';
 import { Bell, Shield, LogOut, Trash2, User, Palette } from 'lucide-react';
 
-function Toggle({ defaultOn = false }: { defaultOn?: boolean }) {
-  const [on, setOn] = useState(defaultOn);
+function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
-      onClick={() => setOn(!on)}
-      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${
-        on ? 'bg-emerald-500' : 'bg-white/[0.10]'
+      onClick={() => onChange(!enabled)}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+        enabled ? 'bg-emerald-500' : 'bg-white/[0.10]'
       }`}
     >
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-          on ? 'translate-x-[22px]' : 'translate-x-0.5'
+        className={`inline-block h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
+          enabled ? 'translate-x-[22px]' : 'translate-x-[2px]'
         }`}
       />
     </button>
@@ -27,9 +26,24 @@ function Toggle({ defaultOn = false }: { defaultOn?: boolean }) {
 export default function SettingsPage() {
   const container = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
+  const [displayName, setDisplayName] = useState('Trader');
+  const [emailAlerts, setEmailAlerts] = useState(false);
+  const [biasWarnings, setBiasWarnings] = useState(true);
+  const [dataSharing, setDataSharing] = useState(true);
   const router = useRouter();
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    setMounted(true);
+    const saved = localStorage.getItem('temper_display_name');
+    if (saved) setDisplayName(saved);
+  }, []);
+
+  const handleNameChange = (name: string) => {
+    setDisplayName(name);
+    localStorage.setItem('temper_display_name', name);
+    // Dispatch event so layout can react
+    window.dispatchEvent(new Event('temper_name_change'));
+  };
 
   useGSAP(
     () => {
@@ -46,6 +60,8 @@ export default function SettingsPage() {
   const handleClearData = () => {
     localStorage.removeItem('temper_current_session');
     localStorage.removeItem('temper_journal_entries');
+    localStorage.removeItem('temper_elo_state');
+    localStorage.removeItem('temper_display_name');
     window.location.reload();
   };
 
@@ -84,7 +100,8 @@ export default function SettingsPage() {
                 </div>
                 <input
                   type="text"
-                  defaultValue="Trader"
+                  value={displayName}
+                  onChange={(e) => handleNameChange(e.target.value)}
                   className="w-40 rounded-lg border border-white/[0.06] bg-white/[0.04] px-3 py-2 text-right text-sm text-white outline-none focus:border-emerald-400/40"
                 />
               </div>
@@ -107,7 +124,7 @@ export default function SettingsPage() {
                     Receive weekly summaries of your trading psychology.
                   </p>
                 </div>
-                <Toggle />
+                <Toggle enabled={emailAlerts} onChange={setEmailAlerts} />
               </div>
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
@@ -116,28 +133,7 @@ export default function SettingsPage() {
                     Get notified when a bias pattern is detected.
                   </p>
                 </div>
-                <Toggle defaultOn />
-              </div>
-            </div>
-          </section>
-
-          {/* Privacy */}
-          <section className="settings-section rounded-2xl border border-white/[0.06] bg-white/[0.04] p-6">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="rounded-lg bg-purple-400/10 p-2 text-purple-400">
-                <Shield className="h-5 w-5" />
-              </div>
-              <h2 className="text-lg font-semibold text-white">Privacy</h2>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-white">Data Sharing</p>
-                  <p className="text-xs text-gray-400">
-                    Allow anonymized data usage for model improvements.
-                  </p>
-                </div>
-                <Toggle defaultOn />
+                <Toggle enabled={biasWarnings} onChange={setBiasWarnings} />
               </div>
             </div>
           </section>

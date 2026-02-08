@@ -120,8 +120,15 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
 
         // ── Hypothetical disciplined replay line (purple, dashed) ──
         const replay = analysis?.report?.disciplinedReplay;
-        const removedIds = new Set(replay?.removedTradeIds ?? []);
-        if (replay && replay.tradesRemoved > 0) {
+        // Map UUID-based removedTradeIds → index-based set via session trades
+        const removedIndices = new Set<number>();
+        if (replay && replay.removedTradeIds.length > 0 && analysis?.report?.session?.trades) {
+            const idSet = new Set(replay.removedTradeIds);
+            for (const st of analysis.report.session.trades) {
+                if (idSet.has(st.id)) removedIndices.add(st.index);
+            }
+        }
+        if (replay && removedIndices.size > 0) {
             const disciplinedSeries = chart.addSeries(LineSeries, {
                 color: 'rgba(168, 85, 247, 0.75)',   // purple-500
                 lineWidth: 2,
@@ -141,8 +148,7 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
             }
 
             trades.forEach((trade) => {
-                const tradeId = String(trade.index);
-                const wasRemoved = removedIds.has(tradeId);
+                const wasRemoved = removedIndices.has(trade.index);
                 if (!wasRemoved) {
                     runningPnl += trade.pnl ?? 0;
                 }
@@ -156,9 +162,7 @@ export default function EquityChart({ trades, currentIndex, height = 400, onTrad
 
             // Add markers for removed trades (ghost markers in purple, lower opacity)
             const removedMarkers = trades
-                .filter((t) => {
-                    return removedIds.has(String(t.index));
-                })
+                .filter((t) => removedIndices.has(t.index))
                 .map((trade) => ({
                     time: Math.floor(new Date(trade.timestamp).getTime() / 1000) as Time,
                     position: 'aboveBar' as const,
