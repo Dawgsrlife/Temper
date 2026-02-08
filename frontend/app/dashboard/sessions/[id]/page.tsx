@@ -143,13 +143,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   }, [analysis.trades.length]);
 
   if (!currentTrade) {
-    return <div className="flex h-screen items-center justify-center text-gray-400">Loading...</div>;
+    return <div className="flex h-full items-center justify-center text-gray-400">Loading...</div>;
   }
 
   return (
-    <div ref={container} className="flex h-[calc(100vh-3.5rem)] flex-col bg-[#0a0a0a] text-white md:h-screen">
+    <div ref={container} className="flex h-full flex-col overflow-hidden bg-[#0a0a0a] text-white">
       {/* Header */}
-      <header className="page-header flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
+      <header className="page-header flex shrink-0 items-center justify-between border-b border-white/[0.08] px-6 py-4">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard/sessions"
@@ -271,7 +271,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         {/* Analysis Panel */}
-        <div className="analysis-panel w-80 max-w-[320px] shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a]">
+        <div className="analysis-panel w-80 shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a]">
           <div className="p-6">
             <div className="trade-detail space-y-6">
               {/* Label Badge */}

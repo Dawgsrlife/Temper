@@ -210,10 +210,10 @@ export default function ExplorerPage() {
   return (
     <div
       ref={container}
-      className="flex h-[calc(100vh-3.5rem)] flex-col bg-[#0a0a0a] text-white md:h-screen"
+      className="flex h-full flex-col overflow-hidden bg-[#0a0a0a] text-white"
     >
       {/* ── Header ── */}
-      <header className="explorer-header flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
+      <header className="explorer-header flex shrink-0 items-center justify-between border-b border-white/[0.08] px-6 py-4">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard"
@@ -267,7 +267,7 @@ export default function ExplorerPage() {
       {/* ── Main Area ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Canvas */}
-        <div className="explorer-canvas relative flex-1">
+        <div className="explorer-canvas relative min-w-0 flex-1 overflow-hidden">
           {mounted && mode === '3d' && (
             <TradeScene3D
               trades={tradeNodes}
@@ -299,7 +299,7 @@ export default function ExplorerPage() {
 
         {/* ── Sidebar ── */}
         <aside
-          className={`explorer-sidebar shrink-0 overflow-y-auto border-l border-white/[0.08] bg-[#0a0a0a] transition-all duration-300 ${
+          className={`explorer-sidebar shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a] transition-all duration-300 ${
             showInfoPanel ? 'w-80' : 'w-0'
           }`}
         >

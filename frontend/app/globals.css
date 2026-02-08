@@ -72,9 +72,9 @@
     animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
-  /* Custom Scrollbar - Minimal */
+  /* Custom Scrollbar — polished & themed */
   * {
-    scrollbar-color: #282828 transparent;
+    scrollbar-color: rgba(255,255,255,0.12) transparent;
     scrollbar-width: thin;
   }
 
@@ -88,7 +88,16 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-temper-border rounded-full hover:bg-temper-muted/50 transition-colors;
+    @apply bg-white/[0.12] rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/[0.22];
+  }
+
+  /* Global overflow guard — prevents any horizontal escape */
+  html, body {
+    overflow-x: hidden;
   }
 }
 

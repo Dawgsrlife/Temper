@@ -20,9 +20,10 @@ export default function LoginPage() {
     useGSAP(() => {
         if (!mounted) return;
 
+        gsap.set(['.login-card', '.card-content > *'], { clearProps: 'all' });
         const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-        tl.from('.login-card', { y: 60, opacity: 0, scale: 0.95, duration: 0.8 })
-            .from('.card-content > *', { y: 20, opacity: 0, stagger: 0.1, duration: 0.5 }, '-=0.4');
+        tl.fromTo('.login-card', { y: 60, autoAlpha: 0, scale: 0.95 }, { y: 0, autoAlpha: 1, scale: 1, duration: 0.8 })
+            .fromTo('.card-content > *', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, stagger: 0.1, duration: 0.5 }, '-=0.4');
     }, { scope: container, dependencies: [mounted] });
 
     const handleLogin = (e: React.FormEvent) => {
@@ -31,7 +32,7 @@ export default function LoginPage() {
     };
 
     return (
-        <div ref={container} className="relative flex min-h-screen items-center justify-center bg-temper-bg">
+        <div ref={container} className="relative flex min-h-screen items-center justify-center overflow-hidden bg-temper-bg">
             {/* Video Background */}
             <div className="fixed inset-0 z-0">
                 <video
@@ -49,7 +50,7 @@ export default function LoginPage() {
             {/* Back Link */}
             <Link
                 href="/"
-                className="fixed left-6 top-6 z-20 flex items-center gap-2 text-sm text-temper-muted transition-colors hover:text-temper-text"
+                className="fixed left-6 top-6 z-20 flex cursor-pointer items-center gap-2 text-sm text-temper-muted transition-colors hover:text-temper-text"
             >
                 <ArrowLeft className="h-4 w-4" />
                 Back to home
@@ -76,7 +77,7 @@ export default function LoginPage() {
                         <div className="space-y-3">
                             <button
                                 onClick={() => router.push('/dashboard')}
-                                className="group flex w-full items-center justify-center gap-3 rounded-xl bg-white px-6 py-4 text-sm font-semibold text-gray-900 transition-all hover:bg-gray-100"
+                                className="group flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl bg-white px-6 py-4 text-sm font-semibold text-gray-900 transition-all hover:bg-gray-100"
                             >
                                 <svg className="h-5 w-5" viewBox="0 0 24 24">
                                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -89,7 +90,7 @@ export default function LoginPage() {
 
                             <button
                                 onClick={() => router.push('/dashboard')}
-                                className="group flex w-full items-center justify-center gap-3 rounded-xl bg-[#24292f] px-6 py-4 text-sm font-semibold text-white transition-all hover:bg-[#3a3f45]"
+                                className="group flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl bg-[#24292f] px-6 py-4 text-sm font-semibold text-white transition-all hover:bg-[#3a3f45]"
                             >
                                 <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
                                     <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.341-3.369-1.341-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.607.069-.607 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
@@ -121,7 +122,7 @@ export default function LoginPage() {
                             </div>
                             <button
                                 type="submit"
-                                className="w-full rounded-xl bg-temper-teal px-6 py-3.5 text-sm font-semibold text-temper-bg transition-all hover:bg-white"
+                                className="w-full cursor-pointer rounded-xl bg-temper-teal px-6 py-3.5 text-sm font-semibold text-temper-bg transition-all hover:bg-white"
                             >
                                 Continue with Email
                             </button>

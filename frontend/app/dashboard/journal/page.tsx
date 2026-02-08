@@ -159,7 +159,7 @@ export default function JournalPage() {
   return (
     <div
       ref={container}
-      className="min-h-screen bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
+      className="h-full overflow-y-auto overflow-x-hidden bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
     >
       <div className="mx-auto max-w-6xl space-y-10">
         {/* ── Header ── */}
@@ -428,7 +428,7 @@ export default function JournalPage() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
                   {entries.slice(0, 8).map((entry) => {
                     const moodMeta = MOODS.find((m) => m.type === entry.mood);
                     return (

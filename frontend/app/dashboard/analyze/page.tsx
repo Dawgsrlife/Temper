@@ -127,9 +127,9 @@ export default function AnalyzePage() {
   }, [analysis.trades.length]);
 
   return (
-    <div ref={container} className="flex h-[calc(100vh-3.5rem)] flex-col bg-[#0a0a0a] text-white md:h-screen">
+    <div ref={container} className="flex h-full flex-col overflow-hidden bg-[#0a0a0a] text-white">
       {/* ── Header ── */}
-      <header className="page-header flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
+      <header className="page-header flex shrink-0 items-center justify-between border-b border-white/[0.08] px-6 py-4">
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard"
@@ -188,7 +188,7 @@ export default function AnalyzePage() {
           </div>
 
           {/* Timeline */}
-          <div className="timeline-bar border-t border-white/[0.08] p-4">
+          <div className="timeline-bar shrink-0 border-t border-white/[0.08] p-4">
             <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarColor: '#282828 transparent' }}>
               {(() => {
                 /* windowed rendering: show ±50 around current for large datasets */
@@ -258,7 +258,7 @@ export default function AnalyzePage() {
         </div>
 
         {/* ─── Analysis Side Panel ─── */}
-        <div className="analysis-panel w-80 max-w-[320px] shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a]">
+        <div className="analysis-panel w-80 shrink-0 overflow-y-auto overflow-x-hidden border-l border-white/[0.08] bg-[#0a0a0a]">
           <div className="p-6">
             <div className="trade-detail space-y-6">
               {/* Label Badge */}

@@ -11,7 +11,7 @@ function Toggle({ defaultOn = false }: { defaultOn?: boolean }) {
   return (
     <button
       onClick={() => setOn(!on)}
-      className={`relative h-6 w-11 rounded-full transition-colors ${
+      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${
         on ? 'bg-emerald-500' : 'bg-white/[0.10]'
       }`}
     >
@@ -34,13 +34,11 @@ export default function SettingsPage() {
   useGSAP(
     () => {
       if (!mounted) return;
-      gsap.from('.settings-section', {
-        y: 20,
-        opacity: 0,
-        stagger: 0.1,
-        duration: 0.5,
-        ease: 'power3.out',
-      });
+      gsap.set('.settings-section', { clearProps: 'all' });
+      gsap.fromTo('.settings-section',
+        { y: 20, autoAlpha: 0 },
+        { y: 0, autoAlpha: 1, stagger: 0.1, duration: 0.5, ease: 'power3.out' }
+      );
     },
     { scope: container, dependencies: [mounted] },
   );
@@ -54,7 +52,7 @@ export default function SettingsPage() {
   return (
     <div
       ref={container}
-      className="min-h-screen bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
+      className="h-full overflow-y-auto overflow-x-hidden bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
     >
       <div className="mx-auto max-w-3xl space-y-8">
         <header className="space-y-1">
@@ -64,7 +62,7 @@ export default function SettingsPage() {
           <h1 className="font-coach text-3xl font-semibold tracking-tight text-white md:text-4xl">
             Settings
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-400">
             Manage your account and preferences.
           </p>
         </header>
@@ -79,10 +77,10 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-white">Profile</h2>
             </div>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white">Display Name</p>
-                  <p className="text-xs text-gray-500">Shown on your dashboard.</p>
+                  <p className="text-xs text-gray-400">Shown on your dashboard.</p>
                 </div>
                 <input
                   type="text"
@@ -102,19 +100,19 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-white">Notifications</h2>
             </div>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white">Email Alerts</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-400">
                     Receive weekly summaries of your trading psychology.
                   </p>
                 </div>
                 <Toggle />
               </div>
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white">Bias Warnings</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-400">
                     Get notified when a bias pattern is detected.
                   </p>
                 </div>
@@ -132,10 +130,10 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-white">Privacy</h2>
             </div>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white">Data Sharing</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-400">
                     Allow anonymized data usage for model improvements.
                   </p>
                 </div>
@@ -152,16 +150,16 @@ export default function SettingsPage() {
               </div>
               <h2 className="text-lg font-semibold text-white">Appearance</h2>
             </div>
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-white">Theme</p>
-                <p className="text-xs text-gray-500">Select your preferred color scheme.</p>
+                <p className="text-xs text-gray-400">Select your preferred color scheme.</p>
               </div>
               <div className="flex gap-2">
-                <button className="flex items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
+                <button className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
                   Dark
                 </button>
-                <button className="rounded-lg border border-white/[0.06] bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-gray-500">
+                <button className="shrink-0 cursor-pointer rounded-lg border border-white/[0.06] bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-gray-400">
                   Light
                 </button>
               </div>
@@ -177,28 +175,28 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-red-400">Danger Zone</h2>
             </div>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white">Clear Local Data</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-400">
                     Remove all saved sessions and journal entries from this browser.
                   </p>
                 </div>
                 <button
                   onClick={handleClearData}
-                  className="rounded-lg bg-red-400/10 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-400/20"
+                  className="shrink-0 cursor-pointer rounded-lg bg-red-400/10 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-400/20"
                 >
                   Clear Data
                 </button>
               </div>
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white">Sign Out</p>
-                  <p className="text-xs text-gray-500">Log out of your account.</p>
+                  <p className="text-xs text-gray-400">Log out of your account.</p>
                 </div>
                 <button
                   onClick={() => router.push('/login')}
-                  className="flex items-center gap-2 rounded-lg bg-white/[0.06] px-4 py-2 text-sm font-medium text-gray-400 transition-colors hover:bg-white/[0.10] hover:text-white"
+                  className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg bg-white/[0.06] px-4 py-2 text-sm font-medium text-gray-400 transition-colors hover:bg-white/[0.10] hover:text-white"
                 >
                   <LogOut className="h-4 w-4" />
                   Sign Out

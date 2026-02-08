@@ -59,9 +59,9 @@ export default function DashboardLayout({
   }, [isMobileMenuOpen]);
 
   return (
-    <div className="flex min-h-screen bg-[#0a0a0a] text-white selection:bg-emerald-500/30 selection:text-white">
+    <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white selection:bg-emerald-500/30 selection:text-white">
       {/* Desktop Sidebar */}
-      <aside ref={sidebarRef} className="hidden w-[260px] flex-col border-r border-white/[0.06] bg-[#0a0a0a] lg:flex">
+      <aside ref={sidebarRef} className="hidden w-[260px] shrink-0 flex-col border-r border-white/[0.06] bg-[#0a0a0a] lg:flex">
         {/* Logo */}
         <div className="flex h-16 items-center gap-3 border-b border-white/[0.06] px-6">
           <Link href="/" className="flex items-center gap-2.5 group">
@@ -107,7 +107,7 @@ export default function DashboardLayout({
       </aside>
 
       {/* Main Content */}
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Mobile Header */}
         <header className="flex h-14 items-center justify-between border-b border-white/[0.06] bg-[#0a0a0a] px-4 lg:hidden">
           <div className="flex items-center gap-2.5">
