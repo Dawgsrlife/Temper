@@ -15,6 +15,10 @@ import {
   Brain,
   AlertTriangle,
   Zap,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Maximize2,
 } from 'lucide-react';
 import {
   analyzeSession,
@@ -73,6 +77,11 @@ export default function AnalyzePage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trades, setTrades] = useState<Trade[]>(demoTrades);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ coach: true, biases: true });
+  const [modalTrade, setModalTrade] = useState<TradeWithAnalysis | null>(null);
+
+  const toggleSection = (key: string) =>
+    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
   useEffect(() => {
     const savedSession = localStorage.getItem('temper_current_session');
@@ -193,6 +202,7 @@ export default function AnalyzePage() {
                 trades={analysis.trades.slice(0, currentIndex + 1)}
                 currentIndex={currentIndex}
                 height={400}
+                analysis={analysis}
               />
             )}
           </div>
@@ -315,40 +325,94 @@ export default function AnalyzePage() {
                 </div>
               </div>
 
-              {/* Biases */}
+              {/* Biases — expandable */}
               {currentTrade.biases.length > 0 && (
-                <div className="rounded-xl bg-red-400/5 p-4 ring-1 ring-red-400/20">
-                  <div className="mb-2 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-red-400" />
-                    <p className="text-sm font-semibold text-red-400">Bias Detected</p>
-                  </div>
-                  {currentTrade.biases.map((bias, i) => {
-                    const BiasIcon = BIAS_ICON_MAP[bias.type];
-                    return (
-                      <div key={i} className="mt-2 flex items-start gap-2">
-                        {BiasIcon && <BiasIcon size={18} className="mt-0.5 shrink-0" />}
-                        <div>
-                          <p className="text-xs font-medium text-white">{bias.type.replace('_', ' ')}</p>
-                          <p className="text-xs text-gray-400">{bias.description}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="rounded-xl bg-red-400/5 ring-1 ring-red-400/20 overflow-hidden">
+                  <button
+                    onClick={() => toggleSection('biases')}
+                    className="flex w-full cursor-pointer items-center justify-between p-4"
+                  >
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-red-400" />
+                      <p className="text-sm font-semibold text-red-400">
+                        Bias Detected ({currentTrade.biases.length})
+                      </p>
+                    </div>
+                    {expandedSections.biases
+                      ? <ChevronUp className="h-4 w-4 text-red-400" />
+                      : <ChevronDown className="h-4 w-4 text-red-400" />}
+                  </button>
+                  {expandedSections.biases && (
+                    <div className="px-4 pb-4 space-y-2">
+                      {currentTrade.biases.map((bias, i) => {
+                        const BiasIcon = BIAS_ICON_MAP[bias.type];
+                        return (
+                          <div key={i} className="flex items-start gap-2">
+                            {BiasIcon && <BiasIcon size={18} className="mt-0.5 shrink-0" />}
+                            <div>
+                              <p className="text-xs font-medium text-white">{bias.type.replace('_', ' ')}</p>
+                              <p className="text-xs text-gray-400">{bias.description}</p>
+                              {bias.recommendation && (
+                                <p className="mt-1 text-[10px] text-purple-400 italic">
+                                  💡 {bias.recommendation}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Coach */}
-              <div>
-                <div className="mb-2 flex items-center gap-2">
-                  <Brain className="h-4 w-4 text-emerald-400" />
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-                    Coach Notes
-                  </p>
-                </div>
-                <p className="text-sm leading-relaxed text-gray-300 break-words">
-                  {currentTrade.annotation}
-                </p>
+              {/* Coach — expandable */}
+              <div className="rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08] overflow-hidden">
+                <button
+                  onClick={() => toggleSection('coach')}
+                  className="flex w-full cursor-pointer items-center justify-between p-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <Brain className="h-4 w-4 text-emerald-400" />
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                      Coach Notes
+                    </p>
+                  </div>
+                  {expandedSections.coach
+                    ? <ChevronUp className="h-4 w-4 text-gray-400" />
+                    : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                </button>
+                {expandedSections.coach && (
+                  <div className="px-4 pb-4 space-y-3">
+                    <p className="text-sm leading-relaxed text-gray-300 break-words">
+                      {currentTrade.annotation}
+                    </p>
+                    {/* Bullet points for reasons */}
+                    {currentTrade.reasons.length > 0 && (
+                      <ul className="space-y-1.5 pl-1">
+                        {currentTrade.reasons.map((reason, i) => (
+                          <li key={i} className="flex items-start gap-2 text-xs text-gray-400">
+                            <span className="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-emerald-400/60" />
+                            {reason.replace(/_/g, ' ')}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="text-[10px] text-gray-500">
+                      Score contribution: <span className="font-bold text-white">+{currentTrade.scoreContribution.toFixed(1)}</span>
+                    </p>
+                  </div>
+                )}
               </div>
+
+              {/* Full Detail button */}
+              <button
+                onClick={() => setModalTrade(currentTrade)}
+                className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-white/[0.06] px-4 py-3 text-sm font-medium text-gray-300 ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.10] hover:text-white"
+              >
+                <Maximize2 className="h-4 w-4" />
+                Full Detail
+              </button>
 
               {/* Running P/L */}
               <div className="rounded-xl bg-white/[0.06] p-4">
@@ -501,6 +565,149 @@ export default function AnalyzePage() {
           </div>
         </div>
       </div>
+
+      {/* ═══ Glassmorphism Detail Modal ═══ */}
+      {modalTrade && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setModalTrade(null)}
+        >
+          <div
+            className="detail-modal relative mx-4 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-white/[0.12] bg-white/[0.06] p-8 shadow-2xl ring-1 ring-white/[0.08] backdrop-blur-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close */}
+            <button
+              onClick={() => setModalTrade(null)}
+              className="absolute right-4 top-4 cursor-pointer rounded-xl p-2 text-gray-400 transition-colors hover:bg-white/[0.08] hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {/* Mascot + Label */}
+            <div className="flex flex-col items-center mb-6">
+              <TemperMascot label={modalTrade.label} size={90} showBubble animate />
+              <div className={`mt-3 inline-flex items-center gap-2 rounded-xl px-5 py-2.5 ${(labelStyles[modalTrade.label] || labelStyles.BOOK).bg} ${(labelStyles[modalTrade.label] || labelStyles.BOOK).text} ring-1 ${(labelStyles[modalTrade.label] || labelStyles.BOOK).border}`}>
+                {(() => { const Icon = getLabelIcon(modalTrade.label); return <Icon size={22} />; })()}
+                <span className="text-base font-bold">{modalTrade.label}</span>
+              </div>
+            </div>
+
+            {/* Trade Info Grid */}
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Asset</p>
+                <p className="text-xl font-bold text-white">{modalTrade.asset}</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Side</p>
+                <p className={`text-xl font-bold ${modalTrade.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {modalTrade.side}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">P/L</p>
+                <p className={`text-xl font-bold ${(modalTrade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {(modalTrade.pnl || 0) >= 0 ? '+' : ''}${Math.abs(modalTrade.pnl || 0)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Session P/L</p>
+                <p className={`text-xl font-bold ${modalTrade.sessionPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {modalTrade.sessionPnL >= 0 ? '+' : ''}${modalTrade.sessionPnL.toFixed(0)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Timestamp</p>
+                <p className="text-sm font-medium text-gray-300">{modalTrade.timestamp}</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Time Since Last</p>
+                <p className="text-sm font-medium text-white">
+                  {modalTrade.timeSinceLast > 60
+                    ? `${Math.floor(modalTrade.timeSinceLast / 60)}m ${Math.round(modalTrade.timeSinceLast % 60)}s`
+                    : `${Math.round(modalTrade.timeSinceLast)}s`}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Drawdown</p>
+                <p className="text-sm font-medium text-white">{modalTrade.drawdownFromPeak.toFixed(2)}</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.06] p-4">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Size vs Baseline</p>
+                <p className="text-sm font-medium text-white">{modalTrade.sizeRelativeToBaseline.toFixed(2)}×</p>
+              </div>
+            </div>
+
+            {/* Biases Detail */}
+            {modalTrade.biases.length > 0 && (
+              <div className="mb-6 rounded-xl bg-red-400/5 p-5 ring-1 ring-red-400/20">
+                <div className="mb-3 flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                  <p className="text-sm font-bold text-red-400">Behavioral Biases</p>
+                </div>
+                <div className="space-y-3">
+                  {modalTrade.biases.map((bias, i) => {
+                    const BiasIcon = BIAS_ICON_MAP[bias.type];
+                    return (
+                      <div key={i} className="rounded-lg bg-white/[0.04] p-3">
+                        <div className="flex items-start gap-2">
+                          {BiasIcon && <BiasIcon size={20} className="mt-0.5 shrink-0" />}
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-semibold text-white">{bias.type.replace(/_/g, ' ')}</p>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                bias.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-400'
+                                  : bias.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-400'
+                                  : bias.severity === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400'
+                                  : 'bg-gray-500/20 text-gray-400'
+                              }`}>{bias.severity}</span>
+                            </div>
+                            <p className="mt-1 text-xs text-gray-400 leading-relaxed">{bias.description}</p>
+                            {bias.recommendation && (
+                              <p className="mt-2 text-xs text-purple-400">💡 {bias.recommendation}</p>
+                            )}
+                            <div className="mt-2 flex items-center gap-3">
+                              <span className="text-[10px] text-gray-500">Confidence: {bias.confidence}%</span>
+                              <span className="text-[10px] text-gray-500">Score: {bias.score}/100</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Coach Analysis */}
+            <div className="mb-6 rounded-xl bg-emerald-400/[0.04] p-5 ring-1 ring-emerald-400/10">
+              <div className="mb-3 flex items-center gap-2">
+                <Brain className="h-5 w-5 text-emerald-400" />
+                <p className="text-sm font-bold text-emerald-400">Coach Analysis</p>
+              </div>
+              <p className="text-sm leading-relaxed text-gray-300">{modalTrade.annotation}</p>
+              {modalTrade.reasons.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Decision Factors</p>
+                  <ul className="space-y-1.5">
+                    {modalTrade.reasons.map((reason, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-gray-400">
+                        <Zap className="mt-0.5 h-3 w-3 flex-shrink-0 text-yellow-400" />
+                        {reason.replace(/_/g, ' ')}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="mt-4 flex items-center gap-4 text-[10px] text-gray-500">
+                <span>Score contribution: <span className="font-bold text-white">+{modalTrade.scoreContribution.toFixed(1)}</span></span>
+                <span>Symbol: <span className="font-bold text-white">{modalTrade.labelSymbol}</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

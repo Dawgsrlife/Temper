@@ -7,15 +7,13 @@ import Link from 'next/link';
 import {
   ArrowUpRight,
   Shield,
-  TrendingUp,
-  AlertTriangle,
   Plus,
   Brain,
   Activity,
   Zap,
   Network,
 } from 'lucide-react';
-import { analyzeSession, Trade, SessionAnalysis, getRatingBracket, BiasType } from '@/lib/biasDetector';
+import { analyzeSession, Trade, SessionAnalysis, getRatingBracket } from '@/lib/biasDetector';
 import TemperMascot from '@/components/mascot/TemperMascot';
 
 /* ------------------------------------------------------------------ */
@@ -186,95 +184,6 @@ export default function DashboardPage() {
   /* ELO rating data */
   const eloRating = analysis ? Math.round(analysis.eloState.rating) : 1200;
   const eloBracket = getRatingBracket(eloRating);
-  const eloDelta = analysis ? analysis.eloState.lastSessionDelta : 0;
-
-  const stats = analysis
-    ? [
-        {
-          label: 'Win Rate',
-          value: `${analysis.summary.winRate.toFixed(0)}%`,
-          icon: TrendingUp,
-          positive: analysis.summary.winRate > 50,
-          sub: `${analysis.summary.winners}W / ${analysis.summary.losers}L`,
-        },
-        {
-          label: 'ELO Rating',
-          value: eloRating.toString(),
-          icon: Shield,
-          positive: eloDelta >= 0,
-          sub: eloBracket,
-        },
-        {
-          label: 'Biases Detected',
-          value: analysis.biases.length.toString(),
-          icon: AlertTriangle,
-          positive: analysis.biases.length === 0,
-          sub: analysis.biases.length > 0
-            ? analysis.biases.map(b => b.type.replace(/_/g, ' ')).slice(0, 2).join(', ')
-            : 'Clean Session',
-        },
-      ]
-    : [
-        { label: 'Win Rate', value: '--', icon: TrendingUp, positive: true, sub: '--' },
-        { label: 'ELO Rating', value: '1200', icon: Shield, positive: true, sub: 'Developing' },
-        { label: 'Biases Detected', value: '--', icon: AlertTriangle, positive: true, sub: '--' },
-      ];
-
-  const insights = analysis
-    ? [
-        ...(analysis.biases.length > 0
-          ? [
-              {
-                title: 'Bias Detected',
-                description: `${analysis.biases.length} behavioral bias${analysis.biases.length > 1 ? 'es' : ''}: ${analysis.biases.map(b => b.type.replace(/_/g, ' ')).join(', ')}. Top score: ${Math.max(...analysis.biases.map(b => b.score))}/100.`,
-                type: 'warning' as const,
-                action: 'Review',
-                href: '/dashboard/analyze',
-              },
-            ]
-          : [
-              {
-                title: 'Clean Session',
-                description:
-                  'Great job — no major biases detected in recent trades.',
-                type: 'success' as const,
-                action: 'Details',
-                href: '/dashboard/analyze',
-              },
-            ]),
-        ...(analysis.report.disciplinedReplay.tradesRemoved > 0
-          ? [
-              {
-                title: 'Discipline Replay',
-                description: `${analysis.report.disciplinedReplay.tradesRemoved} trades would have been filtered. ${analysis.report.disciplinedReplay.savings >= 0 ? 'Savings' : 'Impact'}: $${Math.abs(analysis.report.disciplinedReplay.savings).toFixed(0)}.`,
-                type: 'warning' as const,
-                action: 'Explore',
-                href: '/dashboard/analyze',
-              },
-            ]
-          : []),
-        ...(lastJournalDate
-          ? [
-              {
-                title: 'Journal Active',
-                description: `Last entry: ${new Date(lastJournalDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-                type: 'success' as const,
-                action: 'Open',
-                href: '/dashboard/journal',
-              },
-            ]
-          : [
-              {
-                title: 'Start Journaling',
-                description:
-                  'Tracking your mood can improve performance by 20%.',
-                type: 'info' as const,
-                action: 'Start',
-                href: '/dashboard/journal',
-              },
-            ]),
-      ]
-    : [];
 
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
@@ -304,172 +213,191 @@ export default function DashboardPage() {
             className="group inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-black transition-all hover:brightness-110"
           >
             <Plus className="h-4 w-4" />
-            New Session
+            {hasData ? 'New Session' : 'Upload Data'}
           </Link>
         </header>
 
-        {/* ──────────────── Main Grid ──────────────── */}
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Score Card — big discipline ring + mascot */}
-          <div className="score-card score-pulse flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.06] border border-white/[0.08] p-8 lg:row-span-2">
-            <div className="flex items-center gap-2 text-gray-400">
-              <Shield className="h-4 w-4" />
-              <span className="text-xs font-semibold uppercase tracking-wider">
-                Discipline Score
-              </span>
+        {/* ──────────────── Empty State: Upload First ──────────────── */}
+        {!hasData && (
+          <div className="score-card flex flex-col items-center gap-6 rounded-3xl border border-dashed border-emerald-400/20 bg-emerald-400/[0.02] px-8 py-16 text-center">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-emerald-500/10 ring-1 ring-emerald-400/20">
+              <Activity className="h-10 w-10 text-emerald-400" />
             </div>
-
-            {mounted && (
-              <div className="relative flex items-center justify-center">
-                <ScoreRing score={currentScore} size={180} />
-                {/* Mascot overlays the ring center area, below the number */}
-                <div className="absolute -bottom-2 -right-4">
-                  <TemperMascot
-                    label={
-                      currentScore >= 80
-                        ? 'BRILLIANT'
-                        : currentScore >= 70
-                          ? 'EXCELLENT'
-                          : currentScore >= 60
-                            ? 'GOOD'
-                            : currentScore >= 50
-                              ? 'BOOK'
-                              : currentScore >= 40
-                                ? 'INACCURACY'
-                                : currentScore >= 25
-                                  ? 'MISTAKE'
-                                  : 'BLUNDER'
-                    }
-                    size={52}
-                    animate
-                  />
-                </div>
-              </div>
-            )}
-
-            <p className="text-xs text-gray-400 text-center">
-              {hasData
-                ? 'Based on latest session'
-                : 'Upload a session to begin'}
-            </p>
-
+            <div className="max-w-md space-y-2">
+              <h2 className="text-xl font-semibold text-white">
+                No trading data yet
+              </h2>
+              <p className="text-sm leading-relaxed text-gray-400">
+                Upload a CSV of your trades or try our sample datasets to see
+                Temper&apos;s bias detection, discipline scoring, and AI coaching in
+                action.
+              </p>
+            </div>
             <Link
-              href="/dashboard/analyze"
-              className="mt-2 flex items-center gap-2 text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
+              href="/dashboard/upload"
+              className="group inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 text-sm font-bold text-black transition-all hover:brightness-110"
             >
-              View detailed analysis
-              <ArrowUpRight className="h-3.5 w-3.5" />
+              <Plus className="h-4 w-4" />
+              Get Started
+              <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </Link>
           </div>
+        )}
 
-          {/* Stats Row */}
-          <div className="grid gap-4 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-3">
-            {stats.map((stat) => (
-              <div
-                key={stat.label}
-                className="stat-card group rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5 transition-all hover:bg-white/[0.08]"
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="rounded-xl bg-white/[0.06] p-2.5">
-                    <stat.icon
-                      className={`h-4 w-4 ${
-                        stat.positive ? 'text-emerald-400' : 'text-red-400'
-                      }`}
-                    />
-                  </div>
-                  <span
-                    className={`text-xs font-medium ${
-                      stat.positive ? 'text-emerald-400' : 'text-red-400'
-                    }`}
-                  >
-                    {stat.sub}
+        {/* ──────────────── Main Grid (data present) ──────────────── */}
+        {hasData && analysis && (
+          <>
+            <div className="grid gap-6 lg:grid-cols-3">
+              {/* Score Card — ring + mascot */}
+              <div className="score-card flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.06] border border-white/[0.08] p-8 lg:row-span-2">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Shield className="h-4 w-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">
+                    Discipline Score
                   </span>
                 </div>
-                <p className="text-2xl font-bold text-white">{stat.value}</p>
-                <p className="mt-1 text-xs text-gray-400">{stat.label}</p>
-              </div>
-            ))}
-          </div>
 
-          {/* AI Insights */}
-          <div className="space-y-3 lg:col-span-2">
-            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-              <Brain className="h-4 w-4" />
-              AI Insights
-            </h3>
-
-            {insights.length > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {insights.map((insight, i) => (
-                  <Link
-                    key={i}
-                    href={insight.href}
-                    className={`insight-card group rounded-2xl bg-white/[0.06] border p-5 transition-all hover:bg-white/[0.08] ${
-                      insight.type === 'warning'
-                        ? 'border-red-400/20'
-                        : 'border-emerald-400/20'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <p
-                          className={`text-sm font-semibold ${
-                            insight.type === 'warning'
-                              ? 'text-red-400'
-                              : 'text-emerald-400'
-                          }`}
-                        >
-                          {insight.title}
-                        </p>
-                        <p className="text-xs text-gray-400 leading-relaxed">
-                          {insight.description}
-                        </p>
-                      </div>
-                      <ArrowUpRight className="h-4 w-4 flex-shrink-0 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100" />
+                {mounted && (
+                  <div className="relative flex items-center justify-center">
+                    <ScoreRing score={currentScore} size={180} />
+                    <div className="absolute -bottom-2 -right-4">
+                      <TemperMascot
+                        label={
+                          currentScore >= 80
+                            ? 'BRILLIANT'
+                            : currentScore >= 70
+                              ? 'EXCELLENT'
+                              : currentScore >= 60
+                                ? 'GOOD'
+                                : currentScore >= 50
+                                  ? 'BOOK'
+                                  : currentScore >= 40
+                                    ? 'INACCURACY'
+                                    : currentScore >= 25
+                                      ? 'MISTAKE'
+                                      : 'BLUNDER'
+                        }
+                        size={52}
+                        animate
+                      />
                     </div>
-                    <span
-                      className={`mt-3 inline-block text-xs font-medium ${
-                        insight.type === 'warning'
-                          ? 'text-red-400'
-                          : 'text-emerald-400'
-                      }`}
-                    >
-                      {insight.action} →
-                    </span>
-                  </Link>
-                ))}
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-400 text-center">
+                  Based on latest session
+                </p>
+
+                <Link
+                  href="/dashboard/analyze"
+                  className="mt-2 flex items-center gap-2 text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
+                >
+                  View detailed analysis
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
               </div>
-            ) : (
-              <div className="rounded-2xl bg-white/[0.06] border border-white/[0.08] p-6 text-center">
-                <Brain className="mx-auto h-8 w-8 text-gray-400/50 mb-2" />
-                <p className="text-sm text-gray-400">
-                  Upload a session to unlock AI insights
+
+              {/* Key Stats — simplified to 3 clean cards */}
+              <div className="stat-card rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5">
+                <p className="text-xs text-gray-500 mb-1">Session P/L</p>
+                <p className={`text-2xl font-bold ${analysis.summary.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {analysis.summary.netPnL >= 0 ? '+' : ''}${analysis.summary.netPnL.toFixed(0)}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {analysis.summary.totalTrades} trades &middot; {analysis.summary.winRate.toFixed(0)}% win rate
                 </p>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* ──────────────── Recent Sessions ──────────────── */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-              <Activity className="h-4 w-4" />
-              Recent Sessions
-            </h2>
-            <Link
-              href="/dashboard/analyze"
-              className="flex items-center gap-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-emerald-400"
-            >
-              View Analysis <ArrowUpRight className="h-3 w-3" />
-            </Link>
-          </div>
+              <div className="stat-card rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5">
+                <p className="text-xs text-gray-500 mb-1">ELO Rating</p>
+                <p className="text-2xl font-bold text-white">{eloRating}</p>
+                <p className={`mt-1 text-xs ${analysis.eloState.lastSessionDelta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {eloBracket} &middot; {analysis.eloState.lastSessionDelta >= 0 ? '+' : ''}{analysis.eloState.lastSessionDelta.toFixed(1)}
+                </p>
+              </div>
 
-          <div className="overflow-hidden rounded-2xl bg-white/[0.06] border border-white/[0.08] divide-y divide-white/[0.08]">
-            {analysis ? (
+              {/* Bias Status — single clean card */}
+              <div className="stat-card rounded-2xl border p-5 lg:col-span-2 transition-all hover:bg-white/[0.08]"
+                   style={{ borderColor: analysis.biases.length > 0 ? 'rgba(239,71,111,0.15)' : 'rgba(6,214,160,0.15)', backgroundColor: analysis.biases.length > 0 ? 'rgba(239,71,111,0.03)' : 'rgba(6,214,160,0.03)' }}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className={`text-sm font-semibold ${analysis.biases.length > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {analysis.biases.length > 0
+                        ? `${analysis.biases.length} Bias${analysis.biases.length > 1 ? 'es' : ''} Detected`
+                        : 'Clean Session'}
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-400">
+                      {analysis.biases.length > 0
+                        ? analysis.biases.map(b => b.type.replace(/_/g, ' ')).join(', ')
+                        : 'No behavioral biases found — great discipline!'}
+                    </p>
+                  </div>
+                  <Link href="/dashboard/analyze" className="text-xs font-medium text-gray-400 hover:text-emerald-400 transition-colors flex items-center gap-1">
+                    Review <ArrowUpRight className="h-3 w-3" />
+                  </Link>
+                </div>
+              </div>
+            </div>
+
+            {/* ──────────────── Quick Links ──────────────── */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Link
                 href="/dashboard/analyze"
-                className="session-item group flex items-center justify-between p-5 transition-colors hover:bg-white/[0.08] cursor-pointer"
+                className="insight-card group flex items-center gap-4 rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5 transition-all hover:bg-white/[0.08] cursor-pointer"
+              >
+                <div className="rounded-xl bg-purple-400/10 p-3">
+                  <Brain className="h-5 w-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-white">Analyze</p>
+                  <p className="text-xs text-gray-500">Trade-by-trade replay</p>
+                </div>
+                <ArrowUpRight className="h-4 w-4 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100" />
+              </Link>
+
+              <Link
+                href="/dashboard/explorer"
+                className="insight-card group flex items-center gap-4 rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5 transition-all hover:bg-white/[0.08] cursor-pointer"
+              >
+                <div className="rounded-xl bg-emerald-400/10 p-3">
+                  <Network className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-white">3D Explorer</p>
+                  <p className="text-xs text-gray-500">Visualize patterns</p>
+                </div>
+                <ArrowUpRight className="h-4 w-4 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100" />
+              </Link>
+
+              <Link
+                href="/dashboard/journal"
+                className="insight-card group flex items-center gap-4 rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5 transition-all hover:bg-white/[0.08] cursor-pointer"
+              >
+                <div className="rounded-xl bg-amber-400/10 p-3">
+                  <Zap className="h-5 w-5 text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-white">Journal</p>
+                  <p className="text-xs text-gray-500">
+                    {lastJournalDate
+                      ? `Last: ${new Date(lastJournalDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                      : 'Log your mindset'}
+                  </p>
+                </div>
+                <ArrowUpRight className="h-4 w-4 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100" />
+              </Link>
+            </div>
+
+            {/* ──────────────── Latest Session Row ──────────────── */}
+            <section className="space-y-4">
+              <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                <Activity className="h-4 w-4" />
+                Latest Session
+              </h2>
+              <Link
+                href="/dashboard/analyze"
+                className="session-item group flex items-center justify-between rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5 transition-colors hover:bg-white/[0.08] cursor-pointer"
               >
                 <div className="flex items-center gap-4">
                   <div className="relative">
@@ -501,83 +429,27 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-white">
-                        Latest Session
-                      </p>
-                      {analysis.biases.length > 0 && (
-                        <span className="rounded-full bg-red-400/10 px-2 py-0.5 text-[10px] font-medium text-red-400">
-                          {analysis.biases.length} Bias
-                          {analysis.biases.length > 1 ? 'es' : ''}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-400">
-                      {analysis.summary.totalTrades} trades &middot; Win rate{' '}
-                      {analysis.summary.winRate.toFixed(0)}%
+                    <p className="text-sm font-medium text-white">
+                      {analysis.summary.totalTrades} trades &middot; {analysis.summary.winRate.toFixed(0)}% win rate
                     </p>
+                    {analysis.biases.length > 0 && (
+                      <p className="text-xs text-red-400/80">
+                        {analysis.biases.map(b => b.type.replace(/_/g, ' ')).join(', ')}
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span
-                    className={`font-mono text-sm font-semibold ${
-                      analysis.summary.netPnL >= 0
-                        ? 'text-emerald-400'
-                        : 'text-red-400'
-                    }`}
-                  >
-                    {analysis.summary.netPnL >= 0 ? '+' : ''}$
-                    {Math.abs(analysis.summary.netPnL).toFixed(0)}
-                  </span>
-                  <ArrowUpRight className="h-4 w-4 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100" />
-                </div>
-              </Link>
-            ) : (
-              <div className="p-10 text-center">
-                <Activity className="mx-auto h-8 w-8 text-gray-400/40 mb-3" />
-                <p className="text-sm text-gray-400">
-                  No sessions analyzed yet.
-                </p>
-                <Link
-                  href="/dashboard/upload"
-                  className="mt-2 inline-block text-xs font-medium text-emerald-400 hover:underline"
+                <span
+                  className={`font-mono text-sm font-semibold ${
+                    analysis.summary.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  }`}
                 >
-                  Upload your first session →
-                </Link>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* ──────────────── 3D Explorer CTA ──────────────── */}
-        <Link
-          href="/dashboard/explorer"
-          className="explorer-cta group relative flex items-center justify-between overflow-hidden rounded-2xl bg-white/[0.06] border border-emerald-400/10 p-6 transition-all hover:bg-white/[0.08] hover:border-emerald-400/30 cursor-pointer"
-        >
-          {/* Decorative glow — teal and gold from the logo */}
-          <div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full bg-emerald-500/10 blur-3xl transition-all group-hover:bg-emerald-500/20" />
-          <div className="pointer-events-none absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-amber-500/5 blur-3xl transition-all group-hover:bg-amber-500/10" />
-
-          <div className="relative flex items-center gap-5">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 ring-1 ring-emerald-400/20">
-              <Network className="h-7 w-7 text-emerald-400" />
-            </div>
-            <div>
-              <h3 className="font-coach text-lg font-semibold text-white">
-                3D Explorer
-              </h3>
-              <p className="text-sm text-gray-400">
-                Visualize your trading patterns in an interactive 3D graph
-              </p>
-            </div>
-          </div>
-
-          <div className="relative flex items-center gap-2 text-sm font-medium text-emerald-400">
-            <Zap className="h-4 w-4" />
-            <span className="hidden sm:inline">Launch</span>
-            <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </div>
-        </Link>
+                  {analysis.summary.netPnL >= 0 ? '+' : ''}${Math.abs(analysis.summary.netPnL).toFixed(0)}
+                </span>
+              </Link>
+            </section>
+          </>
+        )}
       </div>
     </div>
   );
