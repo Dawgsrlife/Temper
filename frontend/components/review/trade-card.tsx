@@ -2,6 +2,7 @@ import type { Trade, DecisionEvent } from "@/lib/types";
 import { DecisionBadge } from "./decision-badge";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/utils";
+import TemperMascot from "@/components/mascot/TemperMascot";
 
 interface TradeCardProps {
   trade: Trade;
@@ -71,7 +72,10 @@ export function TradeCard({
       {/* Explanation (active only) */}
       {isActive && (
         <div className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
-          {decision.explanation}
+          <div className="flex items-start gap-2 mb-1.5">
+            <TemperMascot label={decision.label} size={36} animate={false} />
+            <p className="flex-1">{decision.explanation}</p>
+          </div>
           {decision.reasons.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {decision.reasons.map((reason) => (

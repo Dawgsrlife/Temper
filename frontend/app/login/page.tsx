@@ -65,8 +65,14 @@ export default function LoginPage() {
                             <div className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl">
                                 <Image src="/Temper_logo.png" alt="Temper" width={56} height={56} className="rounded-2xl" />
                             </div>
-                            <h1 className="font-coach text-2xl font-bold text-temper-text">
-                                Welcome back
+                            <h1 className="font-coach text-2xl font-bold">
+                                <span className="text-temper-teal" style={{ textShadow: '0 0 20px rgba(6, 214, 160, 0.3)' }}>
+                                    welcome
+                                </span>
+                                {' '}
+                                <span className="text-white tracking-wide">
+                                    back
+                                </span>
                             </h1>
                             <p className="text-center text-sm text-temper-muted">
                                 Sign in to continue to Temper

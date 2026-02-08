@@ -167,8 +167,9 @@ export default function JournalPage() {
           <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
             Reflection
           </p>
-          <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl brand-gradient-text">
-            Smart Journal
+          <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl">
+            <span className="text-white">Smart </span>
+            <span className="text-emerald-400">Journal</span>
           </h1>
           <p className="text-sm text-gray-400">
             Track your psychology before and after every trade.
