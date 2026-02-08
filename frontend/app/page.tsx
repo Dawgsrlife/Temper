@@ -232,8 +232,18 @@ export default function LandingPage() {
         </section>
 
         {/* ━━ FEATURE PILLARS ━━ */}
-        <section className="relative bg-[#080810] px-6 py-28 md:px-12">
-          <div className="mx-auto max-w-6xl">
+        <section className="relative overflow-hidden px-6 py-28 md:px-12">
+          {/* Background image */}
+          <div className="absolute inset-0 z-0">
+            <img
+              src="/assets/pexels-alphatradezone-5833747.jpg"
+              alt="Trading background"
+              className="h-full w-full object-cover opacity-20"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-[#080810] via-[#080810]/90 to-[#050505]" />
+          </div>
+
+          <div className="relative z-10 mx-auto max-w-6xl">
             <div className="story-reveal mb-14 text-center">
               <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-400/70">
                 Built For Traders
@@ -262,8 +272,6 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
-
-        {/* ━━ STATS ━━ */}
         <section className="relative border-y border-white/[0.06] bg-[#050505] px-6 py-14 md:px-12">
           <div className="mx-auto grid max-w-3xl grid-cols-3 gap-8 text-center">
             {[
