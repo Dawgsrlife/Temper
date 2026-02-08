@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import ssl
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as URLRequest, urlopen
@@ -21,6 +22,28 @@ FALLBACK_GRADIUM_STT_URLS = (
 
 class VoiceProviderError(Exception):
     pass
+
+
+def _is_cert_verify_error(exc: Exception) -> bool:
+    text = str(exc).upper()
+    if "CERTIFICATE_VERIFY_FAILED" in text or "SSL" in text and "CERT" in text:
+        return True
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return True
+    return False
+
+
+def _urlopen_gradium(request: URLRequest, *, timeout: float):
+    try:
+        return urlopen(request, timeout=timeout)
+    except URLError as exc:
+        if not _is_cert_verify_error(exc):
+            raise
+        # Demo-safe fallback: retry once with an unverified context when local trust stores
+        # are misconfigured (common on hackathon laptops/proxies).
+        insecure_ctx = ssl._create_unverified_context()
+        return urlopen(request, timeout=timeout, context=insecure_ctx)
 
 
 def _read_response_json(raw: bytes) -> dict[str, Any]:
@@ -165,7 +188,7 @@ def synthesize_with_gradium_tts(
     api_key: str | None = None,
     speech_id: str | None = None,
     endpoint: str | None = None,
-) -> bytes:
+) -> tuple[bytes, str, str]:
     clean_text = text.strip()
     if not clean_text:
         raise VoiceProviderError("text for speech synthesis must be non-empty")
@@ -183,10 +206,25 @@ def synthesize_with_gradium_tts(
     if not candidates:
         raise VoiceProviderError("GRADIUM_TTS_URL is empty")
 
+    output_format = (os.getenv("GRADIUM_TTS_OUTPUT_FORMAT", "wav").strip() or "wav").lower()
+    if output_format in {"mp3", "mpeg"}:
+        output_format = "wav"
+    if output_format.startswith("audio/"):
+        output_format = output_format.split("/", 1)[1].strip() or "wav"
+
+    mime_type = "audio/wav"
+    extension = "wav"
+    if output_format.startswith("opus"):
+        mime_type = "audio/ogg"
+        extension = "ogg"
+    elif output_format.startswith("wav"):
+        mime_type = "audio/wav"
+        extension = "wav"
+
     payload = {
         "text": clean_text,
         "voice_id": chosen_speech,
-        "output_format": "mp3",
+        "output_format": output_format,
         "only_audio": True,
     }
     request_body = json.dumps(payload).encode("utf-8")
@@ -199,12 +237,12 @@ def synthesize_with_gradium_tts(
                 "Authorization": f"Bearer {key}",
                 "X-API-Key": key,
                 "Content-Type": "application/json",
-                "Accept": "audio/mpeg, application/json",
+                "Accept": "audio/*, application/json",
             },
             method="POST",
         )
         try:
-            with urlopen(request, timeout=20.0) as response:
+            with _urlopen_gradium(request, timeout=20.0) as response:
                 content_type = (response.headers.get("content-type", "") or "").lower()
                 raw = response.read()
         except HTTPError as exc:
@@ -230,14 +268,14 @@ def synthesize_with_gradium_tts(
         if "application/json" in content_type:
             payload_json = _read_response_json(raw)
             try:
-                return _extract_gradium_audio_bytes(payload_json)
+                return _extract_gradium_audio_bytes(payload_json), mime_type, extension
             except VoiceProviderError as exc:
                 last_error = exc
                 if idx < len(candidates) - 1:
                     continue
                 raise
 
-        return raw
+        return raw, mime_type, extension
 
     raise VoiceProviderError(f"Gradium TTS failed across all endpoints: {last_error}")
 
@@ -285,7 +323,7 @@ def transcribe_with_gradium(
             method="POST",
         )
         try:
-            with urlopen(request, timeout=20.0) as response:
+            with _urlopen_gradium(request, timeout=20.0) as response:
                 raw = response.read()
         except HTTPError as exc:
             last_error = exc

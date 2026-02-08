@@ -1,0 +1,517 @@
+{
+  "badge_counts": {
+    "BEST": 30812,
+    "BLUNDER": 652,
+    "BRILLIANT": 2,
+    "EXCELLENT": 31683,
+    "GOOD": 130318,
+    "GREAT": 33,
+    "INACCURACY": 9211,
+    "MEGABLUNDER": 85,
+    "MISS": 837,
+    "MISTAKE": 7591
+  },
+  "badge_examples": {
+    "BLUNDER": [
+      {
+        "actual_pnl": -5332.048524,
+        "asset": "HYPE",
+        "blocked_reason": "BIAS",
+        "impact_abs": 5332.048524,
+        "simulated_pnl": 0.0,
+        "special_tags": "",
+        "timestamp": "2025-04-07T00:37:00"
+      },
+      {
+        "actual_pnl": -5180.098,
+        "asset": "BTC",
+        "blocked_reason": "BIAS",
+        "impact_abs": 5134.650132,
+        "simulated_pnl": -45.447868,
+        "special_tags": "",
+        "timestamp": "2025-01-10T02:04:00"
+      },
+      {
+        "actual_pnl": -5178.558,
+        "asset": "BTC",
+        "blocked_reason": "BIAS",
+        "impact_abs": 5133.110132,
+        "simulated_pnl": -45.447868,
+        "special_tags": "",
+        "timestamp": "2025-01-10T02:04:00"
+      }
+    ],
+    "MEGABLUNDER": [
+      {
+        "actual_pnl": -117990.1041,
+        "asset": "ETH",
+        "blocked_reason": "BIAS",
+        "impact_abs": 117990.0729357956,
+        "simulated_pnl": -0.03116420438946581,
+        "special_tags": "",
+        "timestamp": "2024-12-06T23:15:00"
+      },
+      {
+        "actual_pnl": -83056.32,
+        "asset": "TRUMP",
+        "blocked_reason": "DAILY_MAX_LOSS",
+        "impact_abs": 83056.32,
+        "simulated_pnl": 0.0,
+        "special_tags": "FORCED",
+        "timestamp": "2025-04-23T21:50:00"
+      },
+      {
+        "actual_pnl": -41910.06915,
+        "asset": "TRUMP",
+        "blocked_reason": "DAILY_MAX_LOSS",
+        "impact_abs": 41910.06915,
+        "simulated_pnl": 0.0,
+        "special_tags": "FORCED",
+        "timestamp": "2025-04-23T21:49:00"
+      }
+    ],
+    "MISS": [
+      {
+        "actual_pnl": 23909.89468,
+        "asset": "ETH",
+        "blocked_reason": "DAILY_MAX_LOSS",
+        "impact_abs": 23909.89468,
+        "simulated_pnl": 0.0,
+        "special_tags": "FORCED|INTERESTING",
+        "timestamp": "2025-02-10T03:14:00"
+      },
+      {
+        "actual_pnl": 16305.57609,
+        "asset": "SOL",
+        "blocked_reason": "DAILY_MAX_LOSS",
+        "impact_abs": 16305.57609,
+        "simulated_pnl": 0.0,
+        "special_tags": "FORCED|INTERESTING",
+        "timestamp": "2025-04-11T23:33:00"
+      },
+      {
+        "actual_pnl": 15379.18528,
+        "asset": "SOL",
+        "blocked_reason": "DAILY_MAX_LOSS",
+        "impact_abs": 15379.18528,
+        "simulated_pnl": 0.0,
+        "special_tags": "FORCED",
+        "timestamp": "2025-04-11T16:41:00"
+      }
+    ]
+  },
+  "bias_rates": {
+    "any_bias_rate": 0.27790402605764497,
+    "loss_aversion_rate": 0.019282846646214446,
+    "overtrading_rate": 0.26563742756504943,
+    "revenge_rate": 0.00037401052910654095
+  },
+  "coach_plan": [
+    "Step 1 (Limits): cap hourly trades at or below 179.",
+    "Step 2 (Cooldown): enforce a 5 minute pause after losses.",
+    "Step 3 (Execution): protect loss/win symmetry and reduce size near 80% drawdown."
+  ],
+  "data_quality_warnings": [
+    "0.02% rows have nonpositive size.",
+    "86.75% rows have duplicate timestamps.",
+    "0.01% rows are out of timestamp order."
+  ],
+  "derived_stats": {
+    "any_bias_rate_pct": 27.7904026057645,
+    "daily_max_loss_used": 500.0,
+    "longest_tilt_streak": 2197,
+    "loss_aversion_rate_pct": 1.9282846646214447,
+    "loss_to_win_ratio": 0.8790511361281018,
+    "median_loss_abs_pnl": 9.98775,
+    "median_minutes_between_trades": 0.0,
+    "median_post_loss_size_multiplier": 1.0667631482040454,
+    "median_win_pnl": 11.361967,
+    "near_daily_limit_trade_count": 16150,
+    "overtrading_rate_pct": 26.563742756504944,
+    "revenge_rate_pct": 0.0374010529106541,
+    "tilt_streak_count": 264,
+    "trade_count": 211224,
+    "trades_per_hour_p95": 179.0
+  },
+  "endgame": {
+    "bias_rate_pct": 0.0,
+    "pnl": 2140.719105,
+    "summary": "Endgame: 100 trades, pnl 2140.72, bias rate 0.00%.",
+    "trades": 100
+  },
+  "execution_status": "COMPLETED",
+  "grade_distribution_by_phase": {
+    "ENDGAME": {
+      "BEST": 17,
+      "BLUNDER": 0,
+      "BRILLIANT": 0,
+      "EXCELLENT": 33,
+      "GOOD": 31,
+      "GREAT": 0,
+      "INACCURACY": 15,
+      "MEGABLUNDER": 0,
+      "MISS": 4,
+      "MISTAKE": 0
+    },
+    "MIDDLEGAME": {
+      "BEST": 30782,
+      "BLUNDER": 652,
+      "BRILLIANT": 2,
+      "EXCELLENT": 31634,
+      "GOOD": 130225,
+      "GREAT": 32,
+      "INACCURACY": 9189,
+      "MEGABLUNDER": 85,
+      "MISS": 833,
+      "MISTAKE": 7590
+    },
+    "OPENING": {
+      "BEST": 13,
+      "BLUNDER": 0,
+      "BRILLIANT": 0,
+      "EXCELLENT": 16,
+      "GOOD": 62,
+      "GREAT": 1,
+      "INACCURACY": 7,
+      "MEGABLUNDER": 0,
+      "MISS": 0,
+      "MISTAKE": 1
+    }
+  },
+  "headline": "CHECKMATED",
+  "labeling_rules": {
+    "grade_rules": {
+      "BEST": "high-percentile positive pnl",
+      "BLUNDER": "bias/risk context + negative pnl + impact_abs >= p95(impact_abs)",
+      "BRILLIANT": "top-tier win in danger context (near limit / post-loss streak)",
+      "EXCELLENT": "above-average positive pnl",
+      "GOOD": "default stable trade",
+      "GREAT": "strong win in pressure context",
+      "INACCURACY": "smaller negative execution errors",
+      "MEGABLUNDER": "bias/risk context + negative pnl + impact_abs >= p99.5(impact_abs)",
+      "MISS": "positive pnl in risky context with missed opportunity impact >= p90",
+      "MISTAKE": "negative pnl with moderate/high impact or bias-linked loss"
+    },
+    "impact_definition": "impact_abs = abs(actual_pnl - simulated_pnl)",
+    "special_tags": {
+      "BOOK": "early disciplined trades per day (first 3) outside risk pressure",
+      "FORCED": "trade occurred near/under risk pressure or risk-block context",
+      "INTERESTING": "ambiguous/high-variance context warranting review"
+    },
+    "thresholds": {
+      "impact_p65": 28.341981000000004,
+      "impact_p80": 87.90558480000004,
+      "impact_p90": 253.47174560000005,
+      "impact_p95": 618.1491764999998,
+      "impact_p99": 2941.6882488000056,
+      "impact_p995": 5401.735875400028,
+      "loss_abs_p70": 0.0,
+      "loss_abs_p85": 0.0,
+      "loss_abs_p95": 5.321007599999985,
+      "win_p70": 2.4692855999999987,
+      "win_p85": 25.386079649999978,
+      "win_p95": 165.7888938999989,
+      "win_p995": 1964.3779782100185
+    }
+  },
+  "middlegame": {
+    "bias_rate_pct": 27.816267343998785,
+    "pnl": 10293461.280567002,
+    "summary": "Middlegame: 211024 trades, pnl 10293461.28, bias rate 27.82%.",
+    "trades": 211024
+  },
+  "opening": {
+    "bias_rate_pct": 1.0,
+    "pnl": 1356.9437639999999,
+    "summary": "Opening: 100 trades, pnl 1356.94, bias rate 1.00%.",
+    "trades": 100
+  },
+  "recommendations": [
+    "Bias-impacted trades: 27.79% across 211224 trades.",
+    "Limits: keep hourly volume under 179 trades in high-activity periods.",
+    "Cooldown: after losses, median size jumps to 1.07x; enforce a 5 minute pause.",
+    "Sizing discipline: near-limit pressure appeared on 16150 trades with daily cap 500.00; trim size as drawdown approaches 80%.",
+    "Exit discipline: loss/win median ratio is 0.88 (9.99/11.36).",
+    "Journaling prompt: log why you traded after a loss on each revenge-flagged setup (0.04% of trades).",
+    "Journaling prompt: during tilt streaks (longest 2197 trades), note trigger/context before re-entry.",
+    "Data quality warning: some behavioral signals are downweighted due to input issues."
+  ],
+  "scoreboard": {
+    "blocked_bias_count": 51171,
+    "blocked_risk_count": 15950,
+    "cost_of_bias": 0.0,
+    "delta_pnl": -1256200.2452148162
+  },
+  "top_moments": [
+    {
+      "actual_pnl": -117990.1041,
+      "asset": "ETH",
+      "bias_category": "revenge",
+      "blocked_reason": "BIAS",
+      "critical_line": [
+        {
+          "actual_pnl": -11996.80693,
+          "asset": "ETH",
+          "blocked_reason": "BIAS",
+          "is_focus": false,
+          "offset": -3,
+          "simulated_pnl": -0.2760142728611591,
+          "special_tags": "",
+          "timestamp": "2024-12-06T23:15:00",
+          "trade_grade": "MEGABLUNDER"
+        },
+        {
+          "actual_pnl": -12878.14,
+          "asset": "ETH",
+          "blocked_reason": "BIAS",
+          "is_focus": false,
+          "offset": -2,
+          "simulated_pnl": -45.447868,
+          "special_tags": "",
+          "timestamp": "2024-12-06T23:15:00",
+          "trade_grade": "MEGABLUNDER"
+        },
+        {
+          "actual_pnl": -18849.96767,
+          "asset": "ETH",
+          "blocked_reason": "BIAS",
+          "is_focus": false,
+          "offset": -1,
+          "simulated_pnl": -45.447868,
+          "special_tags": "",
+          "timestamp": "2024-12-06T23:15:00",
+          "trade_grade": "MEGABLUNDER"
+        },
+        {
+          "actual_pnl": -117990.1041,
+          "asset": "ETH",
+          "blocked_reason": "BIAS",
+          "is_focus": true,
+          "offset": 0,
+          "simulated_pnl": -0.03116420438946581,
+          "special_tags": "",
+          "timestamp": "2024-12-06T23:15:00",
+          "trade_grade": "MEGABLUNDER"
+        },
+        {
+          "actual_pnl": 0.0,
+          "asset": "BTC",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 1,
+          "simulated_pnl": 0.0,
+          "special_tags": "",
+          "timestamp": "2024-12-06T23:16:00",
+          "trade_grade": "GOOD"
+        },
+        {
+          "actual_pnl": 0.0,
+          "asset": "BTC",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 2,
+          "simulated_pnl": 0.0,
+          "special_tags": "",
+          "timestamp": "2024-12-06T23:16:00",
+          "trade_grade": "GOOD"
+        },
+        {
+          "actual_pnl": 0.0,
+          "asset": "BTC",
+          "blocked_reason": "NONE",
+          "is_focus": false,
+          "offset": 3,
+          "simulated_pnl": 0.0,
+          "special_tags": "",
+          "timestamp": "2024-12-06T23:16:00",
+          "trade_grade": "GOOD"
+        }
+      ],
+      "impact": 117990.0729357956,
+      "label": "MEGABLUNDER",
+      "simulated_pnl": -0.03116420438946581,
+      "special_tags": "",
+      "timestamp": "2024-12-06T23:15:00"
+    },
+    {
+      "actual_pnl": -83056.32,
+      "asset": "TRUMP",
+      "bias_category": "overtrading",
+      "blocked_reason": "DAILY_MAX_LOSS",
+      "critical_line": [
+        {
+          "actual_pnl": -1339.550768,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": -3,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "BLUNDER"
+        },
+        {
+          "actual_pnl": -596.3923,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": -2,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "MISTAKE"
+        },
+        {
+          "actual_pnl": -103.8204,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": -1,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "MISTAKE"
+        },
+        {
+          "actual_pnl": -83056.32,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": true,
+          "offset": 0,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "MEGABLUNDER"
+        },
+        {
+          "actual_pnl": -12752.91304,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": 1,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "MEGABLUNDER"
+        },
+        {
+          "actual_pnl": -59.89223,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": 2,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "MISTAKE"
+        },
+        {
+          "actual_pnl": -7.83303,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": 3,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "MISTAKE"
+        }
+      ],
+      "impact": 83056.32,
+      "label": "MEGABLUNDER",
+      "simulated_pnl": 0.0,
+      "special_tags": "FORCED",
+      "timestamp": "2025-04-23T21:50:00"
+    },
+    {
+      "actual_pnl": -41910.06915,
+      "asset": "TRUMP",
+      "bias_category": "revenge",
+      "blocked_reason": "DAILY_MAX_LOSS",
+      "critical_line": [
+        {
+          "actual_pnl": -736.382972,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": -3,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:49:00",
+          "trade_grade": "BLUNDER"
+        },
+        {
+          "actual_pnl": -5947.019106,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": -2,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:49:00",
+          "trade_grade": "MEGABLUNDER"
+        },
+        {
+          "actual_pnl": -2581.960798,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": -1,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:49:00",
+          "trade_grade": "BLUNDER"
+        },
+        {
+          "actual_pnl": -41910.06915,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": true,
+          "offset": 0,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED",
+          "timestamp": "2025-04-23T21:49:00",
+          "trade_grade": "MEGABLUNDER"
+        },
+        {
+          "actual_pnl": 0.093,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": 1,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED|INTERESTING",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "GOOD"
+        },
+        {
+          "actual_pnl": 133.5299,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": 2,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED|INTERESTING",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "MISS"
+        },
+        {
+          "actual_pnl": 48.793,
+          "asset": "TRUMP",
+          "blocked_reason": "DAILY_MAX_LOSS",
+          "is_focus": false,
+          "offset": 3,
+          "simulated_pnl": 0.0,
+          "special_tags": "FORCED|INTERESTING",
+          "timestamp": "2025-04-23T21:50:00",
+          "trade_grade": "BEST"
+        }
+      ],
+      "impact": 41910.06915,
+      "label": "MEGABLUNDER",
+      "simulated_pnl": 0.0,
+      "special_tags": "FORCED",
+      "timestamp": "2025-04-23T21:49:00"
+    }
+  ]
+}

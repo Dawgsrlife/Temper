@@ -1,0 +1,52 @@
+Temper Judge Pack Policy Report
+================================================================================
+rows: 211224
+git_commit: a3cdf5519d558ab4ce2bf2d34200b6ee61437135
+git_state: DIRTY
+
+BiasThresholds:
+  revenge_time_window_minutes: 15
+  revenge_size_multiplier: 2.5
+  revenge_min_prev_loss_abs: 400.0
+  revenge_rolling_median_multiplier: 2.0
+  revenge_baseline_window_trades: 50
+  overtrading_window_hours: 1
+  overtrading_trade_threshold: 200
+  loss_aversion_duration_multiplier: 8.0
+  loss_aversion_loss_to_win_multiplier: 4.0
+
+Risk Recommender Parameters:
+  min_daily_max_loss: 1000.0
+  safety_buffer: 1.05
+  day_total_base_quantile: 0.01
+  intraday_base_quantile: 0.01
+  balance_base_fraction: 0.02
+  balance_cap_fraction: 0.1
+  intraday_cap_multiplier: 1.1
+
+Run Metrics:
+  recommended_daily_max_loss: 98077.025306
+  used_daily_max_loss: 500.000000
+  bias_rates.revenge: 0.04%
+  bias_rates.overtrading: 26.56%
+  bias_rates.loss_aversion: 1.93%
+  summary.actual_total_pnl: 10296958.943436
+  summary.simulated_total_pnl: 9040758.698221
+  summary.delta_pnl: -1256200.245215
+  summary.cost_of_bias: 0.000000
+  summary.blocked_bias_count: 51171
+  summary.blocked_risk_count: 15950
+  summary.outcome: CHECKMATED
+
+Data Quality:
+  warnings_count: 3
+  missing_asset_pct: 0.00%
+  nonpositive_price_pct: 0.00%
+  nonpositive_size_usd_pct: 0.02%
+  nat_timestamp_pct: 0.00%
+  duplicate_timestamp_pct: 86.75%
+  out_of_order_rows_pct: 0.01%
+  pnl_non_numeric_coercions_pct: 0.00%
+  warning: 0.02% rows have nonpositive size.
+  warning: 86.75% rows have duplicate timestamps.
+  warning: 0.01% rows are out of timestamp order.

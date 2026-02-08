@@ -40,6 +40,14 @@ type CounterfactualData = {
   rows: Array<Record<string, unknown>>;
 };
 
+export type TradeWindowData = {
+  offset: number;
+  limit: number;
+  totalRows: number;
+  returnedRows: number;
+  rows: Trade[];
+};
+
 export type JobSummaryData = {
   headline?: string | null;
   delta_pnl?: number | null;
@@ -259,29 +267,46 @@ export async function createAndWaitForJob(file: File, userId?: string, opts?: Cr
 }
 
 export async function fetchTradesFromJob(jobId: string, maxRows = 20000): Promise<Trade[]> {
+  const window = await fetchTradesWindow(jobId, 0, maxRows);
+  return window.rows;
+}
+
+export async function fetchTradesWindow(
+  jobId: string,
+  offset = 0,
+  windowSize = 20000,
+): Promise<TradeWindowData> {
   const pageSize = 2000;
-  let offset = 0;
+  const safeOffset = Math.max(0, Math.floor(offset));
+  const safeWindowSize = Math.max(1, Math.floor(windowSize));
+  let cursor = safeOffset;
   let totalRows = Number.POSITIVE_INFINITY;
   const rows: Array<Record<string, unknown>> = [];
-  const cap = Math.max(500, maxRows);
+  let remaining = safeWindowSize;
 
-  while (offset < totalRows && rows.length < cap) {
-    const payload = await request<CounterfactualData>(`/jobs/${jobId}/counterfactual?offset=${offset}&limit=${pageSize}`);
+  while (cursor < totalRows && remaining > 0) {
+    const limit = Math.min(pageSize, remaining);
+    const payload = await request<CounterfactualData>(`/jobs/${jobId}/counterfactual?offset=${cursor}&limit=${limit}`);
     const data = payload.data;
     totalRows = Number(data.total_rows || 0);
     const pageRows = Array.isArray(data.rows) ? data.rows : [];
-    if (rows.length + pageRows.length > cap) {
-      rows.push(...pageRows.slice(0, cap - rows.length));
-      break;
-    }
     rows.push(...pageRows);
     if (pageRows.length === 0) break;
-    offset += pageRows.length;
+    cursor += pageRows.length;
+    remaining -= pageRows.length;
   }
 
-  return rows
+  const normalizedRows = rows
     .map((row) => rowToTrade(row))
     .filter((trade): trade is Trade => Boolean(trade));
+
+  return {
+    offset: safeOffset,
+    limit: safeWindowSize,
+    totalRows: Number.isFinite(totalRows) ? totalRows : normalizedRows.length,
+    returnedRows: normalizedRows.length,
+    rows: normalizedRows,
+  };
 }
 
 export async function fetchJobSummary(jobId: string): Promise<JobSummaryData> {

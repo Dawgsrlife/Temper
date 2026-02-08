@@ -44,6 +44,7 @@ OUTPUTS_DIR = BACKEND_DIR / "outputs"
 JUDGE_PACK_SCRIPT = BACKEND_DIR / "scripts" / "judge_pack.py"
 LIST_JOBS_LIMIT_MAX = 200
 COUNTERFACTUAL_PAGE_MAX = 2000
+COUNTERFACTUAL_SERIES_MAX = 300000
 TRACE_PAGE_MAX = 5000
 MAX_UPLOAD_MB_DEFAULT = 250
 UPLOADTHING_FILE_BASE_URL = os.getenv("UPLOADTHING_FILE_BASE_URL", "https://utfs.io/f")
@@ -298,6 +299,13 @@ def _trade_voice_paths(job_id: str, trade_id: int) -> tuple[Path, Path, Path]:
     )
 
 
+def _trade_voice_audio_path(job_id: str, trade_id: int, *, extension: str = "mp3") -> Path:
+    ext = (extension or "mp3").strip().lower().lstrip(".")
+    if not ext:
+        ext = "mp3"
+    return _job_dir(job_id) / f"{TRADE_COACH_VOICE_MP3_PREFIX}{trade_id}.{ext}"
+
+
 def _journal_transcript_path(job_id: str) -> Path:
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return _job_dir(job_id) / f"{JOURNAL_TRANSCRIPT_JSON_PREFIX}{timestamp}.json"
@@ -425,6 +433,38 @@ def _trade_coach_prompt_payload(
             "delta_pnl": _safe_float(summary.get("delta_pnl")),
             "cost_of_bias": _safe_float(summary.get("cost_of_bias")),
         },
+        "metric_refs": metric_refs,
+    }
+
+
+def _deterministic_trade_coach_fallback(
+    *,
+    trade_id: int,
+    label: str,
+    metric_refs: list[dict[str, Any]],
+    failure_reason: str,
+) -> dict[str, Any]:
+    metric_map = {str(ref.get("name")): ref.get("value") for ref in metric_refs}
+    reason_label = str(metric_map.get("reason_label", "No intervention"))
+    blocked_reason = str(metric_map.get("blocked_reason", "NONE"))
+    delta_pnl = metric_map.get("delta_pnl")
+    delta_txt = "N/A"
+    if isinstance(delta_pnl, (int, float)) and math.isfinite(float(delta_pnl)):
+        delta_txt = f"{float(delta_pnl):.2f}"
+    explanation = (
+        f"{label.title()} trade context: {reason_label} (blocked_reason={blocked_reason}). "
+        f"Deterministic replay impact is {delta_txt} USD."
+    )
+    return {
+        "version": 1,
+        "trade_id": trade_id,
+        "label": label,
+        "llm_explanation": explanation,
+        "actionable_fix": "Apply cooldown, position-size caps, and stop-loss discipline before the next entry.",
+        "confidence_note": (
+            "LLM provider unavailable; returned deterministic fallback narrative. "
+            f"Provider error: {failure_reason}"
+        ),
         "metric_refs": metric_refs,
     }
 
@@ -679,7 +719,7 @@ def _extract_json_from_text(text: str) -> dict[str, Any]:
 
 def _coach_request_payload(*, provider: str, prompt: str, max_tokens: int) -> dict[str, Any]:
     if provider == "openrouter":
-        return {
+        payload = {
             "model": _openrouter_model_name(),
             "messages": [
                 {"role": "system", "content": "Return JSON only. Do not include markdown fences."},
@@ -687,8 +727,11 @@ def _coach_request_payload(*, provider: str, prompt: str, max_tokens: int) -> di
             ],
             "temperature": 0.1,
             "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
         }
+        # Some OpenRouter-backed models reject strict response_format; enable only when explicitly requested.
+        if os.getenv("OPENROUTER_STRICT_JSON", "").strip().lower() in {"1", "true", "yes"}:
+            payload["response_format"] = {"type": "json_object"}
+        return payload
 
     return {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -885,6 +928,27 @@ def _validate_trade_coach_schema(
             normalized_metric_refs.append(normalized_ref)
 
     llm_explanation = str(llm_explanation_raw).strip()
+    metric_map = {str(ref.get("name")): ref.get("value") for ref in normalized_metric_refs}
+    severe_labels = {"INACCURACY", "MISTAKE", "MISS", "BLUNDER", "MEGABLUNDER"}
+    generic_phrases = (
+        "no high-severity",
+        "remained stable",
+        "did not trigger any specific risk",
+        "impact delta 0",
+    )
+    if expected_label in severe_labels and any(phrase in llm_explanation.lower() for phrase in generic_phrases):
+        reason_label = str(metric_map.get("reason_label", "discipline breach"))
+        blocked_reason = str(metric_map.get("blocked_reason", "BIAS"))
+        delta_value = metric_map.get("delta_pnl")
+        if isinstance(delta_value, (int, float)) and math.isfinite(float(delta_value)):
+            delta_txt = f"{float(delta_value):.2f}"
+        else:
+            delta_txt = "N/A"
+        llm_explanation = (
+            f"{expected_label.title()} signal detected: {reason_label} (blocked_reason={blocked_reason}). "
+            f"Deterministic replay impact for this trade is {delta_txt} USD."
+        )
+
     if metric_drifted:
         llm_explanation = (
             llm_explanation
@@ -1180,20 +1244,21 @@ def _trade_voice_script(trade_coach_payload: dict[str, Any]) -> str:
     return " ".join(script_parts)
 
 
-def _synthesize_trade_voice(text: str, provider: str) -> tuple[str, bytes]:
+def _synthesize_trade_voice(text: str, provider: str) -> tuple[str, bytes, str, str]:
     normalized = provider.strip().lower()
     if normalized not in {"auto", "elevenlabs", "gradium"}:
         raise VoiceProviderError("provider must be one of: auto, elevenlabs, gradium")
 
     if normalized in {"auto", "elevenlabs"}:
         try:
-            return "elevenlabs", synthesize_with_elevenlabs(text)
+            return "elevenlabs", synthesize_with_elevenlabs(text), "audio/mpeg", "mp3"
         except VoiceProviderError:
             if normalized == "elevenlabs":
                 raise
 
     if normalized in {"auto", "gradium"}:
-        return "gradium", synthesize_with_gradium_tts(text)
+        audio_bytes, mime_type, extension = synthesize_with_gradium_tts(text)
+        return "gradium", audio_bytes, mime_type, extension
 
     raise VoiceProviderError("failed to synthesize voice with available providers")
 
@@ -4345,10 +4410,17 @@ async def generate_trade_coach(job_id: str, trade_id: int, force: bool = False) 
             "vertex_request_id": request_id,
             "trade_id": trade_id,
         }
+        trade_coach_payload = _deterministic_trade_coach_fallback(
+            trade_id=trade_id,
+            label=expected_label,
+            metric_refs=metric_refs,
+            failure_reason=error_payload["error_message"],
+        )
+        coach_path.write_text(json.dumps(trade_coach_payload, indent=2, sort_keys=True) + "\n")
         coach_error_path.write_text(json.dumps(error_payload, indent=2, sort_keys=True) + "\n")
         updated_artifacts = dict(job.artifacts)
+        updated_artifacts[f"trade_coach_{trade_id}_json"] = str(coach_path)
         updated_artifacts[f"trade_coach_error_{trade_id}_json"] = str(coach_error_path)
-        updated_artifacts.pop(f"trade_coach_{trade_id}_json", None)
         updated_job = JobRecord(
             job_id=job.job_id,
             user_id=job.user_id,
@@ -4362,13 +4434,15 @@ async def generate_trade_coach(job_id: str, trade_id: int, force: bool = False) 
         )
         _persist_job_record(updated_job, include_artifacts_sync=True)
         return _envelope(
-            ok=False,
+            ok=True,
             job=updated_job,
-            data={"trade_coach_error": error_payload},
-            error_code="TRADE_COACH_GENERATION_FAILED",
-            error_message="Trade coach generation failed.",
-            error_details=error_payload,
-            status_code=502,
+            data={
+                "trade_coach": trade_coach_payload,
+                "cached": False,
+                "fallback": True,
+                "provider_error": error_payload,
+            },
+            status_code=200,
         )
 
     coach_path.write_text(json.dumps(trade_coach_payload, indent=2, sort_keys=True) + "\n")
@@ -4530,22 +4604,43 @@ async def generate_trade_voice(
             status_code=409,
         )
 
-    audio_path, meta_path, error_path = _trade_voice_paths(job_id, trade_id)
-    if audio_path.exists() and meta_path.exists() and not force:
-        try:
-            voice_meta = _load_json_file(meta_path)
-        except Exception:
-            voice_meta = {
+    legacy_audio_path, meta_path, error_path = _trade_voice_paths(job_id, trade_id)
+    if not force:
+        cached_meta: dict[str, Any] | None = None
+        cached_audio: Path | None = None
+        if meta_path.exists():
+            try:
+                loaded = _load_json_file(meta_path)
+                artifact = loaded.get("artifact")
+                if isinstance(artifact, str) and artifact.strip():
+                    artifact_path = Path(artifact)
+                    if artifact_path.exists():
+                        cached_audio = artifact_path
+                        cached_meta = loaded
+                if cached_audio is None and legacy_audio_path.exists():
+                    cached_audio = legacy_audio_path
+                    cached_meta = {
+                        "provider": str(loaded.get("provider", "unknown")),
+                        "mime_type": str(loaded.get("mime_type", "audio/mpeg")),
+                        "artifact": str(legacy_audio_path),
+                    }
+            except Exception:
+                cached_meta = None
+                cached_audio = None
+        if cached_audio is None and legacy_audio_path.exists():
+            cached_audio = legacy_audio_path
+            cached_meta = {
                 "provider": "unknown",
                 "mime_type": "audio/mpeg",
-                "artifact": str(audio_path),
+                "artifact": str(legacy_audio_path),
             }
-        return _envelope(
-            ok=True,
-            job=job,
-            data={"voice": voice_meta, "cached": True},
-            status_code=200,
-        )
+        if cached_audio is not None and cached_meta is not None:
+            return _envelope(
+                ok=True,
+                job=job,
+                data={"voice": cached_meta, "cached": True},
+                status_code=200,
+            )
 
     trade_coach_payload: dict[str, Any] | None = None
     coach_path, _ = _trade_coach_paths(job_id, trade_id)
@@ -4598,22 +4693,29 @@ async def generate_trade_voice(
 
     try:
         script = _trade_voice_script(trade_coach_payload)
-        provider_used, audio_bytes = await asyncio.to_thread(
+        provider_used, audio_bytes, mime_type, extension = await asyncio.to_thread(
             _synthesize_trade_voice,
             script,
             provider,
         )
+        audio_path = _trade_voice_audio_path(job_id, trade_id, extension=extension)
         audio_path.write_bytes(audio_bytes)
         voice_meta = {
             "provider": provider_used,
-            "mime_type": "audio/mpeg",
+            "mime_type": mime_type,
             "artifact": str(audio_path),
+            "extension": extension,
             "trade_id": trade_id,
             "generated_at": utc_now_iso(),
         }
         meta_path.write_text(json.dumps(voice_meta, indent=2, sort_keys=True) + "\n")
         if error_path.exists():
             error_path.unlink()
+        if legacy_audio_path.exists() and legacy_audio_path != audio_path:
+            try:
+                legacy_audio_path.unlink()
+            except Exception:
+                pass
 
         updated_artifacts = dict(job.artifacts)
         updated_artifacts[f"trade_coach_voice_{trade_id}_mp3"] = str(audio_path)
@@ -4650,6 +4752,13 @@ async def generate_trade_voice(
         updated_artifacts[f"trade_coach_voice_error_{trade_id}_json"] = str(error_path)
         updated_artifacts.pop(f"trade_coach_voice_{trade_id}_mp3", None)
         updated_artifacts.pop(f"trade_coach_voice_{trade_id}_json", None)
+        for ext in ("mp3", "wav", "ogg", "opus"):
+            candidate = _trade_voice_audio_path(job_id, trade_id, extension=ext)
+            if candidate.exists():
+                try:
+                    candidate.unlink()
+                except Exception:
+                    pass
         updated_job = JobRecord(
             job_id=job.job_id,
             user_id=job.user_id,
@@ -4706,10 +4815,25 @@ async def get_trade_voice(job_id: str, trade_id: int) -> Response:
             status_code=404,
         )
 
-    audio_path, _, error_path = _trade_voice_paths(job_id, trade_id)
-    if audio_path.exists():
+    legacy_audio_path, meta_path, error_path = _trade_voice_paths(job_id, trade_id)
+    if meta_path.exists():
+        try:
+            voice_meta = _load_json_file(meta_path)
+        except Exception:
+            voice_meta = {}
+        artifact = voice_meta.get("artifact")
+        mime_type = str(voice_meta.get("mime_type") or "audio/mpeg")
+        if isinstance(artifact, str) and artifact.strip():
+            artifact_path = Path(artifact)
+            if artifact_path.exists():
+                return Response(
+                    content=artifact_path.read_bytes(),
+                    media_type=mime_type,
+                    headers={"Cache-Control": "no-store"},
+                )
+    if legacy_audio_path.exists():
         return Response(
-            content=audio_path.read_bytes(),
+            content=legacy_audio_path.read_bytes(),
             media_type="audio/mpeg",
             headers={"Cache-Control": "no-store"},
         )
@@ -4924,14 +5048,14 @@ async def get_counterfactual(job_id: str, offset: int = 0, limit: int = 500) -> 
 
 @app.get("/jobs/{job_id}/counterfactual/series")
 async def get_counterfactual_series(job_id: str, max_points: int = 2000) -> JSONResponse:
-    if max_points < 1 or max_points > 20000:
+    if max_points < 1 or max_points > COUNTERFACTUAL_SERIES_MAX:
         return _envelope(
             ok=False,
             job=None,
             fallback_job_id=job_id,
             data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
             error_code="INVALID_MAX_POINTS",
-            error_message="max_points must be between 1 and 20000",
+            error_message=f"max_points must be between 1 and {COUNTERFACTUAL_SERIES_MAX}",
             status_code=400,
         )
 

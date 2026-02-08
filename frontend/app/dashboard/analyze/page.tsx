@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, useMemo } from 'react';
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import Link from 'next/link';
@@ -34,7 +34,7 @@ import {
   BackendApiError,
   fetchTradeCoach,
   fetchTradeInspector,
-  fetchTradesFromJob,
+  fetchTradesWindow,
   fetchJobSeries,
   generateTradeVoice,
   generateTradeCoach,
@@ -110,8 +110,9 @@ const BIAS_RULEBOOK: Array<{ key: BiasFilter; title: string; definition: string 
       'Triggered by asymmetric payoff behavior: losses dominate wins in magnitude or discipline rules must cap downside.',
   },
 ];
-const MAX_LOCAL_ANALYSIS_TRADES = 20000;
-const MAX_INSPECT_TRADES = 20000;
+const TRADE_WINDOW_SIZE = 20000;
+const MAX_LOCAL_ANALYSIS_TRADES = TRADE_WINDOW_SIZE;
+const MAX_TIMELINE_POINTS = 250000;
 
 export default function AnalyzePage() {
   const container = useRef<HTMLDivElement>(null);
@@ -143,6 +144,9 @@ export default function AnalyzePage() {
   const tradeVoiceRef = useRef<HTMLAudioElement | null>(null);
   const [backendSeries, setBackendSeries] = useState<SeriesData | null>(null);
   const [backendTotalTrades, setBackendTotalTrades] = useState<number | null>(null);
+  const [windowOffset, setWindowOffset] = useState(0);
+  const [windowLoading, setWindowLoading] = useState(false);
+  const windowRequestRef = useRef(0);
 
   const toggleSection = (key: string) =>
     setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -155,13 +159,54 @@ export default function AnalyzePage() {
     setTradeVoicePlaying(false);
   };
 
+  const setWindowMessage = useCallback((offset: number, returnedRows: number, totalRows: number | null) => {
+    if (!totalRows || totalRows <= returnedRows) {
+      setSessionLoadMessage(null);
+      return;
+    }
+    const start = Math.min(totalRows, offset + 1);
+    const end = Math.min(totalRows, offset + returnedRows);
+    setSessionLoadMessage(
+      `Inspector window: trades ${start.toLocaleString()}-${end.toLocaleString()} of ${totalRows.toLocaleString()}. Use window arrows to browse.`,
+    );
+  }, []);
+
+  const loadTradeWindow = useCallback(
+    async (jobId: string, offset: number) => {
+      const requestId = ++windowRequestRef.current;
+      setWindowLoading(true);
+      try {
+        const windowData = await fetchTradesWindow(jobId, offset, TRADE_WINDOW_SIZE);
+        if (requestId !== windowRequestRef.current) return;
+        setTrades(windowData.rows);
+        setWindowOffset(windowData.offset);
+        setCurrentIndex(0);
+        setBackendTotalTrades(windowData.totalRows);
+        setWindowMessage(windowData.offset, windowData.returnedRows, windowData.totalRows);
+        saveCachedSessionTrades(windowData.rows);
+      } catch (error) {
+        if (requestId !== windowRequestRef.current) return;
+        const message =
+          error instanceof BackendApiError
+            ? (error.code ? `${error.message} (${error.code})` : error.message)
+            : (error instanceof Error ? error.message : 'Failed to load trade window.');
+        setSessionLoadMessage(message);
+      } finally {
+        if (requestId === windowRequestRef.current) {
+          setWindowLoading(false);
+        }
+      }
+    },
+    [setWindowMessage],
+  );
+
   const playTradeVoice = async () => {
     if (!activeJobId || !currentTrade) {
       setTradeVoiceError('Trade voice requires a completed backend job.');
       return;
     }
     const sourceTrade = trades[currentTrade.index];
-    const tradeId = typeof sourceTrade?.tradeId === 'number' ? sourceTrade.tradeId : currentTrade.index;
+    const tradeId = typeof sourceTrade?.tradeId === 'number' ? sourceTrade.tradeId : (windowOffset + currentTrade.index);
 
     setTradeVoiceLoading(true);
     setTradeVoiceError(null);
@@ -209,25 +254,27 @@ export default function AnalyzePage() {
       setActiveJobId(jobId);
       setSessionLoadState('loading_backend');
       setSessionLoadMessage(null);
-      void Promise.all([fetchTradesFromJob(jobId, MAX_INSPECT_TRADES), fetchJobSeries(jobId, 2000)])
-        .then(([rows, series]) => {
+      setWindowOffset(0);
+      setWindowLoading(true);
+      void Promise.all([fetchTradesWindow(jobId, 0, TRADE_WINDOW_SIZE), fetchJobSeries(jobId, MAX_TIMELINE_POINTS)])
+        .then(([windowData, series]) => {
           if (cancelled) return;
-          setBackendTotalTrades(
-            typeof series.total_points === 'number' && Number.isFinite(series.total_points)
-              ? series.total_points
-              : null,
-          );
-          if (rows.length > 0) {
-            setTrades(rows);
-            setBackendSeries(series);
-            saveCachedSessionTrades(rows);
+          setBackendSeries(series);
+          setBackendTotalTrades(windowData.totalRows);
+          if (windowData.rows.length > 0) {
+            setTrades(windowData.rows);
+            setWindowOffset(windowData.offset);
+            saveCachedSessionTrades(windowData.rows);
+            setCurrentIndex(0);
             setSessionLoadState('ready_backend');
-            if (series.total_points && series.total_points > rows.length) {
+            if (series.total_points && series.total_points > windowData.rows.length) {
+              const start = windowData.offset + 1;
+              const end = Math.min(windowData.totalRows, windowData.offset + windowData.returnedRows);
               setSessionLoadMessage(
-                `Loaded ${rows.length.toLocaleString()} inspection trades from ${series.total_points.toLocaleString()} total backend trades.`,
+                `Rendering ${series.returned_points.toLocaleString()} timeline points from ${series.total_points.toLocaleString()} total backend trades. Inspector window: ${start.toLocaleString()}-${end.toLocaleString()} of ${windowData.totalRows.toLocaleString()}.`,
               );
             } else {
-              setSessionLoadMessage(null);
+              setWindowMessage(windowData.offset, windowData.returnedRows, windowData.totalRows);
             }
           } else {
             setSessionLoadState('failed');
@@ -240,27 +287,39 @@ export default function AnalyzePage() {
           if (parsed && parsed.length > 0) {
             setTrades(parsed);
             setBackendSeries(null);
+            setBackendTotalTrades(parsed.length);
+            setWindowOffset(0);
             setSessionLoadState('fallback_local');
             setSessionLoadMessage('Backend unavailable — local fallback active.');
             return;
           }
           setTrades(demoTrades);
           setBackendSeries(null);
+          setBackendTotalTrades(demoTrades.length);
+          setWindowOffset(0);
           setSessionLoadState('fallback_local');
           setSessionLoadMessage('Backend unavailable — local fallback active.');
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setWindowLoading(false);
+          }
         });
     } else {
       setActiveJobId(null);
       setBackendSeries(null);
       setBackendTotalTrades(null);
+      setWindowOffset(0);
       const parsed = loadCachedSessionTrades();
       if (parsed && parsed.length > 0) {
         setTrades(parsed);
+        setBackendTotalTrades(parsed.length);
         setSessionLoadState('fallback_local');
         setSessionLoadMessage('No backend job selected — showing local session cache.');
         return;
       }
       setTrades(demoTrades);
+      setBackendTotalTrades(demoTrades.length);
       setSessionLoadState('fallback_local');
       setSessionLoadMessage('No backend job selected — showing local demo data.');
     }
@@ -268,7 +327,7 @@ export default function AnalyzePage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [searchParams, setWindowMessage]);
 
   useEffect(() => () => stopTradeVoice(), []);
 
@@ -369,7 +428,7 @@ export default function AnalyzePage() {
       setTradeCoachLoading(true);
       setTradeCoachError(null);
       const sourceTrade = trades[currentTrade.index];
-      const tradeId = typeof sourceTrade?.tradeId === 'number' ? sourceTrade.tradeId : currentTrade.index;
+      const tradeId = typeof sourceTrade?.tradeId === 'number' ? sourceTrade.tradeId : (windowOffset + currentTrade.index);
       try {
         const inspectorData = await fetchTradeInspector(activeJobId, tradeId);
         const inspectorTrade = inspectorData.trade;
@@ -430,9 +489,27 @@ export default function AnalyzePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeJobId, currentTrade, trades]);
+  }, [activeJobId, currentTrade, trades, windowOffset]);
 
   const showLoadingState = !isSessionReady(sessionLoadState) || trades.length === 0;
+  const windowStartTrade = trades.length > 0 ? windowOffset + 1 : 0;
+  const windowEndTrade = windowOffset + trades.length;
+  const canLoadPrevWindow = Boolean(activeJobId) && windowOffset > 0 && !windowLoading;
+  const canLoadNextWindow =
+    Boolean(activeJobId) &&
+    typeof backendTotalTrades === 'number' &&
+    windowEndTrade < backendTotalTrades &&
+    !windowLoading;
+
+  const loadPrevWindow = () => {
+    if (!activeJobId || !canLoadPrevWindow) return;
+    void loadTradeWindow(activeJobId, Math.max(0, windowOffset - TRADE_WINDOW_SIZE));
+  };
+
+  const loadNextWindow = () => {
+    if (!activeJobId || !canLoadNextWindow) return;
+    void loadTradeWindow(activeJobId, windowOffset + TRADE_WINDOW_SIZE);
+  };
 
   const navigateByStep = (step: number) => {
     if (activeIndices.length === 0) return;
@@ -526,7 +603,12 @@ export default function AnalyzePage() {
           <div>
             <h1 className="font-coach text-lg font-bold text-white">Session Analysis</h1>
             <p className="text-xs text-gray-400">
-              {(backendTotalTrades ?? analysis.trades.length).toLocaleString()} trades
+              {typeof backendTotalTrades === 'number'
+                ? `${backendTotalTrades.toLocaleString()} trades`
+                : `${analysis.trades.length.toLocaleString()} trades`}
+              {typeof backendTotalTrades === 'number' && backendTotalTrades > trades.length
+                ? ` • window ${windowStartTrade.toLocaleString()}-${windowEndTrade.toLocaleString()}`
+                : ''}
             </p>
           </div>
         </div>
@@ -567,6 +649,34 @@ export default function AnalyzePage() {
           }
         >
           {sessionLoadMessage}
+        </div>
+      )}
+      {activeJobId && typeof backendTotalTrades === 'number' && backendTotalTrades > trades.length && (
+        <div className="flex items-center justify-between border-b border-white/[0.08] bg-white/[0.02] px-6 py-2">
+          <p className="text-xs text-gray-400">
+            Viewing trades {windowStartTrade.toLocaleString()}-{windowEndTrade.toLocaleString()} of {backendTotalTrades.toLocaleString()}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadPrevWindow}
+              disabled={!canLoadPrevWindow}
+              className="cursor-pointer rounded-lg border border-white/[0.1] px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ← Previous 20k
+            </button>
+            <button
+              onClick={loadNextWindow}
+              disabled={!canLoadNextWindow}
+              className="cursor-pointer rounded-lg border border-white/[0.1] px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next 20k →
+            </button>
+          </div>
+        </div>
+      )}
+      {windowLoading && isSessionReady(sessionLoadState) && (
+        <div className="border-b border-emerald-400/20 bg-emerald-400/10 px-6 py-2 text-xs text-emerald-200">
+          Loading trade window...
         </div>
       )}
 
