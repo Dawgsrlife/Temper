@@ -2,6 +2,8 @@
 # Monorepo .gitignore
 # ────────────────────────────────────────
 
+/frontend_eg
+
 # Dependencies
 node_modules/
 .pnp
