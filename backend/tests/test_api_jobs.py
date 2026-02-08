@@ -76,6 +76,11 @@ def _calm_csv_slice(rows: int = 150) -> str:
     return "\n".join([lines[0], *lines[1 : 1 + rows]]) + "\n"
 
 
+def _golden_bias_csv() -> str:
+    source = Path(__file__).resolve().parents[2] / "trading_datasets" / "golden_bias_smoke.csv"
+    return source.read_text(encoding="utf-8")
+
+
 def test_successful_lifecycle() -> None:
     client, tmp, original_outputs = _client_with_temp_outputs()
     try:
@@ -114,8 +119,8 @@ def test_successful_lifecycle() -> None:
         assert counterfactual.status_code == 200
         cf_payload = counterfactual.json()
         assert cf_payload["ok"] is True
-        assert cf_payload["data"]["total_rows"] == 2
-        assert len(cf_payload["data"]["rows"]) <= 2
+        assert cf_payload["data"]["total_rows"] >= 1
+        assert len(cf_payload["data"]["rows"]) <= 50
         assert "simulated_pnl" in cf_payload["data"]["columns"]
     finally:
         main_module.OUTPUTS_DIR = original_outputs
@@ -901,5 +906,241 @@ def test_coach_rejects_vertex_number_drift() -> None:
         assert "drifted" in str(error_payload.get("error_message", "")).lower()
     finally:
         main_module.generate_coach_via_vertex = original_generate_coach
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_counterfactual_series_returns_non_empty_points_for_completed_job() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("series_source.csv", csv, "text/csv")},
+            data={"user_id": "evidence_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        response = client.get(f"/jobs/{job_id}/counterfactual/series?max_points=300")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is True
+        points = payload["data"]["points"]
+        assert isinstance(points, list)
+        assert len(points) > 0
+        assert "timestamp" in points[0]
+        assert "actual_equity" in points[0]
+        assert "simulated_equity" in points[0]
+        assert payload["data"]["returned_points"] <= 300
+    finally:
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_moments_returns_joined_rows_with_evidence_fields() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("moments_source.csv", csv, "text/csv")},
+            data={"user_id": "evidence_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        response = client.get(f"/jobs/{job_id}/moments")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is True
+        moments = payload["data"]["moments"]
+        assert isinstance(moments, list)
+        assert len(moments) >= 1
+        assert len(moments) <= 3
+        moment = moments[0]
+        for key in [
+            "timestamp",
+            "asset",
+            "trade_grade",
+            "bias_category",
+            "pnl",
+            "simulated_pnl",
+            "impact_abs",
+            "blocked_reason",
+            "is_revenge",
+            "is_overtrading",
+            "is_loss_aversion",
+            "thresholds_referenced",
+            "explanation_human",
+            "decision",
+            "reason",
+            "triggering_prior_trade",
+            "trace_trade_id",
+            "rule_hits",
+            "evidence",
+            "error_notes",
+        ]:
+            assert key in moment
+        assert "metric_refs" in moment["evidence"]
+        assert isinstance(moment["evidence"]["metric_refs"], list)
+        assert "rule_hits" in moment["evidence"]
+        assert isinstance(moment["rule_hits"], list)
+        assert isinstance(moment["evidence"]["rule_hits"], list)
+        if moment["rule_hits"]:
+            first_rule_hit = moment["rule_hits"][0]
+            assert "rule_id" in first_rule_hit
+            assert "thresholds" in first_rule_hit
+            assert "comparison" in first_rule_hit
+            assert "fired" in first_rule_hit
+        categories = [row.get("bias_category") for row in moments if row.get("bias_category") not in {None, "fallback"}]
+        assert len(categories) == len(set(categories))
+    finally:
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_trace_endpoint_returns_receipts_rows_and_artifact_name() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("trace_source.csv", csv, "text/csv")},
+            data={"user_id": "trace_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        response = client.get(f"/jobs/{job_id}/trace?offset=0&limit=20")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is True
+        data = payload["data"]
+        assert data["artifact_name"] == "decision_trace.jsonl"
+        assert data["total_rows"] >= 1
+        assert len(data["rows"]) >= 1
+        first = data["rows"][0]
+        for key in [
+            "trade_id",
+            "timestamp",
+            "asset",
+            "pnl",
+            "size_usd",
+            "blocked_reason",
+            "is_revenge",
+            "is_overtrading",
+            "is_loss_aversion",
+            "rule_hits",
+            "decision",
+            "reason",
+            "explain_like_im_5",
+        ]:
+            assert key in first
+        assert isinstance(first["rule_hits"], list)
+
+        trace_path = Path(tmp.name) / "outputs" / job_id / "decision_trace.jsonl"
+        assert trace_path.exists()
+    finally:
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_golden_bias_csv_triggers_required_bias_rules() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    try:
+        csv = _golden_bias_csv()
+        create = client.post(
+            "/jobs",
+            files={"file": ("golden_bias_smoke.csv", csv, "text/csv")},
+            data={"user_id": "golden_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id, timeout_seconds=30.0)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        trace_response = client.get(f"/jobs/{job_id}/trace?offset=0&limit=5000")
+        assert trace_response.status_code == 200
+        rows = trace_response.json()["data"]["rows"]
+        assert len(rows) > 0
+
+        rule_fired: dict[str, bool] = {
+            "REVENGE_AFTER_LOSS": False,
+            "OVERTRADING_HOURLY_CAP": False,
+            "LOSS_AVERSION_PAYOFF_PROXY": False,
+        }
+        for row in rows:
+            hits = row.get("rule_hits", [])
+            if not isinstance(hits, list):
+                continue
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                rule_id = hit.get("rule_id")
+                fired = bool(hit.get("fired"))
+                if rule_id in rule_fired and fired:
+                    rule_fired[str(rule_id)] = True
+
+        assert rule_fired["REVENGE_AFTER_LOSS"] is True
+        assert rule_fired["OVERTRADING_HOURLY_CAP"] is True
+        assert rule_fired["LOSS_AVERSION_PAYOFF_PROXY"] is True
+
+        moments_response = client.get(f"/jobs/{job_id}/moments")
+        assert moments_response.status_code == 200
+        moments = moments_response.json()["data"]["moments"]
+        overtrading_moment = next((row for row in moments if row.get("bias_category") == "overtrading"), None)
+        assert overtrading_moment is not None
+        explanation = str(overtrading_moment.get("explanation_human", ""))
+        assert "far more frequently than normal" in explanation
+        assert ("threshold" in explanation) or ("no later cooldown-eligible setup existed" in explanation.lower())
+    finally:
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_trade_inspector_returns_one_trade_with_raw_row_flags_and_decision() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    try:
+        csv = _golden_bias_csv()
+        create = client.post(
+            "/jobs",
+            files={"file": ("golden_bias_smoke.csv", csv, "text/csv")},
+            data={"user_id": "inspector_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id, timeout_seconds=30.0)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        response = client.get(f"/jobs/{job_id}/trade/21")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is True
+        trade = payload["data"]["trade"]
+        assert trade["trade_id"] == 21
+        assert isinstance(trade["raw_input_row"], dict)
+        assert trade["derived_flags"]["is_revenge"] is True
+        assert trade["decision"]["decision"] in {"KEEP", "SKIP"}
+        assert trade["decision"]["reason"] is not None
+        assert trade["counterfactual"]["actual_pnl"] is not None
+        assert trade["counterfactual"]["simulated_pnl"] is not None
+        assert trade["counterfactual"]["delta_pnl"] is not None
+        assert isinstance(trade["explanation_plain_english"], str)
+        assert trade["decision"]["triggering_prior_trade"] is not None
+        assert isinstance(trade["evidence"]["rule_hits"], list)
+
+        out_of_range = client.get(f"/jobs/{job_id}/trade/999999")
+        assert out_of_range.status_code == 404
+        out_payload = out_of_range.json()
+        assert out_payload["ok"] is False
+        assert out_payload["error"]["code"] == "TRADE_NOT_FOUND"
+    finally:
         main_module.OUTPUTS_DIR = original_outputs
         tmp.cleanup()

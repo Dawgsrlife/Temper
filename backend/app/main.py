@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import asdict
 import hmac
 import json
 import math
@@ -20,6 +21,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.detective import BiasThresholds
 from app.job_store import JobRecord, LocalJobStore, file_sha256, utc_now_iso
 from app.move_explanations import (
     MoveExplanationError,
@@ -34,11 +36,13 @@ OUTPUTS_DIR = BACKEND_DIR / "outputs"
 JUDGE_PACK_SCRIPT = BACKEND_DIR / "scripts" / "judge_pack.py"
 LIST_JOBS_LIMIT_MAX = 200
 COUNTERFACTUAL_PAGE_MAX = 2000
+TRACE_PAGE_MAX = 5000
 MAX_UPLOAD_MB_DEFAULT = 25
 UPLOADTHING_FILE_BASE_URL = os.getenv("UPLOADTHING_FILE_BASE_URL", "https://utfs.io/f")
 UPLOADTHING_SIGNATURE_HEADER = "x-uploadthing-signature"
 COACH_JSON_NAME = "coach.json"
 COACH_ERROR_JSON_NAME = "coach_error.json"
+TRACE_JSONL_NAME = "decision_trace.jsonl"
 COACH_VERTEX_TIMEOUT_SECONDS_DEFAULT = 18.0
 COACH_VERTEX_MAX_OUTPUT_TOKENS_DEFAULT = 900
 COACH_ALLOWED_BIASES = {"OVERTRADING", "LOSS_AVERSION", "REVENGE_TRADING"}
@@ -1131,6 +1135,25 @@ async def _process_job(
         except CorruptJobRecordError:
             terminal_record = None
         if terminal_record is not None:
+            try:
+                trace_frame = _load_counterfactual_frame(job_id)
+                _load_or_build_trace(job_id, trace_frame)
+                artifacts_with_trace = dict(terminal_record.artifacts)
+                artifacts_with_trace["decision_trace.jsonl"] = str(_trace_path(job_id))
+                terminal_record = JobRecord(
+                    job_id=terminal_record.job_id,
+                    user_id=terminal_record.user_id,
+                    created_at=terminal_record.created_at,
+                    engine_version=terminal_record.engine_version,
+                    input_sha256=terminal_record.input_sha256,
+                    status=terminal_record.status,
+                    artifacts=artifacts_with_trace,
+                    upload=terminal_record.upload,
+                    summary=terminal_record.summary,
+                )
+                _store().write(terminal_record, job_dir=out_dir)
+            except (FileNotFoundError, ValueError):
+                pass
             _sync_job_to_supabase(
                 terminal_record,
                 include_artifacts=True,
@@ -1202,6 +1225,918 @@ def _default_counterfactual_data(offset: int, limit: int) -> dict[str, Any]:
         "columns": [],
         "rows": [],
     }
+
+
+def _counterfactual_path(job_id: str) -> Path:
+    return _job_dir(job_id) / "counterfactual.csv"
+
+
+def _review_path(job_id: str) -> Path:
+    return _job_dir(job_id) / "review.json"
+
+
+def _load_counterfactual_frame(job_id: str) -> pd.DataFrame:
+    path = _counterfactual_path(job_id)
+    if not path.exists():
+        raise FileNotFoundError("counterfactual.csv not found")
+    try:
+        frame = pd.read_csv(path)
+    except Exception as exc:
+        raise ValueError(f"counterfactual.csv is unreadable: {exc}") from exc
+    if frame.empty:
+        raise ValueError("counterfactual.csv has no rows")
+    return frame
+
+
+def _load_review_payload_for_moments(job_id: str) -> dict[str, Any]:
+    path = _review_path(job_id)
+    if not path.exists():
+        raise FileNotFoundError("review.json not found")
+    try:
+        payload = _load_json_file(path)
+    except Exception as exc:
+        raise ValueError(f"review.json is unreadable: {exc}") from exc
+    return payload
+
+
+def _downsample_indices(total_points: int, max_points: int) -> list[int]:
+    if total_points <= 0:
+        return []
+    if max_points <= 0:
+        return []
+    if total_points <= max_points:
+        return list(range(total_points))
+    if max_points == 1:
+        return [0]
+    step = (total_points - 1) / (max_points - 1)
+    indices: list[int] = []
+    last_index = -1
+    for i in range(max_points):
+        idx = int(round(i * step))
+        if idx <= last_index:
+            idx = last_index + 1
+        if idx >= total_points:
+            idx = total_points - 1
+        indices.append(idx)
+        last_index = idx
+    indices[0] = 0
+    indices[-1] = total_points - 1
+    return indices
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
+
+
+def _bool_or_none(row: dict[str, Any], field: str, notes: list[str]) -> bool | None:
+    if field not in row:
+        notes.append(f"missing field: {field}")
+        return None
+    value = row.get(field)
+    if value is None:
+        notes.append(f"null field: {field}")
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not math.isfinite(float(value)):
+            notes.append(f"invalid boolean field: {field}")
+            return None
+        return int(value) != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes"}:
+            return True
+        if lowered in {"false", "0", "no"}:
+            return False
+    notes.append(f"invalid boolean field: {field}")
+    return None
+
+
+def _moment_threshold_keys_for_grade(grade: str) -> list[str]:
+    if grade in {"MEGABLUNDER", "BLUNDER"}:
+        return ["impact_p95", "impact_p995"]
+    if grade in {"MISS", "MISTAKE", "INACCURACY"}:
+        return ["impact_p65", "impact_p80", "impact_p90", "loss_abs_p70", "loss_abs_p85"]
+    if grade in {"BEST", "EXCELLENT", "GREAT", "BRILLIANT"}:
+        return ["win_p70", "win_p85", "win_p95", "win_p995"]
+    return ["impact_p65", "win_p70"]
+
+
+def _moment_human_explanation(
+    *,
+    grade: str,
+    blocked_reason: str | None,
+    pnl: float | None,
+    simulated_pnl: float | None,
+    impact_abs: float | None,
+    is_revenge: bool | None,
+    is_overtrading: bool | None,
+    is_loss_aversion: bool | None,
+) -> str:
+    reason = blocked_reason or "NONE"
+    if reason == "BIAS":
+        return (
+            f"This trade was flagged as bias-driven; skipping it in the disciplined replay changes "
+            f"result by {format_currency_short(impact_abs)}."
+        )
+    if reason == "DAILY_MAX_LOSS":
+        return (
+            f"This trade happened after the day hit risk limits, so the replay blocks it. "
+            f"The difference on this trade is {format_currency_short(impact_abs)}."
+        )
+    if grade in {"MEGABLUNDER", "BLUNDER", "MISTAKE", "INACCURACY"}:
+        return (
+            f"This was a costly decision: actual {format_currency_short(pnl)} vs disciplined "
+            f"{format_currency_short(simulated_pnl)}."
+        )
+    if grade in {"MISS"}:
+        return (
+            f"This still made money, but context looked risky (revenge={is_revenge}, overtrading={is_overtrading}, "
+            f"loss_aversion={is_loss_aversion})."
+        )
+    return (
+        f"This was a stable decision with actual {format_currency_short(pnl)} and disciplined "
+        f"{format_currency_short(simulated_pnl)}."
+    )
+
+
+def format_currency_short(value: float | None) -> str:
+    if value is None or not math.isfinite(value):
+        return "n/a"
+    sign = "+" if value >= 0 else "-"
+    return f"{sign}${abs(value):,.2f}"
+
+
+def _intervention_type(trace_record: dict[str, Any] | None) -> str:
+    if not isinstance(trace_record, dict):
+        return "KEEP (no change)"
+    blocked_reason = str(trace_record.get("blocked_reason", "NONE") or "NONE")
+    if blocked_reason == "DAILY_MAX_LOSS":
+        return "BLOCKED (risk stop)"
+    if _trace_bool(trace_record.get("replay_deferred")):
+        return "DEFERRED"
+    if _trace_bool(trace_record.get("replay_rescaled")):
+        return "KEEP (rescaled)"
+    if _trace_bool(trace_record.get("replay_loss_capped")):
+        return "KEEP (loss-capped)"
+    return "KEEP (no change)"
+
+
+def _reason_label(
+    *,
+    trace_record: dict[str, Any] | None,
+    is_revenge: bool | None,
+    is_overtrading: bool | None,
+    is_loss_aversion: bool | None,
+) -> str:
+    if isinstance(trace_record, dict):
+        blocked_reason = str(trace_record.get("blocked_reason", "NONE") or "NONE")
+        if blocked_reason == "DAILY_MAX_LOSS":
+            return "Daily stop (risk)"
+        if _trace_bool(trace_record.get("replay_deferred")):
+            return "Overtrading (cooldown)"
+        if _trace_bool(trace_record.get("replay_rescaled")):
+            return "Revenge sizing"
+        if _trace_bool(trace_record.get("replay_loss_capped")):
+            return "Loss aversion (downside capped)"
+        reason = str(trace_record.get("reason", "") or "")
+        if reason == "OVERTRADING_DEFERRED":
+            return "Overtrading (cooldown)"
+        if reason == "REVENGE_SIZE_RESCALED":
+            return "Revenge sizing"
+        if reason == "LOSS_AVERSION_CAPPED":
+            return "Loss aversion (downside capped)"
+    if is_revenge is True:
+        return "Revenge sizing"
+    if is_overtrading is True:
+        return "Overtrading (cooldown)"
+    if is_loss_aversion is True:
+        return "Loss aversion (downside capped)"
+    return "No intervention"
+
+
+def _first_fired_rule_id(trace_record: dict[str, Any] | None) -> str | None:
+    if not isinstance(trace_record, dict):
+        return None
+    rule_hits = trace_record.get("rule_hits")
+    if not isinstance(rule_hits, list):
+        return None
+    for hit in rule_hits:
+        if not isinstance(hit, dict):
+            continue
+        if bool(hit.get("fired")):
+            rule_id = hit.get("rule_id")
+            if isinstance(rule_id, str) and rule_id.strip():
+                return rule_id.strip()
+    return None
+
+
+def _trade_thesis(
+    *,
+    trace_record: dict[str, Any] | None,
+    pnl: float | None,
+    replay_pnl: float | None,
+    impact_abs: float | None,
+) -> dict[str, str]:
+    trigger = "No bias/risk trigger fired for this trade."
+    behavior = "Trade execution remained within policy bounds."
+    intervention = "Policy replay kept this trade unchanged."
+    outcome = (
+        f"Actual {format_currency_short(pnl)} vs policy replay {format_currency_short(replay_pnl)}; "
+        f"delta {format_currency_short(impact_abs)}."
+    )
+    if not isinstance(trace_record, dict):
+        return {
+            "trigger": trigger,
+            "behavior": behavior,
+            "intervention": intervention,
+            "outcome": outcome,
+        }
+
+    rule_hits = trace_record.get("rule_hits")
+    fired: dict[str, dict[str, Any]] = {}
+    if isinstance(rule_hits, list):
+        for hit in rule_hits:
+            if not isinstance(hit, dict) or not bool(hit.get("fired")):
+                continue
+            rule_id = hit.get("rule_id")
+            if isinstance(rule_id, str):
+                fired[rule_id] = hit
+
+    if "DAILY_MAX_LOSS_STOP" in fired:
+        trigger = "Daily loss guardrail was breached earlier in the session."
+        behavior = "Further same-day trades increase blowup risk after the limit is hit."
+        intervention = "Policy replay blocks this trade after the daily stop."
+    elif "OVERTRADING_DEFERRED_REPLAY" in fired:
+        hit = fired["OVERTRADING_DEFERRED_REPLAY"]
+        inputs = hit.get("inputs") if isinstance(hit.get("inputs"), dict) else {}
+        rolling = _float_or_none(inputs.get("rolling_trade_count_1h"))
+        threshold = _float_or_none(
+            (hit.get("thresholds") if isinstance(hit.get("thresholds"), dict) else {}).get("overtrading_trade_threshold")
+        )
+        trigger = (
+            f"Hourly cadence exceeded cap ({rolling:.0f} vs {threshold:.0f} trades/hour)."
+            if rolling is not None and threshold is not None
+            else "Hourly cadence exceeded the overtrading cap."
+        )
+        behavior = "Trade frequency spiked, which is a known impulsive pattern."
+        intervention = "Policy replay deferred execution to the next cooldown-eligible setup."
+    elif "OVERTRADING_HOURLY_CAP" in fired:
+        hit = fired["OVERTRADING_HOURLY_CAP"]
+        inputs = hit.get("inputs") if isinstance(hit.get("inputs"), dict) else {}
+        thresholds = hit.get("thresholds") if isinstance(hit.get("thresholds"), dict) else {}
+        rolling = _float_or_none(inputs.get("rolling_trade_count_1h"))
+        threshold = _float_or_none(thresholds.get("overtrading_trade_threshold"))
+        trigger = (
+            f"Hourly cadence exceeded cap ({rolling:.0f} vs {threshold:.0f} trades/hour)."
+            if rolling is not None and threshold is not None
+            else "Hourly cadence exceeded the overtrading cap."
+        )
+        behavior = "Trade frequency spiked, which is a known impulsive pattern."
+        intervention = "Policy replay marked this trade as overtrading context."
+    elif "REVENGE_SIZE_RESCALE_REPLAY" in fired or "REVENGE_AFTER_LOSS" in fired:
+        hit = fired.get("REVENGE_AFTER_LOSS") or fired.get("REVENGE_SIZE_RESCALE_REPLAY")
+        inputs = hit.get("inputs") if isinstance(hit.get("inputs"), dict) else {}
+        prev_loss = _float_or_none(inputs.get("prev_trade_pnl"))
+        size_mult = _float_or_none(inputs.get("size_multiplier"))
+        trigger = (
+            f"Recent loss {format_currency_short(prev_loss)} followed by size jump ({size_mult:.2f}x)."
+            if prev_loss is not None and size_mult is not None
+            else "Recent loss followed by aggressive size escalation."
+        )
+        behavior = "Position size increased sharply after a loss."
+        intervention = "Policy replay rescaled size toward rolling-median risk."
+    elif "LOSS_AVERSION_CAP_REPLAY" in fired or "LOSS_AVERSION_PAYOFF_PROXY" in fired:
+        hit = fired.get("LOSS_AVERSION_CAP_REPLAY") or fired.get("LOSS_AVERSION_PAYOFF_PROXY")
+        inputs = hit.get("inputs") if isinstance(hit.get("inputs"), dict) else {}
+        loss_abs = _float_or_none(inputs.get("loss_abs_pnl"))
+        threshold = _float_or_none(inputs.get("loss_abs_threshold"))
+        trigger = (
+            f"Loss magnitude exceeded loss proxy ({loss_abs:.2f} vs {threshold:.2f})."
+            if loss_abs is not None and threshold is not None
+            else "Loss magnitude exceeded normal payoff profile."
+        )
+        behavior = "Downside on this trade is disproportionate to typical wins."
+        intervention = "Policy replay capped downside on this trade."
+
+    return {
+        "trigger": trigger,
+        "behavior": behavior,
+        "intervention": intervention,
+        "outcome": outcome,
+    }
+
+
+def _trade_lesson(
+    *,
+    reason_label: str,
+    impact_abs: float | None,
+) -> str:
+    impact_text = format_currency_short(impact_abs)
+    if reason_label == "Overtrading (cooldown)":
+        return f"Lesson: when cadence spikes, a cooldown policy can reduce noise and protect {impact_text} of impact."
+    if reason_label == "Revenge sizing":
+        return f"Lesson: after losses, controlling size avoids emotional oversizing; this trade moved {impact_text}."
+    if reason_label == "Loss aversion (downside capped)":
+        return f"Lesson: capping downside prevents one trade from dominating the session ({impact_text})."
+    if reason_label == "Daily stop (risk)":
+        return f"Lesson: once risk limits are hit, stopping preserves capital beyond {impact_text} exposure."
+    return f"Lesson: this trade had limited policy intervention impact ({impact_text})."
+
+
+def _max_drawdown(equity_series: pd.Series) -> float:
+    running_max = equity_series.cummax()
+    drawdown = equity_series - running_max
+    min_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
+    return abs(min_drawdown)
+
+
+def _select_top_moment_rows(
+    review_payload: dict[str, Any],
+    counterfactual_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    def _impact_score(row: dict[str, Any]) -> float:
+        impact = _float_or_none(row.get("impact_abs"))
+        if impact is not None:
+            return impact
+        pnl = _float_or_none(row.get("pnl")) or 0.0
+        simulated = _float_or_none(row.get("simulated_pnl")) or 0.0
+        return abs(pnl - simulated)
+
+    top_moment_labels: dict[tuple[str, str], str] = {}
+    top_moments = review_payload.get("top_moments")
+    if isinstance(top_moments, list):
+        for moment in top_moments:
+            if not isinstance(moment, dict):
+                continue
+            ts = moment.get("timestamp")
+            asset = moment.get("asset")
+            label = moment.get("label")
+            if isinstance(ts, str) and isinstance(asset, str) and isinstance(label, str):
+                top_moment_labels[(ts, asset)] = label
+
+    ranked = sorted(
+        enumerate(counterfactual_rows),
+        key=lambda item: (
+            -_impact_score(item[1]),
+            str(item[1].get("timestamp", "")),
+            str(item[1].get("asset", "")),
+            item[0],
+        ),
+    )
+
+    selected: list[dict[str, Any]] = []
+    used_indices: set[int] = set()
+
+    def _append_row(idx: int, row: dict[str, Any], *, category: str) -> None:
+        row_copy = dict(row)
+        row_copy["_source_index"] = idx
+        row_copy["_selected_bias_category"] = category
+        if "trade_grade" not in row_copy:
+            mapped = top_moment_labels.get((str(row_copy.get("timestamp", "")), str(row_copy.get("asset", ""))))
+            if isinstance(mapped, str):
+                row_copy["trade_grade"] = mapped
+        selected.append(row_copy)
+        used_indices.add(idx)
+
+    category_checks: list[tuple[str, str]] = [
+        ("revenge", "is_revenge"),
+        ("overtrading", "is_overtrading"),
+        ("loss_aversion", "is_loss_aversion"),
+    ]
+    for category, field in category_checks:
+        for idx, row in ranked:
+            if idx in used_indices:
+                continue
+            if _trace_bool(row.get(field)) is True:
+                _append_row(idx, row, category=category)
+                break
+
+    for idx, row in ranked:
+        if len(selected) >= 3:
+            break
+        if idx in used_indices:
+            continue
+        _append_row(idx, row, category="fallback")
+
+    return selected[:3]
+
+
+def _trace_path(job_id: str) -> Path:
+    return _job_dir(job_id) / TRACE_JSONL_NAME
+
+
+def _trace_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if hasattr(value, "item"):
+        try:
+            value = value.item()
+        except Exception:
+            pass
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not math.isfinite(float(value)):
+            return None
+        return int(value) != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes"}:
+            return True
+        if lowered in {"false", "0", "no"}:
+            return False
+    return None
+
+
+def _format_comparison(left: float | None, op: str, right: float | None) -> str:
+    left_text = "n/a" if left is None else f"{left:.6f}"
+    right_text = "n/a" if right is None else f"{right:.6f}"
+    return f"{left_text} {op} {right_text}"
+
+
+def _build_decision_trace_records(counterfactual_frame: pd.DataFrame) -> list[dict[str, Any]]:
+    thresholds = BiasThresholds()
+    threshold_values = asdict(thresholds)
+    df = counterfactual_frame.copy()
+
+    required = {"timestamp", "asset", "pnl", "size_usd", "blocked_reason"}
+    missing_required = [column for column in required if column not in df.columns]
+    if missing_required:
+        raise ValueError(f"counterfactual.csv missing required columns for trace: {sorted(missing_required)}")
+
+    timestamps = pd.to_datetime(df["timestamp"], errors="coerce")
+    if timestamps.isna().any():
+        raise ValueError("counterfactual.csv contains invalid timestamps for trace generation")
+
+    pnl_series = pd.to_numeric(df["pnl"], errors="coerce")
+    size_series = pd.to_numeric(df["size_usd"], errors="coerce")
+    simulated_pnl_series = pd.to_numeric(df.get("simulated_pnl"), errors="coerce")
+    if pnl_series.isna().any() or size_series.isna().any():
+        raise ValueError("counterfactual.csv has non-numeric pnl/size_usd for trace generation")
+
+    prev_pnl = pnl_series.shift(1)
+    prev_size = size_series.shift(1)
+    prev_ts = timestamps.shift(1)
+    prev_asset = df["asset"].shift(1)
+    prev_blocked_reason = df["blocked_reason"].shift(1)
+    time_diff_minutes = (timestamps - prev_ts).dt.total_seconds() / 60.0
+
+    prev_was_loss = prev_pnl <= -thresholds.revenge_min_prev_loss_abs
+    within_window = time_diff_minutes <= thresholds.revenge_time_window_minutes
+    prev_size_positive = prev_size > 0
+    size_multiplier = size_series / prev_size.where(prev_size_positive)
+    size_increased = size_multiplier >= thresholds.revenge_size_multiplier
+    rolling_median = size_series.rolling(
+        thresholds.revenge_baseline_window_trades,
+        min_periods=5,
+    ).median()
+    escalated_vs_baseline = size_series >= (
+        thresholds.revenge_rolling_median_multiplier * rolling_median
+    )
+    revenge_fired = (
+        prev_was_loss
+        & within_window
+        & prev_size_positive
+        & size_increased
+        & escalated_vs_baseline
+    ).fillna(False)
+
+    rolling_count = pd.Series(1.0, index=timestamps).rolling(
+        f"{thresholds.overtrading_window_hours}h",
+        min_periods=1,
+    ).sum()
+    overtrading_fired = (rolling_count > thresholds.overtrading_trade_threshold).fillna(False)
+
+    wins = pnl_series[pnl_series > 0]
+    median_win = float(wins.median()) if not wins.empty else None
+    loss_threshold = (
+        thresholds.loss_aversion_loss_to_win_multiplier * median_win
+        if median_win is not None and median_win > 0
+        else None
+    )
+    if loss_threshold is None:
+        loss_aversion_fired = pd.Series(False, index=df.index)
+    else:
+        loss_aversion_fired = (
+            (pnl_series < 0) & (pnl_series.abs() > loss_threshold)
+        ).fillna(False)
+
+    trace_records: list[dict[str, Any]] = []
+    for idx in range(len(df)):
+        row = df.iloc[idx]
+        blocked_reason = str(row.get("blocked_reason", "NONE") or "NONE")
+        is_revenge = _trace_bool(row.get("is_revenge"))
+        is_overtrading = _trace_bool(row.get("is_overtrading"))
+        is_loss_aversion = _trace_bool(row.get("is_loss_aversion"))
+        pnl = float(pnl_series.iloc[idx])
+        simulated_pnl = _float_or_none(simulated_pnl_series.iloc[idx]) if idx < len(simulated_pnl_series) else None
+        impact_abs = _float_or_none(row.get("impact_abs"))
+        if impact_abs is None and simulated_pnl is not None:
+            impact_abs = abs(pnl - simulated_pnl)
+        replay_deferred = bool(_trace_bool(row.get("replay_deferred")))
+        replay_rescaled = bool(_trace_bool(row.get("replay_rescaled")))
+        replay_loss_capped = bool(_trace_bool(row.get("replay_loss_capped")))
+        deferred_target_index = None
+        deferred_target_raw = row.get("replay_deferred_target_index")
+        if isinstance(deferred_target_raw, (int, float)) and not isinstance(deferred_target_raw, bool):
+            if math.isfinite(float(deferred_target_raw)):
+                deferred_target_index = int(deferred_target_raw)
+                if deferred_target_index < 0:
+                    deferred_target_index = None
+        deferred_target_trade = None
+        if deferred_target_index is not None and 0 <= deferred_target_index < len(df):
+            target_row = df.iloc[deferred_target_index]
+            deferred_target_trade = {
+                "trade_id": deferred_target_index,
+                "timestamp": str(target_row.get("timestamp")),
+                "asset": str(target_row.get("asset", "")),
+                "pnl": _float_or_none(target_row.get("pnl")),
+                "size_usd": _float_or_none(target_row.get("size_usd")),
+            }
+
+        prev_trade = None
+        if idx > 0:
+            prev_trade = {
+                "trade_id": idx - 1,
+                "timestamp": str(prev_ts.iloc[idx]),
+                "asset": str(prev_asset.iloc[idx]),
+                "pnl": _float_or_none(prev_pnl.iloc[idx]),
+                "size_usd": _float_or_none(prev_size.iloc[idx]),
+                "blocked_reason": str(prev_blocked_reason.iloc[idx]) if prev_blocked_reason.iloc[idx] is not None else None,
+            }
+
+        revenge_inputs = {
+            "prev_trade_pnl": _float_or_none(prev_pnl.iloc[idx]),
+            "minutes_since_prev_trade": _float_or_none(time_diff_minutes.iloc[idx]),
+            "prev_trade_size_usd": _float_or_none(prev_size.iloc[idx]),
+            "current_trade_size_usd": _float_or_none(size_series.iloc[idx]),
+            "size_multiplier": _float_or_none(size_multiplier.iloc[idx]),
+            "rolling_median_size_usd": _float_or_none(rolling_median.iloc[idx]),
+        }
+        overtrading_inputs = {
+            "rolling_trade_count_1h": _float_or_none(rolling_count.iloc[idx]),
+            "overtrading_window_hours": thresholds.overtrading_window_hours,
+            "deferred_target_trade_id": deferred_target_index,
+            "deferred_target_timestamp": (
+                deferred_target_trade["timestamp"] if isinstance(deferred_target_trade, dict) else None
+            ),
+            "deferred_target_asset": (
+                deferred_target_trade["asset"] if isinstance(deferred_target_trade, dict) else None
+            ),
+            "deferred_target_pnl": (
+                deferred_target_trade["pnl"] if isinstance(deferred_target_trade, dict) else None
+            ),
+            "cooldown_minutes": 30,
+        }
+        loss_aversion_inputs = {
+            "median_win_pnl": median_win,
+            "loss_abs_pnl": abs(pnl),
+        }
+        risk_inputs = {
+            "blocked_reason": blocked_reason,
+            "is_blocked_risk": _trace_bool(row.get("is_blocked_risk")),
+            "simulated_daily_pnl": _float_or_none(row.get("simulated_daily_pnl")),
+        }
+
+        rule_hits: list[dict[str, Any]] = [
+            {
+                "rule_id": "REVENGE_AFTER_LOSS",
+                "inputs": revenge_inputs,
+                "thresholds": {
+                    "revenge_min_prev_loss_abs": threshold_values["revenge_min_prev_loss_abs"],
+                    "revenge_time_window_minutes": threshold_values["revenge_time_window_minutes"],
+                    "revenge_size_multiplier": threshold_values["revenge_size_multiplier"],
+                    "revenge_rolling_median_multiplier": threshold_values["revenge_rolling_median_multiplier"],
+                },
+                "comparison": {
+                    "prev_trade_loss_check": _format_comparison(
+                        revenge_inputs["prev_trade_pnl"],
+                        "<=",
+                        -float(threshold_values["revenge_min_prev_loss_abs"]),
+                    ),
+                    "time_window_check": _format_comparison(
+                        revenge_inputs["minutes_since_prev_trade"],
+                        "<=",
+                        float(threshold_values["revenge_time_window_minutes"]),
+                    ),
+                    "size_multiplier_check": _format_comparison(
+                        revenge_inputs["size_multiplier"],
+                        ">=",
+                        float(threshold_values["revenge_size_multiplier"]),
+                    ),
+                    "baseline_escalation_check": _format_comparison(
+                        revenge_inputs["current_trade_size_usd"],
+                        ">=",
+                        (
+                            revenge_inputs["rolling_median_size_usd"] * float(threshold_values["revenge_rolling_median_multiplier"])
+                            if revenge_inputs["rolling_median_size_usd"] is not None
+                            else None
+                        ),
+                    ),
+                },
+                "fired": bool(revenge_fired.iloc[idx]),
+            },
+            {
+                "rule_id": "OVERTRADING_HOURLY_CAP",
+                "inputs": overtrading_inputs,
+                "thresholds": {
+                    "overtrading_trade_threshold": threshold_values["overtrading_trade_threshold"],
+                    "overtrading_window_hours": threshold_values["overtrading_window_hours"],
+                },
+                "comparison": {
+                    "rolling_trade_count_check": _format_comparison(
+                        overtrading_inputs["rolling_trade_count_1h"],
+                        ">",
+                        float(threshold_values["overtrading_trade_threshold"]),
+                    ),
+                },
+                "fired": bool(overtrading_fired.iloc[idx]),
+            },
+            {
+                "rule_id": "LOSS_AVERSION_PAYOFF_PROXY",
+                "inputs": loss_aversion_inputs,
+                "thresholds": {
+                    "loss_aversion_loss_to_win_multiplier": threshold_values["loss_aversion_loss_to_win_multiplier"],
+                    "loss_abs_threshold": loss_threshold,
+                },
+                "comparison": {
+                    "loss_abs_check": _format_comparison(
+                        loss_aversion_inputs["loss_abs_pnl"],
+                        ">",
+                        loss_threshold,
+                    ),
+                },
+                "fired": bool(loss_aversion_fired.iloc[idx]),
+            },
+            {
+                "rule_id": "DAILY_MAX_LOSS_STOP",
+                "inputs": risk_inputs,
+                "thresholds": {},
+                "comparison": {"blocked_reason_check": f"{blocked_reason} == DAILY_MAX_LOSS"},
+                "fired": blocked_reason == "DAILY_MAX_LOSS",
+            },
+            {
+                "rule_id": "OVERTRADING_DEFERRED_REPLAY",
+                "inputs": {
+                    "deferred_target_trade_id": overtrading_inputs["deferred_target_trade_id"],
+                    "deferred_target_timestamp": overtrading_inputs["deferred_target_timestamp"],
+                    "deferred_target_asset": overtrading_inputs["deferred_target_asset"],
+                    "deferred_target_pnl": overtrading_inputs["deferred_target_pnl"],
+                    "resulting_simulated_pnl": simulated_pnl,
+                },
+                "thresholds": {"cooldown_minutes": overtrading_inputs["cooldown_minutes"]},
+                "comparison": {"defer_applied": f"{replay_deferred} == True"},
+                "fired": replay_deferred,
+            },
+            {
+                "rule_id": "REVENGE_SIZE_RESCALE_REPLAY",
+                "inputs": {
+                    "current_trade_size_usd": revenge_inputs["current_trade_size_usd"],
+                    "rolling_median_size_usd": revenge_inputs["rolling_median_size_usd"],
+                    "resulting_simulated_pnl": simulated_pnl,
+                },
+                "thresholds": {"rescale_cap_multiplier": 1.0},
+                "comparison": {
+                    "rescale_applied": f"{replay_rescaled} == True",
+                },
+                "fired": replay_rescaled,
+            },
+            {
+                "rule_id": "LOSS_AVERSION_CAP_REPLAY",
+                "inputs": {
+                    "loss_abs_pnl": loss_aversion_inputs["loss_abs_pnl"],
+                    "loss_abs_threshold": loss_threshold,
+                    "resulting_simulated_pnl": simulated_pnl,
+                },
+                "thresholds": {
+                    "loss_aversion_loss_to_win_multiplier": threshold_values["loss_aversion_loss_to_win_multiplier"],
+                },
+                "comparison": {
+                    "loss_cap_applied": f"{replay_loss_capped} == True",
+                },
+                "fired": replay_loss_capped,
+            },
+        ]
+
+        if blocked_reason == "DAILY_MAX_LOSS":
+            decision = "SKIP"
+            reason = "DAILY_MAX_LOSS_STOP"
+        elif replay_deferred:
+            decision = "KEEP"
+            reason = "OVERTRADING_DEFERRED"
+        elif replay_rescaled:
+            decision = "KEEP"
+            reason = "REVENGE_SIZE_RESCALED"
+        elif replay_loss_capped:
+            decision = "KEEP"
+            reason = "LOSS_AVERSION_CAPPED"
+        elif blocked_reason == "BIAS":
+            decision = "SKIP"
+            reason = "BIAS_RULE_BLOCK"
+        else:
+            decision = "KEEP"
+            reason = "NO_BLOCK"
+
+        if blocked_reason == "DAILY_MAX_LOSS":
+            explain_like_im_5 = (
+                "You hit the daily loss guardrail, so trading stops for the day to prevent deeper losses."
+            )
+        elif replay_deferred:
+            rolling_count_value = _float_or_none(overtrading_inputs["rolling_trade_count_1h"]) or 0.0
+            threshold_value = float(threshold_values["overtrading_trade_threshold"])
+            if deferred_target_trade is not None:
+                explain_like_im_5 = (
+                    "You were trading far more frequently than normal, so this trade was deferred until cooldown. "
+                    f"It replayed at {deferred_target_trade['timestamp']} on {deferred_target_trade['asset']} "
+                    f"(details: {rolling_count_value:.0f} trades in last hour, threshold: {threshold_value:.0f})."
+                )
+            else:
+                explain_like_im_5 = (
+                    "You were trading far more frequently than normal, so this trade was deferred but no later "
+                    "cooldown-eligible setup existed in the data. Replay uses 0 for this row."
+                )
+        elif replay_rescaled and bool(revenge_fired.iloc[idx]):
+            explain_like_im_5 = (
+                f"You just had a big loss ({format_currency_short(revenge_inputs['prev_trade_pnl'])}) and increased size "
+                f"to {format_currency_short(revenge_inputs['current_trade_size_usd'])}, so replay scaled size down."
+            )
+        elif replay_loss_capped and bool(loss_aversion_fired.iloc[idx]):
+            explain_like_im_5 = (
+                f"This loss was much larger than your typical win, so replay capped downside at "
+                f"{format_currency_short(-loss_threshold if loss_threshold is not None else None)}."
+            )
+        elif blocked_reason == "BIAS" and bool(revenge_fired.iloc[idx]):
+            explain_like_im_5 = (
+                f"This loss ({format_currency_short(pnl)}) was much larger than your typical win "
+                f"({format_currency_short(median_win)}), so replay marked it as bias-risk context."
+            )
+        else:
+            explain_like_im_5 = "No hard rule block fired, so this trade stays in the disciplined replay."
+
+        trace_records.append(
+            {
+                "trade_id": idx,
+                "timestamp": str(row.get("timestamp", "")),
+                "asset": str(row.get("asset", "")),
+                "side": str(row.get("side", "")) if row.get("side") is not None else None,
+                "pnl": pnl,
+                "size_usd": _float_or_none(row.get("size_usd")),
+                "simulated_pnl": simulated_pnl,
+                "impact_abs": impact_abs,
+                "blocked_reason": blocked_reason,
+                "is_revenge": is_revenge,
+                "is_overtrading": is_overtrading,
+                "is_loss_aversion": is_loss_aversion,
+                "replay_deferred": replay_deferred,
+                "replay_rescaled": replay_rescaled,
+                "replay_loss_capped": replay_loss_capped,
+                "replay_deferred_target_index": deferred_target_index,
+                "replay_deferred_target_trade": deferred_target_trade,
+                "rule_hits": rule_hits,
+                "decision": decision,
+                "reason": reason,
+                "triggering_prior_trade": prev_trade if bool(revenge_fired.iloc[idx]) else None,
+                "explain_like_im_5": explain_like_im_5,
+            }
+        )
+    return trace_records
+
+
+def _write_trace_artifact(job_id: str, trace_records: list[dict[str, Any]]) -> Path:
+    path = _trace_path(job_id)
+    lines = [json.dumps(record, sort_keys=True) for record in trace_records]
+    path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
+    return path
+
+
+def _read_trace_artifact(path: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        if not isinstance(payload, dict):
+            raise ValueError("decision_trace artifact contains non-object line")
+        records.append(dict(payload))
+    return records
+
+
+def _load_or_build_trace(job_id: str, counterfactual_frame: pd.DataFrame) -> list[dict[str, Any]]:
+    path = _trace_path(job_id)
+    if path.exists():
+        try:
+            records = _read_trace_artifact(path)
+            if len(records) == len(counterfactual_frame):
+                return records
+        except Exception:
+            pass
+    records = _build_decision_trace_records(counterfactual_frame)
+    _write_trace_artifact(job_id, records)
+    return records
+
+
+def _input_csv_path(job_id: str) -> Path:
+    return _job_dir(job_id) / "input.csv"
+
+
+def _load_raw_input_frame(job_id: str) -> pd.DataFrame:
+    path = _input_csv_path(job_id)
+    if not path.exists():
+        raise FileNotFoundError("input.csv not found")
+    try:
+        frame = pd.read_csv(path)
+    except Exception as exc:
+        raise ValueError(f"input.csv is unreadable: {exc}") from exc
+    if frame.empty:
+        raise ValueError("input.csv has no rows")
+    return frame
+
+
+def _normalize_timestamp_text(value: Any) -> str:
+    if value is None:
+        return ""
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    parsed = pd.to_datetime(raw, errors="coerce")
+    if pd.isna(parsed):
+        return raw
+    return parsed.isoformat().replace("+00:00", "")
+
+
+def _pnl_matches(left: Any, right: Any, *, atol: float = 1e-9) -> bool:
+    left_f = _float_or_none(left)
+    right_f = _float_or_none(right)
+    if left_f is None or right_f is None:
+        return False
+    return math.isclose(left_f, right_f, rel_tol=0.0, abs_tol=atol)
+
+
+def _find_raw_input_row(
+    input_frame: pd.DataFrame,
+    *,
+    trace_record: dict[str, Any],
+    trade_id: int,
+) -> dict[str, Any] | None:
+    cleaned = input_frame.where(pd.notna(input_frame), None).to_dict(orient="records")
+    if 0 <= trade_id < len(cleaned):
+        candidate = cleaned[trade_id]
+        if isinstance(candidate, dict):
+            return dict(candidate)
+
+    trace_ts = _normalize_timestamp_text(trace_record.get("timestamp"))
+    trace_asset = str(trace_record.get("asset", "")).strip()
+    trace_side = str(trace_record.get("side", "")).strip().lower()
+    trace_pnl = trace_record.get("pnl")
+
+    for row in cleaned:
+        if not isinstance(row, dict):
+            continue
+        row_ts = _normalize_timestamp_text(row.get("timestamp"))
+        row_asset = str(row.get("asset", "")).strip()
+        if row_ts != trace_ts or row_asset != trace_asset:
+            continue
+        if trace_side:
+            row_side = str(row.get("side", "")).strip().lower()
+            if row_side and row_side != trace_side:
+                continue
+        if trace_pnl is not None:
+            row_pnl = row.get("pnl")
+            if row_pnl is not None and not _pnl_matches(row_pnl, trace_pnl):
+                continue
+        return dict(row)
+    return None
+
+
+def _trace_record_for_row(
+    row: dict[str, Any],
+    trace_records: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    index_value = row.get("_source_index")
+    if isinstance(index_value, (int, float)) and not isinstance(index_value, bool):
+        index_int = int(index_value)
+        if 0 <= index_int < len(trace_records):
+            return dict(trace_records[index_int])
+
+    row_ts = str(row.get("timestamp", ""))
+    row_asset = str(row.get("asset", ""))
+    for record in trace_records:
+        if str(record.get("timestamp", "")) == row_ts and str(record.get("asset", "")) == row_asset:
+            return dict(record)
+    return None
 
 
 async def _optional_json_body(request: Request) -> dict[str, Any]:
@@ -1736,10 +2671,13 @@ async def get_summary(job_id: str) -> JSONResponse:
             top.append(
                 {
                     "label": item.get("label"),
+                    "bias_category": item.get("bias_category"),
                     "timestamp": item.get("timestamp"),
                     "asset": item.get("asset"),
                     "pnl": _safe_float(item.get("actual_pnl")),
                     "simulated_pnl": _safe_float(item.get("simulated_pnl")),
+                    "disciplined_replay_pnl": _safe_float(item.get("simulated_pnl")),
+                    "policy_replay_pnl": _safe_float(item.get("simulated_pnl")),
                     "impact": _safe_float(item.get("impact")),
                     "blocked_reason": item.get("blocked_reason"),
                 }
@@ -2137,3 +3075,742 @@ async def get_counterfactual(job_id: str, offset: int = 0, limit: int = 500) -> 
         "rows": window.to_dict(orient="records"),
     }
     return _envelope(ok=True, job=job, data=data)
+
+
+@app.get("/jobs/{job_id}/counterfactual/series")
+async def get_counterfactual_series(job_id: str, max_points: int = 2000) -> JSONResponse:
+    if max_points < 10 or max_points > 20000:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
+            error_code="INVALID_MAX_POINTS",
+            error_message="max_points must be between 10 and 20000",
+            status_code=400,
+        )
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    try:
+        frame = _load_counterfactual_frame(job_id)
+    except FileNotFoundError:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
+            error_code="COUNTERFACTUAL_NOT_READY",
+            error_message="Counterfactual rows are not available yet.",
+            status_code=409,
+        )
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
+            error_code="COUNTERFACTUAL_PARSE_ERROR",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    required_columns = {"timestamp", "pnl", "simulated_pnl"}
+    missing_required = [column for column in required_columns if column not in frame.columns]
+    if missing_required:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
+            error_code="COUNTERFACTUAL_SCHEMA_INVALID",
+            error_message=f"counterfactual.csv missing required columns: {sorted(missing_required)}",
+            status_code=422,
+        )
+
+    pnl_series = pd.to_numeric(frame["pnl"], errors="coerce")
+    simulated_pnl_series = pd.to_numeric(frame["simulated_pnl"], errors="coerce")
+    if pnl_series.isna().any() or simulated_pnl_series.isna().any():
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
+            error_code="COUNTERFACTUAL_SCHEMA_INVALID",
+            error_message="counterfactual.csv has non-numeric pnl/simulated_pnl values",
+            status_code=422,
+        )
+
+    actual_equity = pnl_series.cumsum()
+    fallback_simulated_equity = simulated_pnl_series.cumsum()
+    if "simulated_equity" in frame.columns:
+        simulated_equity_series = pd.to_numeric(frame["simulated_equity"], errors="coerce")
+        simulated_equity = simulated_equity_series.where(simulated_equity_series.notna(), fallback_simulated_equity)
+    else:
+        simulated_equity = fallback_simulated_equity
+
+    full_points: list[dict[str, Any]] = []
+    for idx in range(len(frame)):
+        full_points.append(
+            {
+                "timestamp": str(frame.iloc[idx]["timestamp"]),
+                "actual_equity": float(actual_equity.iloc[idx]),
+                "simulated_equity": float(simulated_equity.iloc[idx]),
+                "policy_replay_equity": float(simulated_equity.iloc[idx]),
+            }
+        )
+
+    if not full_points:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"points": [], "markers": [], "total_points": 0, "returned_points": 0},
+            error_code="COUNTERFACTUAL_PARSE_ERROR",
+            error_message="counterfactual.csv produced no timeline points",
+            status_code=422,
+        )
+
+    sampled_indices = _downsample_indices(len(full_points), max_points)
+    sampled_points = [full_points[idx] for idx in sampled_indices]
+
+    marker_review_payload: dict[str, Any] = {}
+    if _review_path(job_id).exists():
+        try:
+            marker_review_payload = _load_review_payload_for_moments(job_id)
+        except Exception:
+            marker_review_payload = {}
+    frame_rows = frame.to_dict(orient="records")
+    marker_rows = _select_top_moment_rows(
+        marker_review_payload,
+        frame_rows,
+    )
+    trace_records: list[dict[str, Any]] = []
+    try:
+        trace_records = _load_or_build_trace(job_id, frame)
+    except Exception:
+        trace_records = []
+    markers: list[dict[str, Any]] = []
+    for row in marker_rows:
+        trace_record = _trace_record_for_row(row, trace_records) if trace_records else None
+        reason_label = _reason_label(
+            trace_record=trace_record,
+            is_revenge=_trace_bool(row.get("is_revenge")),
+            is_overtrading=_trace_bool(row.get("is_overtrading")),
+            is_loss_aversion=_trace_bool(row.get("is_loss_aversion")),
+        )
+        impact_abs = _float_or_none(row.get("impact_abs"))
+        if impact_abs is None:
+            pnl_v = _float_or_none(row.get("pnl"))
+            replay_v = _float_or_none(row.get("simulated_pnl"))
+            if pnl_v is not None and replay_v is not None:
+                impact_abs = abs(pnl_v - replay_v)
+        markers.append(
+            {
+                "timestamp": str(row.get("timestamp", "")),
+                "asset": str(row.get("asset", "")),
+                "trade_grade": str(row.get("trade_grade", row.get("label", "UNKNOWN"))),
+                "blocked_reason": str(row.get("blocked_reason", "NONE")),
+                "reason_label": reason_label,
+                "impact_abs": impact_abs,
+                "intervention_type": _intervention_type(trace_record),
+            }
+        )
+
+    modified_mask = (pnl_series - simulated_pnl_series).abs() > 1e-9
+    pct_trades_modified = float(modified_mask.mean() * 100.0)
+    actual_trade_volatility = float(pnl_series.std(ddof=0)) if len(pnl_series) else 0.0
+    replay_trade_volatility = float(simulated_pnl_series.std(ddof=0)) if len(simulated_pnl_series) else 0.0
+
+    day_key = pd.to_datetime(frame["timestamp"], errors="coerce").dt.floor("D")
+    actual_daily = pnl_series.groupby(day_key, sort=False).sum()
+    replay_daily = simulated_pnl_series.groupby(day_key, sort=False).sum()
+    actual_worst_day = float(actual_daily.min()) if len(actual_daily) else 0.0
+    replay_worst_day = float(replay_daily.min()) if len(replay_daily) else 0.0
+
+    actual_max_drawdown = _max_drawdown(actual_equity)
+    replay_max_drawdown = _max_drawdown(simulated_equity)
+
+    impact_abs_series = (pnl_series - simulated_pnl_series).abs()
+    bias_impact: dict[str, float] = {}
+    for bias_name, col in (
+        ("REVENGE_TRADING", "is_revenge"),
+        ("OVERTRADING", "is_overtrading"),
+        ("LOSS_AVERSION", "is_loss_aversion"),
+    ):
+        if col not in frame.columns:
+            bias_impact[bias_name] = 0.0
+            continue
+        col_bool = frame[col].fillna(False).astype(bool)
+        bias_impact[bias_name] = float(impact_abs_series[col_bool].sum())
+    top_bias = max(bias_impact.items(), key=lambda item: item[1]) if bias_impact else ("NONE", 0.0)
+
+    return _envelope(
+        ok=True,
+        job=job,
+        data={
+            "points": sampled_points,
+            "markers": markers,
+            "total_points": len(full_points),
+            "returned_points": len(sampled_points),
+            "max_points": max_points,
+            "metrics": {
+                "return_actual": float(pnl_series.sum()),
+                "return_policy_replay": float(simulated_pnl_series.sum()),
+                "max_drawdown_actual": actual_max_drawdown,
+                "max_drawdown_policy_replay": replay_max_drawdown,
+                "worst_day_actual": actual_worst_day,
+                "worst_day_policy_replay": replay_worst_day,
+                "trade_volatility_actual": actual_trade_volatility,
+                "trade_volatility_policy_replay": replay_trade_volatility,
+                "pct_trades_modified": pct_trades_modified,
+                "top_bias_by_impact": {
+                    "bias": top_bias[0],
+                    "impact_abs_total": float(top_bias[1]),
+                    "by_bias": bias_impact,
+                },
+            },
+        },
+    )
+
+
+@app.get("/jobs/{job_id}/moments")
+async def get_moments(job_id: str) -> JSONResponse:
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"moments": []},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"moments": []},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    try:
+        review_payload = _load_review_payload_for_moments(job_id)
+    except FileNotFoundError:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"moments": []},
+            error_code="REVIEW_NOT_READY",
+            error_message="review.json is not available yet.",
+            status_code=409,
+        )
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"moments": []},
+            error_code="REVIEW_PARSE_ERROR",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    try:
+        counterfactual_frame = _load_counterfactual_frame(job_id)
+    except FileNotFoundError:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"moments": []},
+            error_code="COUNTERFACTUAL_NOT_READY",
+            error_message="counterfactual.csv is not available yet.",
+            status_code=409,
+        )
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"moments": []},
+            error_code="COUNTERFACTUAL_PARSE_ERROR",
+            error_message=str(exc),
+            status_code=422,
+        )
+    counterfactual_rows = counterfactual_frame.to_dict(orient="records")
+
+    try:
+        trace_records = _load_or_build_trace(job_id, counterfactual_frame)
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"moments": []},
+            error_code="TRACE_GENERATION_FAILED",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    top_rows = _select_top_moment_rows(review_payload, counterfactual_rows)
+    if not top_rows:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"moments": []},
+            error_code="MOMENTS_NOT_AVAILABLE",
+            error_message="No top moments available for this job.",
+            status_code=422,
+        )
+
+    grade_rules = {}
+    labeling_rules = review_payload.get("labeling_rules")
+    if isinstance(labeling_rules, dict):
+        grade_rules = labeling_rules.get("grade_rules", {})
+    if not isinstance(grade_rules, dict):
+        grade_rules = {}
+
+    thresholds = {}
+    if isinstance(labeling_rules, dict) and isinstance(labeling_rules.get("thresholds"), dict):
+        thresholds = labeling_rules["thresholds"]
+
+    moments: list[dict[str, Any]] = []
+    for row in top_rows:
+        notes: list[str] = []
+        trace_record = _trace_record_for_row(row, trace_records)
+        if trace_record is None:
+            notes.append("trace lookup failed for this moment")
+        timestamp = str(row.get("timestamp", ""))
+        asset = str(row.get("asset", ""))
+        grade = str(row.get("trade_grade", row.get("label", "UNKNOWN")))
+        pnl = _float_or_none(trace_record.get("pnl")) if trace_record is not None else None
+        if pnl is None:
+            pnl = _float_or_none(row.get("pnl"))
+        if pnl is None:
+            pnl = _float_or_none(row.get("actual_pnl"))
+        simulated_pnl = (
+            _float_or_none(trace_record.get("simulated_pnl")) if trace_record is not None else None
+        )
+        if simulated_pnl is None:
+            simulated_pnl = _float_or_none(row.get("simulated_pnl"))
+        impact_abs = (
+            _float_or_none(trace_record.get("impact_abs")) if trace_record is not None else None
+        )
+        if impact_abs is None:
+            impact_abs = _float_or_none(row.get("impact_abs"))
+        if impact_abs is None and pnl is not None and simulated_pnl is not None:
+            impact_abs = abs(pnl - simulated_pnl)
+        if impact_abs is None:
+            notes.append("missing field: impact_abs")
+
+        blocked_reason: str | None
+        if trace_record is not None and trace_record.get("blocked_reason") is not None:
+            blocked_reason = str(trace_record.get("blocked_reason"))
+        elif "blocked_reason" in row and row.get("blocked_reason") is not None:
+            blocked_reason = str(row.get("blocked_reason"))
+        else:
+            blocked_reason = None
+            notes.append("missing field: blocked_reason")
+
+        if trace_record is not None:
+            is_revenge = _trace_bool(trace_record.get("is_revenge"))
+            if is_revenge is None:
+                notes.append("missing field: is_revenge")
+            is_overtrading = _trace_bool(trace_record.get("is_overtrading"))
+            if is_overtrading is None:
+                notes.append("missing field: is_overtrading")
+            is_loss_aversion = _trace_bool(trace_record.get("is_loss_aversion"))
+            if is_loss_aversion is None:
+                notes.append("missing field: is_loss_aversion")
+        else:
+            is_revenge = _bool_or_none(row, "is_revenge", notes)
+            is_overtrading = _bool_or_none(row, "is_overtrading", notes)
+            is_loss_aversion = _bool_or_none(row, "is_loss_aversion", notes)
+
+        rule_hits: list[dict[str, Any]] | None = None
+        if trace_record is not None:
+            raw_rule_hits = trace_record.get("rule_hits")
+            if isinstance(raw_rule_hits, list):
+                rule_hits = [dict(hit) for hit in raw_rule_hits if isinstance(hit, dict)]
+            else:
+                notes.append("missing field: rule_hits")
+        else:
+            notes.append("missing field: rule_hits")
+
+        triggering_prior_trade = (
+            dict(trace_record["triggering_prior_trade"])
+            if trace_record is not None and isinstance(trace_record.get("triggering_prior_trade"), dict)
+            else None
+        )
+        if trace_record is not None and trace_record.get("triggering_prior_trade") is not None and triggering_prior_trade is None:
+            notes.append("invalid field: triggering_prior_trade")
+
+        threshold_keys = _moment_threshold_keys_for_grade(grade)
+        referenced_thresholds: dict[str, float | None] = {}
+        metric_refs: list[dict[str, Any]] = []
+        if pnl is not None:
+            metric_refs.append({"name": "pnl", "value": pnl, "unit": "USD"})
+        if simulated_pnl is not None:
+            metric_refs.append({"name": "simulated_pnl", "value": simulated_pnl, "unit": "USD"})
+        if impact_abs is not None:
+            metric_refs.append({"name": "impact_abs", "value": impact_abs, "unit": "USD"})
+        if blocked_reason is not None:
+            metric_refs.append({"name": "blocked_reason", "value": blocked_reason, "unit": "enum"})
+        if is_revenge is not None:
+            metric_refs.append({"name": "is_revenge", "value": is_revenge, "unit": "bool"})
+        if is_overtrading is not None:
+            metric_refs.append({"name": "is_overtrading", "value": is_overtrading, "unit": "bool"})
+        if is_loss_aversion is not None:
+            metric_refs.append({"name": "is_loss_aversion", "value": is_loss_aversion, "unit": "bool"})
+        for threshold_key in threshold_keys:
+            threshold_value = _float_or_none(thresholds.get(threshold_key))
+            referenced_thresholds[threshold_key] = threshold_value
+            if threshold_value is not None:
+                metric_refs.append({"name": threshold_key, "value": threshold_value, "unit": "USD"})
+
+        explanation_human: str
+        if trace_record is not None and isinstance(trace_record.get("explain_like_im_5"), str):
+            explanation_human = str(trace_record.get("explain_like_im_5"))
+        else:
+            explanation_human = _moment_human_explanation(
+                grade=grade,
+                blocked_reason=blocked_reason,
+                pnl=pnl,
+                simulated_pnl=simulated_pnl,
+                impact_abs=impact_abs,
+                is_revenge=is_revenge,
+                is_overtrading=is_overtrading,
+                is_loss_aversion=is_loss_aversion,
+            )
+        reason_label = _reason_label(
+            trace_record=trace_record,
+            is_revenge=is_revenge,
+            is_overtrading=is_overtrading,
+            is_loss_aversion=is_loss_aversion,
+        )
+        thesis = _trade_thesis(
+            trace_record=trace_record,
+            pnl=pnl,
+            replay_pnl=simulated_pnl,
+            impact_abs=impact_abs,
+        )
+        lesson = _trade_lesson(reason_label=reason_label, impact_abs=impact_abs)
+
+        moments.append(
+            {
+                "timestamp": timestamp,
+                "asset": asset,
+                "trade_grade": grade,
+                "bias_category": row.get("_selected_bias_category"),
+                "pnl": pnl,
+                "simulated_pnl": simulated_pnl,
+                "disciplined_replay_pnl": simulated_pnl,
+                "policy_replay_pnl": simulated_pnl,
+                "impact_abs": impact_abs,
+                "blocked_reason": blocked_reason,
+                "reason_label": reason_label,
+                "is_revenge": is_revenge,
+                "is_overtrading": is_overtrading,
+                "is_loss_aversion": is_loss_aversion,
+                "thresholds_referenced": referenced_thresholds,
+                "explanation_human": explanation_human,
+                "thesis": thesis,
+                "lesson": lesson,
+                "decision": trace_record.get("decision") if trace_record is not None else None,
+                "reason": trace_record.get("reason") if trace_record is not None else None,
+                "intervention_type": _intervention_type(trace_record),
+                "triggering_prior_trade": triggering_prior_trade,
+                "trace_trade_id": trace_record.get("trade_id") if trace_record is not None else None,
+                "rule_hits": rule_hits,
+                "evidence": {
+                    "rule_signature": grade_rules.get(grade),
+                    "metric_refs": metric_refs,
+                    "rule_hits": rule_hits,
+                },
+                "error_notes": notes,
+            }
+        )
+
+    return _envelope(
+        ok=True,
+        job=job,
+        data={
+            "moments": moments,
+            "source": "review.top_moments_joined_with_counterfactual",
+        },
+    )
+
+
+@app.get("/jobs/{job_id}/trace")
+async def get_trace(job_id: str, offset: int = 0, limit: int = 500) -> JSONResponse:
+    if offset < 0:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"offset": offset, "limit": limit, "total_rows": 0, "rows": []},
+            error_code="INVALID_OFFSET",
+            error_message="offset must be >= 0",
+            status_code=400,
+        )
+    if limit < 1 or limit > TRACE_PAGE_MAX:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"offset": offset, "limit": limit, "total_rows": 0, "rows": []},
+            error_code="INVALID_LIMIT",
+            error_message=f"limit must be between 1 and {TRACE_PAGE_MAX}",
+            status_code=400,
+        )
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"offset": offset, "limit": limit, "total_rows": 0, "rows": []},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"offset": offset, "limit": limit, "total_rows": 0, "rows": []},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    try:
+        counterfactual_frame = _load_counterfactual_frame(job_id)
+    except FileNotFoundError:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"offset": offset, "limit": limit, "total_rows": 0, "rows": []},
+            error_code="COUNTERFACTUAL_NOT_READY",
+            error_message="counterfactual.csv is not available yet.",
+            status_code=409,
+        )
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"offset": offset, "limit": limit, "total_rows": 0, "rows": []},
+            error_code="COUNTERFACTUAL_PARSE_ERROR",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    try:
+        trace_records = _load_or_build_trace(job_id, counterfactual_frame)
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"offset": offset, "limit": limit, "total_rows": 0, "rows": []},
+            error_code="TRACE_GENERATION_FAILED",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    total_rows = len(trace_records)
+    rows_window = [dict(row) for row in trace_records[offset : offset + limit]]
+    return _envelope(
+        ok=True,
+        job=job,
+        data={
+            "offset": offset,
+            "limit": limit,
+            "total_rows": total_rows,
+            "rows": rows_window,
+            "artifact_name": TRACE_JSONL_NAME,
+        },
+    )
+
+
+@app.get("/jobs/{job_id}/trade/{trade_id}")
+async def get_trade_inspector(job_id: str, trade_id: int) -> JSONResponse:
+    if trade_id < 0:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"trade": None},
+            error_code="INVALID_TRADE_ID",
+            error_message="trade_id must be >= 0",
+            status_code=400,
+        )
+
+    try:
+        job = _read_job(job_id)
+    except CorruptJobRecordError as exc:
+        return _corrupt_job_response(
+            job_id=exc.job_id,
+            data={"trade": None},
+            path=exc.path,
+            cause=exc.cause,
+        )
+    if job is None:
+        return _envelope(
+            ok=False,
+            job=None,
+            fallback_job_id=job_id,
+            data={"trade": None},
+            error_code="JOB_NOT_FOUND",
+            error_message="Job does not exist.",
+            status_code=404,
+        )
+
+    try:
+        counterfactual_frame = _load_counterfactual_frame(job_id)
+    except FileNotFoundError:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade": None},
+            error_code="COUNTERFACTUAL_NOT_READY",
+            error_message="counterfactual.csv is not available yet.",
+            status_code=409,
+        )
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade": None},
+            error_code="COUNTERFACTUAL_PARSE_ERROR",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    try:
+        trace_records = _load_or_build_trace(job_id, counterfactual_frame)
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade": None},
+            error_code="TRACE_GENERATION_FAILED",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    if trade_id >= len(trace_records):
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade": None},
+            error_code="TRADE_NOT_FOUND",
+            error_message=f"trade_id {trade_id} is out of range for this job.",
+            error_details={"total_trades": len(trace_records)},
+            status_code=404,
+        )
+
+    trace_record = dict(trace_records[trade_id])
+    try:
+        input_frame = _load_raw_input_frame(job_id)
+        raw_input_row = _find_raw_input_row(
+            input_frame,
+            trace_record=trace_record,
+            trade_id=trade_id,
+        )
+    except FileNotFoundError:
+        raw_input_row = None
+    except ValueError as exc:
+        return _envelope(
+            ok=False,
+            job=job,
+            data={"trade": None},
+            error_code="INPUT_PARSE_ERROR",
+            error_message=str(exc),
+            status_code=422,
+        )
+
+    rule_hits = trace_record.get("rule_hits")
+    if not isinstance(rule_hits, list):
+        rule_hits = []
+    normalized_rule_hits = [dict(hit) for hit in rule_hits if isinstance(hit, dict)]
+    first_fired_rule: str | None = None
+    for hit in normalized_rule_hits:
+        if bool(hit.get("fired")):
+            first_fired_rule = str(hit.get("rule_id"))
+            break
+
+    pnl = _float_or_none(trace_record.get("pnl"))
+    simulated_pnl = _float_or_none(trace_record.get("simulated_pnl"))
+    impact_abs = _float_or_none(trace_record.get("impact_abs"))
+    if impact_abs is None and pnl is not None and simulated_pnl is not None:
+        impact_abs = abs(pnl - simulated_pnl)
+    is_revenge = _trace_bool(trace_record.get("is_revenge"))
+    is_overtrading = _trace_bool(trace_record.get("is_overtrading"))
+    is_loss_aversion = _trace_bool(trace_record.get("is_loss_aversion"))
+    reason_label = _reason_label(
+        trace_record=trace_record,
+        is_revenge=is_revenge,
+        is_overtrading=is_overtrading,
+        is_loss_aversion=is_loss_aversion,
+    )
+    thesis = _trade_thesis(
+        trace_record=trace_record,
+        pnl=pnl,
+        replay_pnl=simulated_pnl,
+        impact_abs=impact_abs,
+    )
+    lesson = _trade_lesson(reason_label=reason_label, impact_abs=impact_abs)
+
+    trade_payload = {
+        "trade_id": trade_id,
+        "raw_input_row": raw_input_row,
+        "derived_flags": {
+            "is_revenge": is_revenge,
+            "is_overtrading": is_overtrading,
+            "is_loss_aversion": is_loss_aversion,
+        },
+        "decision": {
+            "decision": trace_record.get("decision"),
+            "reason": trace_record.get("reason"),
+            "reason_label": reason_label,
+            "intervention_type": _intervention_type(trace_record),
+            "triggering_rule_id": first_fired_rule,
+            "triggering_prior_trade": trace_record.get("triggering_prior_trade"),
+            "blocked_reason": trace_record.get("blocked_reason"),
+        },
+        "counterfactual": {
+            "actual_pnl": pnl,
+            "simulated_pnl": simulated_pnl,
+            "disciplined_replay_pnl": simulated_pnl,
+            "policy_replay_pnl": simulated_pnl,
+            "delta_pnl": impact_abs,
+        },
+        "explanation_plain_english": trace_record.get("explain_like_im_5"),
+        "thesis": thesis,
+        "lesson": lesson,
+        "evidence": {
+            "timestamp": trace_record.get("timestamp"),
+            "asset": trace_record.get("asset"),
+            "side": trace_record.get("side"),
+            "size_usd": _float_or_none(trace_record.get("size_usd")),
+            "rule_hits": normalized_rule_hits,
+            "trace": trace_record,
+        },
+    }
+    return _envelope(
+        ok=True,
+        job=job,
+        data={"trade": trade_payload},
+    )

@@ -6,6 +6,15 @@ Stability rule: required keys are never omitted; unknown values are `null`.
 
 ## 1. Global Contract Rules
 
+### 1.0 Terminology
+- `simulated_*` fields represent the **disciplined replay**, not an optimal strategy engine.
+- Disciplined replay is deterministic and constrained by observed trade history:
+  - overtrading flags defer execution to the next cooldown-eligible same-asset/same-side trade (or 0 if none exists),
+  - revenge flags rescale size impact toward rolling-median size,
+  - loss-aversion flags cap downside using median-loss proxy,
+  - daily max loss still hard-stops later same-day trades.
+- Replay does not invent new market signals or external prices.
+
 ### 1.1 Content Types
 - Request bodies:
   - `POST /jobs`: `multipart/form-data`
@@ -146,6 +155,29 @@ Coach fetch example:
 
 ```bash
 curl "http://127.0.0.1:8000/jobs/<JOB_ID>/coach"
+```
+
+## 2.1e GET `/jobs/{job_id}/trade/{trade_id}`
+Inspect a single trade end-to-end using persisted artifacts only (`input.csv`, `counterfactual.csv`, `decision_trace.jsonl`).
+
+- Path params:
+  - `job_id` (required)
+  - `trade_id` (required integer, `>= 0`)
+- Success:
+  - `200` with `data.trade`
+- Failure codes:
+  - `400 INVALID_TRADE_ID`
+  - `404 JOB_NOT_FOUND`
+  - `404 TRADE_NOT_FOUND`
+  - `409 COUNTERFACTUAL_NOT_READY`
+  - `422 COUNTERFACTUAL_PARSE_ERROR`
+  - `422 TRACE_GENERATION_FAILED`
+  - `422 INPUT_PARSE_ERROR`
+
+Trade inspector example:
+
+```bash
+curl "http://127.0.0.1:8000/jobs/<JOB_ID>/trade/21"
 ```
 
 ## 2.1 POST `/jobs`
