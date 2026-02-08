@@ -482,3 +482,11 @@ Ship only if all are checked:
 - [ ] Moments + inspector explanations are evidence-backed
 - [ ] Coach is visible (success or structured failure)
 - [ ] No runtime crash
+
+## Frontend Merge Quickstart
+
+- [ ] Read integration contract: `docs/FRONTEND_BACKEND_INTEGRATION_HANDOFF.md`
+- [ ] Run backend gate suite:
+  - `backend/venv/bin/python backend/tests/gates/run_gates.py`
+- [ ] Run wiring smoke (canonical + alias routes):
+  - `backend/scripts/frontend_contract_smoke.sh`
