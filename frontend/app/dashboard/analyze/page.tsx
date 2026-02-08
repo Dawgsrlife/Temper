@@ -49,13 +49,22 @@ const demoTrades: Trade[] = [
 
 const labelStyles: Record<string, { bg: string; text: string; border: string }> = {
   BRILLIANT: { bg: 'bg-cyan-400/20', text: 'text-cyan-400', border: 'ring-cyan-400/30' },
-  EXCELLENT: { bg: 'bg-emerald-400/15', text: 'text-emerald-400', border: 'ring-emerald-400/25' },
+  GREAT: { bg: 'bg-teal-400/20', text: 'text-teal-400', border: 'ring-teal-400/30' },
+  BEST: { bg: 'bg-emerald-400/15', text: 'text-emerald-400', border: 'ring-emerald-400/25' },
+  EXCELLENT: { bg: 'bg-green-400/15', text: 'text-green-400', border: 'ring-green-400/25' },
   GOOD: { bg: 'bg-green-300/15', text: 'text-green-300', border: 'ring-green-300/25' },
   BOOK: { bg: 'bg-blue-400/15', text: 'text-blue-400', border: 'ring-blue-400/25' },
+  FORCED: { bg: 'bg-purple-400/15', text: 'text-purple-400', border: 'ring-purple-400/25' },
+  INTERESTING: { bg: 'bg-amber-400/15', text: 'text-amber-400', border: 'ring-amber-400/25' },
   INACCURACY: { bg: 'bg-yellow-400/20', text: 'text-yellow-400', border: 'ring-yellow-400/30' },
   MISTAKE: { bg: 'bg-orange-400/20', text: 'text-orange-400', border: 'ring-orange-400/30' },
+  MISS: { bg: 'bg-gray-400/10', text: 'text-gray-400', border: 'ring-gray-400/20' },
   BLUNDER: { bg: 'bg-red-400/20', text: 'text-red-400', border: 'ring-red-400/30' },
-  MISSED_WIN: { bg: 'bg-gray-400/10', text: 'text-gray-400', border: 'ring-gray-400/20' },
+  MEGABLUNDER: { bg: 'bg-red-700/20', text: 'text-red-700', border: 'ring-red-700/30' },
+  CHECKMATED: { bg: 'bg-rose-600/20', text: 'text-rose-600', border: 'ring-rose-600/30' },
+  WINNER: { bg: 'bg-yellow-300/20', text: 'text-yellow-300', border: 'ring-yellow-300/30' },
+  DRAW: { bg: 'bg-slate-400/10', text: 'text-slate-400', border: 'ring-slate-400/20' },
+  RESIGN: { bg: 'bg-stone-500/15', text: 'text-stone-500', border: 'ring-stone-500/25' },
 };
 
 export default function AnalyzePage() {

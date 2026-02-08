@@ -8,8 +8,10 @@ import gsap from 'gsap';
  *  Temper Mascot – An expressive flame creature that reacts
  *  to trade quality labels with cute emotional animations.
  *
- *  Labels:  BRILLIANT · EXCELLENT · GOOD · BOOK
- *           INACCURACY · MISTAKE · BLUNDER · MISSED_WIN
+ *  Trade grades:  BRILLIANT · GREAT · BEST · EXCELLENT · GOOD
+ *                 INACCURACY · MISTAKE · MISS · BLUNDER · MEGABLUNDER
+ *  Special:       BOOK · FORCED · INTERESTING
+ *  Results:       CHECKMATED · WINNER · DRAW · RESIGN
  * ───────────────────────────────────────────────────────────── */
 
 export interface TemperMascotProps {
@@ -42,10 +44,21 @@ interface MascotTheme {
 }
 
 const THEMES: Record<string, MascotTheme> = {
+  /* ── Trade grades (best → worst) ── */
   BRILLIANT: {
     body: '#06D6A0', bodyEnd: '#00B4D8', glow: '#06D6A0',
     cheeks: '#FF6B9D', mouth: 'grin', eyes: 'sparkle', brows: 'raised',
     extras: 'stars', quip: 'Incredible move!', labelColor: '#06D6A0',
+  },
+  GREAT: {
+    body: '#00B4D8', bodyEnd: '#0891B2', glow: '#00B4D8',
+    cheeks: '#FF8FAB', mouth: 'happy', eyes: 'sparkle', brows: 'happy',
+    extras: 'sparkle', quip: 'Amazing move!', labelColor: '#00B4D8',
+  },
+  BEST: {
+    body: '#10B981', bodyEnd: '#059669', glow: '#10B981',
+    cheeks: '#FF8FAB', mouth: 'happy', eyes: 'happy', brows: 'raised',
+    extras: 'stars', quip: 'Top-tier trade!', labelColor: '#10B981',
   },
   EXCELLENT: {
     body: '#22C55E', bodyEnd: '#16A34A', glow: '#22C55E',
@@ -57,11 +70,6 @@ const THEMES: Record<string, MascotTheme> = {
     cheeks: '#FFC0CB', mouth: 'smile', eyes: 'normal', brows: 'normal',
     extras: 'none', quip: 'Solid trade.', labelColor: '#86EFAC',
   },
-  BOOK: {
-    body: '#60A5FA', bodyEnd: '#3B82F6', glow: '#60A5FA',
-    cheeks: '#C4B5FD', mouth: 'neutral', eyes: 'book', brows: 'book',
-    extras: 'none', quip: 'By the book.', labelColor: '#60A5FA',
-  },
   INACCURACY: {
     body: '#FACC15', bodyEnd: '#EAB308', glow: '#FACC15',
     cheeks: '#FDE68A', mouth: 'worried', eyes: 'worried', brows: 'worried',
@@ -72,15 +80,57 @@ const THEMES: Record<string, MascotTheme> = {
     cheeks: '#FDBA74', mouth: 'sad', eyes: 'sad', brows: 'angry',
     extras: 'sweat', quip: 'Ouch, that hurt.', labelColor: '#FB923C',
   },
+  MISS: {
+    body: '#94A3B8', bodyEnd: '#64748B', glow: '#94A3B8',
+    cheeks: '#CBD5E1', mouth: 'cry', eyes: 'side', brows: 'sad',
+    extras: 'tears', quip: 'So close...', labelColor: '#94A3B8',
+  },
   BLUNDER: {
     body: '#EF4444', bodyEnd: '#DC2626', glow: '#EF4444',
     cheeks: '#FCA5A5', mouth: 'shocked', eyes: 'xeyes', brows: 'scared',
     extras: 'tears', quip: 'Oh no...!', labelColor: '#EF4444',
   },
-  MISSED_WIN: {
-    body: '#94A3B8', bodyEnd: '#64748B', glow: '#94A3B8',
-    cheeks: '#CBD5E1', mouth: 'cry', eyes: 'side', brows: 'sad',
-    extras: 'tears', quip: 'So close...', labelColor: '#94A3B8',
+  MEGABLUNDER: {
+    body: '#991B1B', bodyEnd: '#7F1D1D', glow: '#DC2626',
+    cheeks: '#FCA5A5', mouth: 'cry', eyes: 'xeyes', brows: 'scared',
+    extras: 'tears', quip: 'Total disaster!', labelColor: '#DC2626',
+  },
+  /* ── Special classifications ── */
+  BOOK: {
+    body: '#60A5FA', bodyEnd: '#3B82F6', glow: '#60A5FA',
+    cheeks: '#C4B5FD', mouth: 'neutral', eyes: 'book', brows: 'book',
+    extras: 'none', quip: 'By the book.', labelColor: '#60A5FA',
+  },
+  FORCED: {
+    body: '#A78BFA', bodyEnd: '#8B5CF6', glow: '#A78BFA',
+    cheeks: '#DDD6FE', mouth: 'neutral', eyes: 'normal', brows: 'normal',
+    extras: 'none', quip: 'Only option.', labelColor: '#A78BFA',
+  },
+  INTERESTING: {
+    body: '#FBBF24', bodyEnd: '#F59E0B', glow: '#FBBF24',
+    cheeks: '#FDE68A', mouth: 'smile', eyes: 'sparkle', brows: 'raised',
+    extras: 'question', quip: 'Interesting...', labelColor: '#FBBF24',
+  },
+  /* ── Session results ── */
+  CHECKMATED: {
+    body: '#BE123C', bodyEnd: '#9F1239', glow: '#E11D48',
+    cheeks: '#FECDD3', mouth: 'shocked', eyes: 'xeyes', brows: 'scared',
+    extras: 'tears', quip: 'Checkmate...', labelColor: '#E11D48',
+  },
+  WINNER: {
+    body: '#FDE047', bodyEnd: '#FACC15', glow: '#FDE047',
+    cheeks: '#FEF3C7', mouth: 'grin', eyes: 'sparkle', brows: 'raised',
+    extras: 'stars', quip: 'Victory!', labelColor: '#EAB308',
+  },
+  DRAW: {
+    body: '#94A3B8', bodyEnd: '#9CA3AF', glow: '#CBD5E1',
+    cheeks: '#E2E8F0', mouth: 'neutral', eyes: 'normal', brows: 'normal',
+    extras: 'none', quip: 'Even match.', labelColor: '#94A3B8',
+  },
+  RESIGN: {
+    body: '#475569', bodyEnd: '#334155', glow: '#64748B',
+    cheeks: '#94A3B8', mouth: 'sad', eyes: 'sad', brows: 'sad',
+    extras: 'sweat', quip: 'I give up...', labelColor: '#64748B',
   },
 };
 
@@ -508,16 +558,16 @@ export default function TemperMascot({
   useGSAP(() => {
     if (!animate || !svgRef.current) return;
 
-    // Blunder: shake the whole thing
-    if (label === 'BLUNDER') {
+    // Blunder / Megablunder: shake the whole thing
+    if (label === 'BLUNDER' || label === 'MEGABLUNDER' || label === 'CHECKMATED') {
       gsap.to(svgRef.current, {
         x: 2, duration: 0.08, yoyo: true, repeat: 5, ease: 'power1.inOut',
         delay: 0.5,
       });
     }
 
-    // Brilliant: quick celebratory jump
-    if (label === 'BRILLIANT') {
+    // Brilliant / Great / Winner: quick celebratory jump
+    if (label === 'BRILLIANT' || label === 'GREAT' || label === 'WINNER') {
       gsap.to(svgRef.current, {
         y: -6, duration: 0.25, yoyo: true, repeat: 1, ease: 'power2.out',
         delay: 0.4,
@@ -536,8 +586,8 @@ export default function TemperMascot({
       });
     }
 
-    // Missed win: slow sad tilt
-    if (label === 'MISSED_WIN') {
+    // Miss / Resign: slow sad tilt
+    if (label === 'MISS' || label === 'RESIGN') {
       gsap.to(svgRef.current, {
         rotation: -5, duration: 0.8, ease: 'power1.out',
         delay: 0.3,
@@ -690,7 +740,12 @@ export default function TemperMascot({
 /* ═══════════════════════════════════════════════════════════════ */
 
 export function TemperMascotGrid({ size = 80, className = '' }: { size?: number; className?: string }) {
-  const labels = ['BRILLIANT', 'EXCELLENT', 'GOOD', 'BOOK', 'INACCURACY', 'MISTAKE', 'BLUNDER', 'MISSED_WIN'];
+  const labels = [
+    'BRILLIANT', 'GREAT', 'BEST', 'EXCELLENT', 'GOOD',
+    'INACCURACY', 'MISTAKE', 'MISS', 'BLUNDER', 'MEGABLUNDER',
+    'BOOK', 'FORCED', 'INTERESTING',
+    'CHECKMATED', 'WINNER', 'DRAW', 'RESIGN',
+  ];
   return (
     <div className={`grid grid-cols-4 gap-4 ${className}`}>
       {labels.map((label) => (

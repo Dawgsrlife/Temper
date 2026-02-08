@@ -20,17 +20,30 @@ export enum BiasType {
 
 /**
  * Decision labels modeled after chess.com's move classification.
- * Ordered from best to worst behavioral quality.
+ * Ordered from best to worst behavioral quality,
+ * then special classifications, then session results.
  */
 export enum DecisionLabel {
+  // ── Trade grades (best → worst) ──
   BRILLIANT = "BRILLIANT",
+  GREAT = "GREAT",
+  BEST = "BEST",
   EXCELLENT = "EXCELLENT",
   GOOD = "GOOD",
-  BOOK = "BOOK",
   INACCURACY = "INACCURACY",
   MISTAKE = "MISTAKE",
+  MISS = "MISS",
   BLUNDER = "BLUNDER",
-  MISSED_WIN = "MISSED_WIN",
+  MEGABLUNDER = "MEGABLUNDER",
+  // ── Special classifications ──
+  BOOK = "BOOK",
+  FORCED = "FORCED",
+  INTERESTING = "INTERESTING",
+  // ── Session results ──
+  CHECKMATED = "CHECKMATED",
+  WINNER = "WINNER",
+  DRAW = "DRAW",
+  RESIGN = "RESIGN",
 }
 
 export enum TradeSide {
@@ -45,13 +58,22 @@ export enum TradeSide {
 /** Chess-style symbols for UI rendering. */
 export const DECISION_SYMBOLS: Record<DecisionLabel, string> = {
   [DecisionLabel.BRILLIANT]: "!!",
-  [DecisionLabel.EXCELLENT]: "!",
-  [DecisionLabel.GOOD]: "!?",
+  [DecisionLabel.GREAT]: "!",
+  [DecisionLabel.BEST]: "★",
+  [DecisionLabel.EXCELLENT]: "✓",
+  [DecisionLabel.GOOD]: "+",
   [DecisionLabel.BOOK]: "📖",
+  [DecisionLabel.FORCED]: "□",
+  [DecisionLabel.INTERESTING]: "!?",
   [DecisionLabel.INACCURACY]: "?!",
   [DecisionLabel.MISTAKE]: "?",
+  [DecisionLabel.MISS]: "⨯",
   [DecisionLabel.BLUNDER]: "??",
-  [DecisionLabel.MISSED_WIN]: "⨯",
+  [DecisionLabel.MEGABLUNDER]: "???",
+  [DecisionLabel.CHECKMATED]: "#",
+  [DecisionLabel.WINNER]: "♔",
+  [DecisionLabel.DRAW]: "½",
+  [DecisionLabel.RESIGN]: "⊘",
 };
 
 /**
@@ -60,13 +82,22 @@ export const DECISION_SYMBOLS: Record<DecisionLabel, string> = {
  */
 export const DECISION_SCORE_WEIGHTS: Record<DecisionLabel, number> = {
   [DecisionLabel.BRILLIANT]: 10,
-  [DecisionLabel.EXCELLENT]: 9,
+  [DecisionLabel.GREAT]: 9.5,
+  [DecisionLabel.BEST]: 9,
+  [DecisionLabel.EXCELLENT]: 8.5,
   [DecisionLabel.GOOD]: 7.5,
   [DecisionLabel.BOOK]: 8,
+  [DecisionLabel.FORCED]: 6,
+  [DecisionLabel.INTERESTING]: 7,
   [DecisionLabel.INACCURACY]: 5,
   [DecisionLabel.MISTAKE]: 3,
+  [DecisionLabel.MISS]: 4,
   [DecisionLabel.BLUNDER]: 0,
-  [DecisionLabel.MISSED_WIN]: 4,
+  [DecisionLabel.MEGABLUNDER]: 0,
+  [DecisionLabel.CHECKMATED]: 1,
+  [DecisionLabel.WINNER]: 9,
+  [DecisionLabel.DRAW]: 5,
+  [DecisionLabel.RESIGN]: 2,
 };
 
 /**
@@ -75,13 +106,22 @@ export const DECISION_SCORE_WEIGHTS: Record<DecisionLabel, number> = {
  */
 export const DECISION_ELO_VALUES: Record<DecisionLabel, number> = {
   [DecisionLabel.BRILLIANT]: 1.0,
-  [DecisionLabel.EXCELLENT]: 0.9,
+  [DecisionLabel.GREAT]: 0.95,
+  [DecisionLabel.BEST]: 0.9,
+  [DecisionLabel.EXCELLENT]: 0.85,
   [DecisionLabel.GOOD]: 0.75,
   [DecisionLabel.BOOK]: 0.8,
+  [DecisionLabel.FORCED]: 0.6,
+  [DecisionLabel.INTERESTING]: 0.7,
   [DecisionLabel.INACCURACY]: 0.5,
   [DecisionLabel.MISTAKE]: 0.3,
+  [DecisionLabel.MISS]: 0.4,
   [DecisionLabel.BLUNDER]: 0.0,
-  [DecisionLabel.MISSED_WIN]: 0.4,
+  [DecisionLabel.MEGABLUNDER]: 0.0,
+  [DecisionLabel.CHECKMATED]: 0.1,
+  [DecisionLabel.WINNER]: 0.95,
+  [DecisionLabel.DRAW]: 0.5,
+  [DecisionLabel.RESIGN]: 0.2,
 };
 
 /**
@@ -89,24 +129,42 @@ export const DECISION_ELO_VALUES: Record<DecisionLabel, number> = {
  */
 export const DECISION_COLORS: Record<DecisionLabel, string> = {
   [DecisionLabel.BRILLIANT]: "text-cyan-400",
+  [DecisionLabel.GREAT]: "text-teal-400",
+  [DecisionLabel.BEST]: "text-emerald-400",
   [DecisionLabel.EXCELLENT]: "text-green-400",
   [DecisionLabel.GOOD]: "text-green-300",
   [DecisionLabel.BOOK]: "text-blue-400",
+  [DecisionLabel.FORCED]: "text-purple-400",
+  [DecisionLabel.INTERESTING]: "text-amber-400",
   [DecisionLabel.INACCURACY]: "text-yellow-400",
   [DecisionLabel.MISTAKE]: "text-orange-400",
+  [DecisionLabel.MISS]: "text-gray-400",
   [DecisionLabel.BLUNDER]: "text-red-500",
-  [DecisionLabel.MISSED_WIN]: "text-gray-400",
+  [DecisionLabel.MEGABLUNDER]: "text-red-700",
+  [DecisionLabel.CHECKMATED]: "text-rose-600",
+  [DecisionLabel.WINNER]: "text-yellow-300",
+  [DecisionLabel.DRAW]: "text-slate-400",
+  [DecisionLabel.RESIGN]: "text-stone-500",
 };
 
 export const DECISION_BG_COLORS: Record<DecisionLabel, string> = {
   [DecisionLabel.BRILLIANT]: "bg-cyan-400/15",
+  [DecisionLabel.GREAT]: "bg-teal-400/15",
+  [DecisionLabel.BEST]: "bg-emerald-400/15",
   [DecisionLabel.EXCELLENT]: "bg-green-400/15",
   [DecisionLabel.GOOD]: "bg-green-300/10",
   [DecisionLabel.BOOK]: "bg-blue-400/10",
+  [DecisionLabel.FORCED]: "bg-purple-400/10",
+  [DecisionLabel.INTERESTING]: "bg-amber-400/10",
   [DecisionLabel.INACCURACY]: "bg-yellow-400/10",
   [DecisionLabel.MISTAKE]: "bg-orange-400/10",
+  [DecisionLabel.MISS]: "bg-gray-400/10",
   [DecisionLabel.BLUNDER]: "bg-red-500/15",
-  [DecisionLabel.MISSED_WIN]: "bg-gray-400/10",
+  [DecisionLabel.MEGABLUNDER]: "bg-red-700/15",
+  [DecisionLabel.CHECKMATED]: "bg-rose-600/15",
+  [DecisionLabel.WINNER]: "bg-yellow-300/15",
+  [DecisionLabel.DRAW]: "bg-slate-400/10",
+  [DecisionLabel.RESIGN]: "bg-stone-500/10",
 };
 
 // ═══════════════════════════════════════════════════════════════

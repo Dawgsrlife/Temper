@@ -98,13 +98,22 @@ export interface Trade {
 
 export type TradeLabel =
   | "BRILLIANT"
+  | "GREAT"
+  | "BEST"
   | "EXCELLENT"
   | "GOOD"
-  | "BOOK"
   | "INACCURACY"
   | "MISTAKE"
+  | "MISS"
   | "BLUNDER"
-  | "MISSED_WIN";
+  | "MEGABLUNDER"
+  | "BOOK"
+  | "FORCED"
+  | "INTERESTING"
+  | "CHECKMATED"
+  | "WINNER"
+  | "DRAW"
+  | "RESIGN";
 
 export interface BiasDetection {
   type: string;

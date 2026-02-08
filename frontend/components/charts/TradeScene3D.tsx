@@ -25,13 +25,22 @@ interface TradeSceneProps {
 
 const LABEL_COLORS: Record<string, number> = {
     BRILLIANT: 0x06d6a0,
-    EXCELLENT: 0x06d6a0,
+    GREAT: 0x00b4d8,
+    BEST: 0x10b981,
+    EXCELLENT: 0x22c55e,
     GOOD: 0x3b82f6,
-    BOOK: 0x3b82f6,
-    MISSED_WIN: 0x6b7280,
+    BOOK: 0x60a5fa,
+    FORCED: 0xa78bfa,
+    INTERESTING: 0xfbbf24,
     INACCURACY: 0xf59e0b,
     MISTAKE: 0xf97316,
+    MISS: 0x6b7280,
     BLUNDER: 0xef476f,
+    MEGABLUNDER: 0x991b1b,
+    CHECKMATED: 0xbe123c,
+    WINNER: 0xfde047,
+    DRAW: 0x94a3b8,
+    RESIGN: 0x475569,
 };
 
 export default function TradeScene3D({ trades, onNodeClick, onNodeHover, className }: TradeSceneProps) {
