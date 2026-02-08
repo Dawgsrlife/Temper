@@ -12,7 +12,7 @@
 //   GOOD     → followed rules + profitable
 //   EXCELLENT → followed rules + good risk management + clean exit
 //   BRILLIANT → perfect execution under adverse conditions
-//   MISSED_WIN → detected separately (plan said trade, user didn't)
+//   MISS     → detected separately (plan said trade, user didn't)
 // ─────────────────────────────────────────────────────────────
 
 import type {
@@ -246,6 +246,14 @@ function buildExplanation(
         );
       parts.push("Position sized correctly. Strong discipline.");
       break;
+    case DecisionLabel.GREAT:
+      parts.push("Excellent execution with strong risk awareness.");
+      parts.push("Well-timed entry with solid follow-through.");
+      break;
+    case DecisionLabel.BEST:
+      parts.push("Optimal trade given market conditions.");
+      parts.push("Near-perfect discipline and timing.");
+      break;
     case DecisionLabel.EXCELLENT:
       parts.push("Clean execution with good risk management.");
       parts.push("All rules followed, profitable outcome.");
@@ -256,6 +264,12 @@ function buildExplanation(
     case DecisionLabel.BOOK:
       parts.push("Textbook execution — followed all rules.");
       parts.push("The loss was within normal parameters.");
+      break;
+    case DecisionLabel.FORCED:
+      parts.push("Forced action — no viable alternative.");
+      break;
+    case DecisionLabel.INTERESTING:
+      parts.push("Unconventional but noteworthy decision.");
       break;
     case DecisionLabel.INACCURACY:
       parts.push("Minor discipline deviation detected.");
@@ -269,14 +283,32 @@ function buildExplanation(
         parts.push(reasonToText(r, trade));
       }
       break;
+    case DecisionLabel.MISS:
+      parts.push("An opportunity was identified but not taken.");
+      break;
     case DecisionLabel.BLUNDER:
       parts.push("Severe discipline failure.");
       for (const r of v.negativeReasons) {
         parts.push(reasonToText(r, trade));
       }
       break;
-    case DecisionLabel.MISSED_WIN:
-      parts.push("An opportunity was identified but not taken.");
+    case DecisionLabel.MEGABLUNDER:
+      parts.push("Catastrophic discipline breakdown.");
+      for (const r of v.negativeReasons) {
+        parts.push(reasonToText(r, trade));
+      }
+      break;
+    case DecisionLabel.CHECKMATED:
+      parts.push("Session ended in total loss.");
+      break;
+    case DecisionLabel.WINNER:
+      parts.push("Session ended in victory — excellent result.");
+      break;
+    case DecisionLabel.DRAW:
+      parts.push("Session ended in a draw — breakeven outcome.");
+      break;
+    case DecisionLabel.RESIGN:
+      parts.push("Exited the session early.");
       break;
   }
 

@@ -23,10 +23,22 @@ interface PnlChartProps {
 
 const MARKER_COLORS: Partial<Record<DecisionLabel, string>> = {
   [DecisionLabel.BRILLIANT]: "oklch(0.72 0.14 195)",
+  [DecisionLabel.GREAT]: "oklch(0.70 0.14 200)",
+  [DecisionLabel.BEST]: "oklch(0.68 0.14 160)",
   [DecisionLabel.EXCELLENT]: "oklch(0.72 0.16 150)",
-  [DecisionLabel.BLUNDER]: "oklch(0.58 0.18 28)",
-  [DecisionLabel.MISTAKE]: "oklch(0.66 0.14 55)",
+  [DecisionLabel.GOOD]: "oklch(0.68 0.12 230)",
+  [DecisionLabel.BOOK]: "oklch(0.65 0.12 250)",
+  [DecisionLabel.FORCED]: "oklch(0.60 0.14 290)",
+  [DecisionLabel.INTERESTING]: "oklch(0.74 0.14 85)",
   [DecisionLabel.INACCURACY]: "oklch(0.74 0.14 85)",
+  [DecisionLabel.MISTAKE]: "oklch(0.66 0.14 55)",
+  [DecisionLabel.MISS]: "oklch(0.55 0.02 250)",
+  [DecisionLabel.BLUNDER]: "oklch(0.58 0.18 28)",
+  [DecisionLabel.MEGABLUNDER]: "oklch(0.40 0.18 25)",
+  [DecisionLabel.CHECKMATED]: "oklch(0.45 0.20 15)",
+  [DecisionLabel.WINNER]: "oklch(0.80 0.14 95)",
+  [DecisionLabel.DRAW]: "oklch(0.60 0.02 250)",
+  [DecisionLabel.RESIGN]: "oklch(0.45 0.02 250)",
 };
 
 export function PnlChart({

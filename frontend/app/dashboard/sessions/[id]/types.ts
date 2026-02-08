@@ -1,12 +1,21 @@
 export type DecisionLabel =
     | 'BRILLIANT'
+    | 'GREAT'
+    | 'BEST'
     | 'EXCELLENT'
     | 'GOOD'
-    | 'BOOK'
     | 'INACCURACY'
     | 'MISTAKE'
+    | 'MISS'
     | 'BLUNDER'
-    | 'MISSED_WIN';
+    | 'MEGABLUNDER'
+    | 'BOOK'
+    | 'FORCED'
+    | 'INTERESTING'
+    | 'CHECKMATED'
+    | 'WINNER'
+    | 'DRAW'
+    | 'RESIGN';
 
 export interface TradeEvent {
     id: string;
@@ -19,7 +28,7 @@ export interface TradeEvent {
     realizedPnl: number;
     runningPnl: number;
     label: DecisionLabel;
-    symbolCode: '!!' | '!' | '!?' | '?!' | '?' | '??' | '📖' | '⨯';
+    symbolCode: '!!' | '!' | '★' | '✓' | '+' | '?!' | '?' | '⨯' | '??' | '???' | '📖' | '□' | '!?' | '#' | '♔' | '½' | '⊘';
     reasons: string[];
 }
 

@@ -203,14 +203,23 @@ export function OvertradingIcon({ size = 32, className }: IconProps) {
 /* ── Map labels to icons ── */
 export const LABEL_ICON_MAP: Record<string, React.FC<IconProps>> = {
   BRILLIANT: BrilliantIcon,
+  GREAT: BrilliantIcon,
+  BEST: ExcellentIcon,
   EXCELLENT: ExcellentIcon,
   GOOD: GoodIcon,
   BOOK: ForcedIcon,
+  FORCED: ForcedIcon,
+  INTERESTING: InaccuracyIcon,
   NEUTRAL: ForcedIcon,
   INACCURACY: InaccuracyIcon,
   MISTAKE: MistakeIcon,
+  MISS: MissIcon,
   BLUNDER: BlunderIcon,
-  MISSED_WIN: MissIcon,
+  MEGABLUNDER: BlunderIcon,
+  CHECKMATED: BlunderIcon,
+  WINNER: BrilliantIcon,
+  DRAW: ForcedIcon,
+  RESIGN: MistakeIcon,
 };
 
 /* ── Map bias types to icons ── */
