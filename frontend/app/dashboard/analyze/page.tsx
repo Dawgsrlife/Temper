@@ -196,7 +196,7 @@ export default function AnalyzePage() {
 
           {/* Timeline */}
           <div className="timeline-bar border-t border-white/[0.06] p-4">
-            <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarColor: '#282828 transparent' }}>
               {analysis.trades.map((trade, i) => {
                 const style = labelStyles[trade.label];
                 const isActive = i === currentIndex;

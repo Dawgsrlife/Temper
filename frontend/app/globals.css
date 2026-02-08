@@ -73,6 +73,11 @@
   }
 
   /* Custom Scrollbar - Minimal */
+  * {
+    scrollbar-color: #282828 transparent;
+    scrollbar-width: thin;
+  }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
