@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const POLL_INTERVAL_MS = 1500;
 const USER_ID_KEY = "temper.evidence.user_id";
+const LAST_JOB_ID_KEY = "temper.evidence.last_job_id";
 
 type ApiError = {
   code?: string;
@@ -374,6 +376,7 @@ function resolveSecondaryRules(
 }
 
 export function DemoConsole() {
+  const searchParams = useSearchParams();
   const [userId, setUserId] = useState("demo-user");
   const [file, setFile] = useState<File | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -494,6 +497,38 @@ export function DemoConsole() {
     };
   }, [jobId, pollJob, status]);
 
+  const hydrateExistingJob = useCallback(
+    async (id: string) => {
+      setGlobalError(null);
+      setSummaryError(null);
+      setSeriesError(null);
+      setMomentsError(null);
+      setInspectorError(null);
+      setJobId(id);
+      window.localStorage.setItem(LAST_JOB_ID_KEY, id);
+      const payload = await request<JobStatusData>(`/jobs/${id}`);
+      const currentStatus = payload.job?.execution_status || payload.data.status || null;
+      setStatus(currentStatus);
+      setOutcome(payload.data.outcome || null);
+      setInputSha(payload.job?.input_sha256 || null);
+      if (currentStatus === "COMPLETED") {
+        await loadEvidence(id);
+      }
+    },
+    [loadEvidence],
+  );
+
+  useEffect(() => {
+    const fromQuery = searchParams.get("jobId");
+    const fromStorage = window.localStorage.getItem(LAST_JOB_ID_KEY);
+    const candidate = (fromQuery && fromQuery.trim()) || (fromStorage && fromStorage.trim()) || null;
+    if (!candidate) return;
+    if (jobId === candidate) return;
+    void hydrateExistingJob(candidate).catch((error: unknown) => {
+      setGlobalError(toFailure(error));
+    });
+  }, [hydrateExistingJob, jobId, searchParams]);
+
   const submit = useCallback(async () => {
     if (!file) {
       setGlobalError({ status: 0, code: "MISSING_FILE", message: "Select a CSV file first.", details: null });
@@ -530,6 +565,7 @@ export function DemoConsole() {
         throw new RequestError(0, "MISSING_JOB_ID", "Job ID missing in response.", created);
       }
       setJobId(id);
+      window.localStorage.setItem(LAST_JOB_ID_KEY, id);
       setInputSha(created.job?.input_sha256 || null);
       setStatus(created.job?.execution_status || "PENDING");
       await pollJob(id);

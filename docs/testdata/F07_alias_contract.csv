@@ -1,0 +1,4 @@
+trade_id,timestamp,asset,side,quantity,entry_price,exit_price,profit_loss,balance
+1,2025-03-08T09:00:00Z,AAPL,BUY,10,100,101,10,10000
+2,2025-03-08T09:02:00Z,AAPL,SELL,10,101,99,-20,10010
+3,2025-03-08T09:05:00Z,MSFT,BUY,5,300,304,20,9990

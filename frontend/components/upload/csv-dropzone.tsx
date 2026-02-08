@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +13,8 @@ type UploadState =
   | "error";
 
 const POLL_INTERVAL = 2_000; // 2 seconds
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const LAST_JOB_ID_KEY = "temper.evidence.last_job_id";
 
 export function CsvDropzone() {
   const router = useRouter();
@@ -20,7 +22,9 @@ export function CsvDropzone() {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
+  const [completedJobId, setCompletedJobId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const redirectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -29,11 +33,25 @@ export function CsvDropzone() {
     }
   }, []);
 
+  const clearRedirect = useCallback(() => {
+    if (redirectRef.current) {
+      clearTimeout(redirectRef.current);
+      redirectRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopPolling();
+      clearRedirect();
+    };
+  }, [stopPolling, clearRedirect]);
+
   const pollJob = useCallback(
     (jobId: string) => {
       pollRef.current = setInterval(async () => {
         try {
-          const res = await fetch(`/api/jobs/${jobId}`);
+          const res = await fetch(`${API_BASE}/api/jobs/${jobId}`);
           if (!res.ok) throw new Error("Failed to fetch job status");
           const data = await res.json();
 
@@ -45,11 +63,12 @@ export function CsvDropzone() {
           if (data.status === "COMPLETED") {
             stopPolling();
             setState("completed");
+            setCompletedJobId(jobId);
+            window.localStorage.setItem(LAST_JOB_ID_KEY, jobId);
             const count = data.sessionIds?.length ?? 0;
             setProgress(
               `${count} session${count !== 1 ? "s" : ""} analyzed`,
             );
-            setTimeout(() => router.push("/overview"), 1200);
           }
 
           if (data.status === "FAILED") {
@@ -84,7 +103,7 @@ export function CsvDropzone() {
         formData.append("file", file);
         formData.append("userId", "demo-user");
 
-        const uploadRes = await fetch("/api/upload", {
+        const uploadRes = await fetch(`${API_BASE}/api/upload`, {
           method: "POST",
           body: formData,
         });
@@ -101,7 +120,7 @@ export function CsvDropzone() {
         setState("pending");
 
         // ── Step 2: kick off analysis ────────────────────────
-        const analyzeRes = await fetch("/api/analyze", {
+        const analyzeRes = await fetch(`${API_BASE}/api/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ jobId }),
@@ -116,11 +135,12 @@ export function CsvDropzone() {
         const analyzeData = await analyzeRes.json();
         if (analyzeData.status === "COMPLETED") {
           setState("completed");
+          setCompletedJobId(jobId);
+          window.localStorage.setItem(LAST_JOB_ID_KEY, jobId);
           const count = analyzeData.sessionsAnalyzed ?? 0;
           setProgress(
             `${count} session${count !== 1 ? "s" : ""} analyzed. ELO: ${analyzeData.finalElo?.toFixed(0)}`,
           );
-          setTimeout(() => router.push("/overview"), 1200);
           return;
         }
 
@@ -221,7 +241,23 @@ export function CsvDropzone() {
           <div className="text-center">
             <div className="text-sm font-medium text-positive">{progress}</div>
             <div className="mt-1 text-xs text-muted-foreground">
-              Redirecting...
+              Ready to review.
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  completedJobId
+                    ? `/dashboard/analyze?jobId=${encodeURIComponent(completedJobId)}`
+                    : "/dashboard/analyze",
+                )
+              }
+              className="mt-3 rounded-md border border-border px-3 py-1.5 text-xs text-foreground/90 hover:bg-surface-2"
+            >
+              Open game review
+            </button>
+            <div className="mt-2 text-[11px] text-muted-foreground">
+              No auto-redirect.
             </div>
           </div>
         )}

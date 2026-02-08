@@ -11,6 +11,7 @@ import {
 } from "lightweight-charts";
 import type { Trade, DecisionEvent, DisciplinedSessionResult } from "@/lib/types";
 import { DecisionLabel, DECISION_SYMBOLS } from "@/lib/types";
+import { sanitizeIndexedChartPoints } from "@/lib/chart-sanitize";
 
 interface PnlChartProps {
   trades: Trade[];
@@ -90,9 +91,23 @@ export function PnlChart({
       lastValueVisible: true,
     });
 
-    const actualData = trades.map((t) => ({
-      time: Math.floor(t.timestampMs / 1000) as unknown as string,
-      value: t.runningPnl,
+    const normalizedActualRows = sanitizeIndexedChartPoints(
+      trades.map((t, index) => ({
+        index,
+        time: Math.floor(Number(t.timestampMs) / 1000),
+        value: Number(t.runningPnl),
+      })),
+    );
+    if (normalizedActualRows.length === 0) {
+      chart.remove();
+      return;
+    }
+    const indexToActualTime = new Map<number, number>(
+      normalizedActualRows.map((row) => [row.index, row.time]),
+    );
+    const actualData = normalizedActualRows.map((row) => ({
+      time: row.time as unknown as string,
+      value: row.value,
     }));
 
     actualSeries.setData(actualData);
@@ -108,17 +123,20 @@ export function PnlChart({
       )
       .map((d) => {
         const trade = trades[d.tradeIndex];
+        const time = indexToActualTime.get(d.tradeIndex);
+        if (!trade || time === undefined) return null;
         const isNegative =
           d.label === DecisionLabel.BLUNDER ||
           d.label === DecisionLabel.MISTAKE;
         return {
-          time: Math.floor(trade.timestampMs / 1000) as unknown as string,
+          time: time as unknown as string,
           position: isNegative ? ("belowBar" as const) : ("aboveBar" as const),
           color: MARKER_COLORS[d.label] ?? "oklch(0.52 0.01 260)",
           shape: isNegative ? ("arrowDown" as const) : ("arrowUp" as const),
           text: DECISION_SYMBOLS[d.label],
         };
-      });
+      })
+      .filter((marker): marker is NonNullable<typeof marker> => marker !== null);
 
     if (markers.length > 0) {
       createSeriesMarkers(actualSeries, markers);
@@ -135,12 +153,21 @@ export function PnlChart({
         lastValueVisible: false,
       });
 
-      const replayData = replay.disciplinedTrades.map((t) => ({
-        time: Math.floor(t.timestampMs / 1000) as unknown as string,
-        value: t.runningPnl,
+      const normalizedReplayRows = sanitizeIndexedChartPoints(
+        replay.disciplinedTrades.map((t, index) => ({
+          index,
+          time: Math.floor(Number(t.timestampMs) / 1000),
+          value: Number(t.runningPnl),
+        })),
+      );
+      const replayData = normalizedReplayRows.map((row) => ({
+        time: row.time as unknown as string,
+        value: row.value,
       }));
 
-      replaySeries.setData(replayData);
+      if (replayData.length > 0) {
+        replaySeries.setData(replayData);
+      }
     }
 
     chart.timeScale().fitContent();
@@ -170,12 +197,19 @@ export function PnlChart({
       activeIndex !== undefined &&
       trades[activeIndex]
     ) {
-      const timestamp = Math.floor(trades[activeIndex].timestampMs / 1000);
-      chartRef.current.setCrosshairPosition(
-        trades[activeIndex].runningPnl,
-        timestamp as unknown as Parameters<IChartApi["setCrosshairPosition"]>[1],
-        seriesRef.current,
-      );
+      const timestamp = Math.floor(Number(trades[activeIndex].timestampMs) / 1000);
+      const pnl = Number(trades[activeIndex].runningPnl);
+      if (Number.isFinite(timestamp) && Number.isFinite(pnl)) {
+        try {
+          chartRef.current.setCrosshairPosition(
+            pnl,
+            timestamp as unknown as Parameters<IChartApi["setCrosshairPosition"]>[1],
+            seriesRef.current,
+          );
+        } catch {
+          // Ignore stale/corrupt crosshair updates instead of crashing the page.
+        }
+      }
     }
   }, [activeIndex, trades]);
 

@@ -3,6 +3,12 @@
 This suite defines demo-critical invariants for Temper. Run it before merge:
 
 ```bash
+python backend/tests/gates/run_gates.py
+```
+
+Alternative:
+
+```bash
 pytest backend/tests/gates -q
 ```
 

@@ -286,5 +286,238 @@ def test_golden_anomaly_counts_exact_output() -> None:
 
     assert anomalies["ASSET_MISSING"] == 1
     assert anomalies["MISSING_FIELDS"] == 2
+    assert anomalies["INCOMPLETE_FOR_BIAS_METRICS"] == 1
     assert anomalies["IMPLIED_NOTIONAL_TOO_HIGH"] == 1
     assert anomalies["PNL_TO_BALANCE_OUTLIER"] == 1
+
+
+def test_golden_missing_quantity_with_size_present_mechanics_still_computed() -> None:
+    rows = [
+        {
+            "trade_id": 1,
+            "timestamp": "2025-04-01T10:00:00",
+            "asset": "MSFT",
+            "side": "BUY",
+            "quantity": 1.0,
+            "entry_price": 100.0,
+            "profit_loss": 50.0,
+            "balance": 1_000.0,
+            "size_usd": 100.0,
+        },
+        {
+            "trade_id": 2,
+            "timestamp": "2025-04-01T10:01:00",
+            "asset": "NVDA",
+            "side": "BUY",
+            "quantity": None,
+            "entry_price": 100.0,
+            "profit_loss": -10_000.0,
+            "balance": 1_000.0,
+            "size_usd": 100_000.0,
+        },
+    ]
+    out = run_counterfactual_replay(rows, config_dict())
+    got = _index_by_trade_id(out["rows"])[2]
+    anomalies = out["summary"]["anomalies"]
+
+    assert got["decision"] == "KEEP"
+    assert got["reason"] == "LOSS_AVERSION_CAPPED"
+    assert got["primary_rule"] == "LOSS_AVERSION_CAP_REPLAY"
+    assert_close(got["simulated_pnl"], -200.0, label="simulated_pnl")
+
+    mech = got["counterfactual_mechanics"]
+    assert mech["mechanism"] == "EXPOSURE_SCALING"
+    assert_close(mech["effective_scale"], 0.02, tol=1e-12, label="effective_scale")
+    assert_close(mech["size_usd_before"], 100_000.0, label="size_usd_before")
+    assert_close(mech["size_usd_after"], 2_000.0, label="size_usd_after")
+    assert mech["quantity_before"] is None
+    assert mech["quantity_after"] is None
+    assert_close(mech["cap_used"], 200.0, label="cap_used")
+    assert anomalies["MISSING_FIELDS"] == 1
+
+
+def test_golden_missing_size_usd_derives_from_quantity_and_price() -> None:
+    rows = [
+        {
+            "trade_id": 1,
+            "timestamp": "2025-04-02T10:00:00",
+            "asset": "AAPL",
+            "side": "BUY",
+            "quantity": 10.0,
+            "entry_price": 100.0,
+            "profit_loss": 10.0,
+            "balance": 1_000.0,
+        },
+        {
+            "trade_id": 2,
+            "timestamp": "2025-04-02T10:01:00",
+            "asset": "AAPL",
+            "side": "BUY",
+            "quantity": 10.0,
+            "entry_price": 100.0,
+            "profit_loss": -100.0,
+            "balance": 1_000.0,
+        },
+    ]
+    out = run_counterfactual_replay(rows, config_dict())
+    got = _index_by_trade_id(out["rows"])[2]
+    anomalies = out["summary"]["anomalies"]
+
+    assert got["decision"] == "KEEP"
+    assert got["reason"] == "LOSS_AVERSION_CAPPED"
+    assert got["primary_rule"] == "LOSS_AVERSION_CAP_REPLAY"
+    assert_close(got["simulated_pnl"], -40.0, label="simulated_pnl")
+
+    mech = got["counterfactual_mechanics"]
+    assert mech["mechanism"] == "EXPOSURE_SCALING"
+    assert_close(mech["effective_scale"], 0.4, label="effective_scale")
+    assert_close(mech["size_usd_before"], 1_000.0, label="size_usd_before")
+    assert_close(mech["size_usd_after"], 400.0, label="size_usd_after")
+    assert_close(mech["cap_used"], 40.0, label="cap_used")
+    assert anomalies["MISSING_FIELDS"] == 0
+
+
+def test_golden_missing_timestamp_row_is_data_invalid_and_counted() -> None:
+    rows = [
+        {
+            "trade_id": 1,
+            "timestamp": "2025-04-03T10:00:00",
+            "asset": "AAPL",
+            "side": "BUY",
+            "quantity": 1.0,
+            "entry_price": 100.0,
+            "profit_loss": 5.0,
+            "balance": 1_000.0,
+        },
+        {
+            "trade_id": 2,
+            "timestamp": None,
+            "asset": "AAPL",
+            "side": "BUY",
+            "quantity": 1.0,
+            "entry_price": 100.0,
+            "profit_loss": -50.0,
+            "balance": 1_000.0,
+        },
+    ]
+    out = run_counterfactual_replay(rows, config_dict())
+    got = _index_by_trade_id(out["rows"])[2]
+    anomalies = out["summary"]["anomalies"]
+
+    assert got["decision"] == "SKIP"
+    assert got["reason"] == "DATA_INVALID"
+    assert got["primary_rule"] == "DATA_INVALID"
+    assert_close(got["simulated_pnl"], 0.0, tol=1e-12, label="simulated_pnl")
+
+    mech = got["counterfactual_mechanics"]
+    assert mech["mechanism"] == "DATA_INVALID"
+    assert mech["effective_scale"] is None
+    assert_close(mech["size_usd_before"], 100.0, label="size_usd_before")
+    assert mech["size_usd_after"] is None
+    assert_close(mech["cap_used"], 0.0, label="cap_used")
+    assert anomalies["INCOMPLETE_FOR_BIAS_METRICS"] == 1
+
+
+def test_golden_asset_missing_still_replayable_and_counted() -> None:
+    rows = [
+        {
+            "trade_id": 1,
+            "timestamp": "2025-04-04T10:00:00",
+            "asset": "",
+            "side": "SELL",
+            "quantity": 5.0,
+            "entry_price": 100.0,
+            "profit_loss": -50.0,
+            "balance": 1_000.0,
+        },
+        {
+            "trade_id": 2,
+            "timestamp": "2025-04-04T10:01:00",
+            "asset": "TSLA",
+            "side": "BUY",
+            "quantity": 1.0,
+            "entry_price": 100.0,
+            "profit_loss": 10.0,
+            "balance": 1_000.0,
+        },
+    ]
+    out = run_counterfactual_replay(rows, config_dict())
+    got = _index_by_trade_id(out["rows"])[1]
+    anomalies = out["summary"]["anomalies"]
+
+    assert got["decision"] == "KEEP"
+    assert got["reason"] == "LOSS_AVERSION_CAPPED"
+    assert got["primary_rule"] == "LOSS_AVERSION_CAP_REPLAY"
+    assert_close(got["simulated_pnl"], -40.0, label="simulated_pnl")
+    assert got["counterfactual_mechanics"]["mechanism"] == "EXPOSURE_SCALING"
+    assert anomalies["ASSET_MISSING"] == 1
+
+
+def test_golden_overtrading_cooldown_skip_exactly_zero_pnl() -> None:
+    rows: list[dict[str, Any]] = []
+    for i in range(6):
+        rows.append(
+            {
+                "trade_id": i + 1,
+                "timestamp": f"2025-04-05T10:0{i}:00",
+                "asset": "AAPL",
+                "side": "BUY",
+                "quantity": 1.0,
+                "entry_price": 100.0,
+                "profit_loss": 1.0,
+                "balance": 1_000.0,
+            }
+        )
+    out = run_counterfactual_replay(rows, config_dict())
+    got = _index_by_trade_id(out["rows"])[6]
+
+    assert got["decision"] == "SKIP"
+    assert got["reason"] == "OVERTRADING_COOLDOWN_SKIP"
+    assert got["primary_rule"] == "OVERTRADING_COOLDOWN_SKIP_REPLAY"
+    assert_close(got["simulated_pnl"], 0.0, tol=1e-12, label="simulated_pnl")
+    mech = got["counterfactual_mechanics"]
+    assert mech["mechanism"] == "COOLDOWN_SKIP"
+    assert_close(mech["cap_used"], 0.0, tol=1e-12, label="cap_used")
+
+
+def test_golden_outlier_anomalies_trigger_and_loss_cap_math_is_exact() -> None:
+    rows = [
+        {
+            "trade_id": 1,
+            "timestamp": "2025-04-06T10:00:00",
+            "asset": "MSFT",
+            "side": "BUY",
+            "quantity": 1.0,
+            "entry_price": 100.0,
+            "profit_loss": 50.0,
+            "balance": 1_000.0,
+            "size_usd": 100.0,
+        },
+        {
+            "trade_id": 2,
+            "timestamp": "2025-04-06T10:01:00",
+            "asset": "MSFT",
+            "side": "BUY",
+            "quantity": 50_000.0,
+            "entry_price": 100.0,
+            "profit_loss": -1_000_000.0,
+            "balance": 1_000.0,
+            "size_usd": 5_000_000.0,
+        },
+    ]
+    out = run_counterfactual_replay(rows, config_dict())
+    got = _index_by_trade_id(out["rows"])[2]
+    anomalies = out["summary"]["anomalies"]
+
+    assert anomalies["IMPLIED_NOTIONAL_TOO_HIGH"] == 1
+    assert anomalies["PNL_TO_BALANCE_OUTLIER"] == 1
+    assert got["decision"] == "KEEP"
+    assert got["reason"] == "LOSS_AVERSION_CAPPED"
+    assert got["primary_rule"] == "LOSS_AVERSION_CAP_REPLAY"
+    assert_close(got["simulated_pnl"], -200.0, label="simulated_pnl")
+    mech = got["counterfactual_mechanics"]
+    assert mech["mechanism"] == "EXPOSURE_SCALING"
+    assert_close(mech["effective_scale"], 0.0002, tol=1e-12, label="effective_scale")
+    assert_close(mech["size_usd_before"], 5_000_000.0, label="size_usd_before")
+    assert_close(mech["size_usd_after"], 1_000.0, label="size_usd_after")
+    assert_close(mech["cap_used"], 200.0, label="cap_used")
