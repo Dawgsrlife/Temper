@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useMemo, use } from 'react';
+import { useRouter } from 'next/navigation';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import Link from 'next/link';
@@ -94,12 +95,14 @@ const labelStyles: Record<string, { bg: string; text: string; border: string }> 
 export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const sessionId = resolvedParams.id;
+  const router = useRouter();
 
   const container = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
+  const hasLocalDemoSession = Boolean(sessionData[sessionId]);
   const session = sessionData[sessionId] || sessionData['demo'];
   const analysis = useMemo(() => analyzeSession(session.trades), [session.trades]);
   const currentTrade = analysis.trades[currentIndex];
@@ -107,6 +110,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (hasLocalDemoSession) return;
+    router.replace(`/dashboard/analyze?jobId=${encodeURIComponent(sessionId)}`);
+  }, [hasLocalDemoSession, router, sessionId]);
 
   useGSAP(() => {
     if (!mounted) return;

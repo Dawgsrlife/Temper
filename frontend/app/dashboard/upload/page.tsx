@@ -26,6 +26,12 @@ import {
   parseCSV,
   analyzeSession,
 } from '@/lib/biasDetector';
+import {
+  createAndWaitForJob,
+  fetchTradesFromJob,
+  getUserId,
+  setLastJobId,
+} from '@/lib/backend-bridge';
 
 function generateSessionTitle(): string {
   const titleCounter = parseInt(localStorage.getItem('temper_session_counter') || '0', 10);
@@ -48,7 +54,21 @@ export default function UploadPage() {
   } | null>(null);
   const [mounted, setMounted] = useState(false);
   const [inputMode, setInputMode] = useState<'file' | 'manual'>('file');
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const router = useRouter();
+
+  const tradesToCsv = useCallback((trades: Trade[]): string => {
+    const header = ['timestamp', 'asset', 'side', 'quantity', 'price', 'pnl'];
+    const rows = trades.map((trade) => [
+      trade.timestamp,
+      trade.asset,
+      trade.side,
+      String(trade.quantity ?? 1),
+      trade.price != null ? String(trade.price) : '',
+      trade.pnl != null ? String(trade.pnl) : '',
+    ]);
+    return [header.join(','), ...rows.map((row) => row.join(','))].join('\n');
+  }, []);
 
   /* ── Manual trade entry state ── */
   interface ManualTrade {
@@ -104,7 +124,7 @@ export default function UploadPage() {
     );
   };
 
-  const submitManualTrades = () => {
+  const submitManualTrades = async () => {
     const validTrades: Trade[] = manualTrades
       .filter((t) => t.asset && t.quantity)
       .map((t) => ({
@@ -118,11 +138,19 @@ export default function UploadPage() {
 
     if (validTrades.length === 0) return;
     setIsUploading(true);
+    setUploadError(null);
+    try {
+      const csv = tradesToCsv(validTrades);
+      const file = new File([csv], 'manual_trades.csv', { type: 'text/csv' });
+      const jobId = await createAndWaitForJob(file, getUserId());
+      setLastJobId(jobId);
 
-    setTimeout(() => {
+      // Prefer backend-normalized rows when available.
+      const backendTrades = await fetchTradesFromJob(jobId);
+      const effectiveTrades = backendTrades.length > 0 ? backendTrades : validTrades;
       generateSessionTitle();
-      localStorage.setItem('temper_current_session', JSON.stringify(validTrades));
-      const result = analyzeSession(validTrades);
+      localStorage.setItem('temper_current_session', JSON.stringify(effectiveTrades));
+      const result = analyzeSession(effectiveTrades);
       setIsUploading(false);
       setIsComplete(true);
       setAnalysisResult({
@@ -130,7 +158,10 @@ export default function UploadPage() {
         biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
         profile: result.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader',
       });
-    }, 1200);
+    } catch (error) {
+      setIsUploading(false);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+    }
   };
 
   useEffect(() => { setMounted(true); }, []);
@@ -185,26 +216,36 @@ export default function UploadPage() {
   const handleUpload = async () => {
     if (!file) return;
     setIsUploading(true);
+    setUploadError(null);
 
     let trades: Trade[];
+    let backendFile: File = file;
 
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-      // Excel handling via dynamic import
-      const XLSX = await import('xlsx');
-      const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const csvText = XLSX.utils.sheet_to_csv(ws);
-      trades = parseCSV(csvText);
-    } else {
-      const text = await file.text();
-      trades = parseCSV(text);
-    }
+    try {
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        // Excel handling via dynamic import
+        const XLSX = await import('xlsx');
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const csvText = XLSX.utils.sheet_to_csv(ws);
+        trades = parseCSV(csvText);
+        backendFile = new File([csvText], file.name.replace(/\.(xlsx|xls)$/i, '.csv'), {
+          type: 'text/csv',
+        });
+      } else {
+        const text = await file.text();
+        trades = parseCSV(text);
+      }
 
-    setTimeout(() => {
+      const jobId = await createAndWaitForJob(backendFile, getUserId());
+      setLastJobId(jobId);
+      const backendTrades = await fetchTradesFromJob(jobId);
+      const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
+
       generateSessionTitle();
-      localStorage.setItem('temper_current_session', JSON.stringify(trades));
-      const result = analyzeSession(trades);
+      localStorage.setItem('temper_current_session', JSON.stringify(effectiveTrades));
+      const result = analyzeSession(effectiveTrades);
       setIsUploading(false);
       setIsComplete(true);
       setAnalysisResult({
@@ -212,7 +253,10 @@ export default function UploadPage() {
         biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
         profile: result.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader',
       });
-    }, 1500);
+    } catch (error) {
+      setIsUploading(false);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+    }
   };
 
   const loadSampleData = (profile: TraderProfile) => {
@@ -320,6 +364,12 @@ export default function UploadPage() {
             Manual Entry
           </button>
         </div>
+
+        {uploadError ? (
+          <div className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-300">
+            {uploadError}
+          </div>
+        ) : null}
 
         {/* Upload Zone */}
         {inputMode === 'file' ? (

@@ -5,6 +5,7 @@ import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   ArrowRight,
@@ -30,6 +31,7 @@ import {
 } from '@/lib/biasDetector';
 import { getLabelIcon, BIAS_ICON_MAP } from '@/components/icons/CoachIcons';
 import TemperMascot from '@/components/mascot/TemperMascot';
+import { fetchTradesFromJob, getLastJobId } from '@/lib/backend-bridge';
 
 const EquityChart = dynamic(() => import('@/components/EquityChart'), {
   ssr: false,
@@ -73,6 +75,7 @@ const labelStyles: Record<string, { bg: string; text: string; border: string }> 
 
 export default function AnalyzePage() {
   const container = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -84,6 +87,7 @@ export default function AnalyzePage() {
     setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
   useEffect(() => {
+    let cancelled = false;
     const savedSession = localStorage.getItem('temper_current_session');
     if (savedSession) {
       try {
@@ -91,7 +95,26 @@ export default function AnalyzePage() {
         if (Array.isArray(parsed) && parsed.length > 0) setTrades(parsed);
       } catch { /* ignore */ }
     }
-  }, []);
+
+    const jobId = searchParams.get('jobId') || getLastJobId();
+    if (jobId) {
+      void fetchTradesFromJob(jobId)
+        .then((rows) => {
+          if (cancelled) return;
+          if (rows.length > 0) {
+            setTrades(rows);
+            localStorage.setItem('temper_current_session', JSON.stringify(rows));
+          }
+        })
+        .catch(() => {
+          // Keep existing local session fallback for UI continuity.
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
 
   const analysis = useMemo(() => analyzeSession(trades), [trades]);
   const currentTrade = analysis.trades[currentIndex];

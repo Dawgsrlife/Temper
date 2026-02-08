@@ -11,6 +11,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { TRADER_PROFILES, TraderProfile, Trade, analyzeSession } from '@/lib/biasDetector';
+import { fetchUserJobs, getUserId } from '@/lib/backend-bridge';
 
 interface Session {
   id: string;
@@ -70,22 +71,77 @@ export default function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     setMounted(true);
-    
-    // Load session from localStorage
-    const savedSession = localStorage.getItem('temper_current_session');
-    if (savedSession) {
+
+    const load = async () => {
+      try {
+        const rows = await fetchUserJobs(getUserId());
+        if (cancelled) return;
+        if (rows.length > 0) {
+          const mapped: Session[] = rows.map((row, idx) => {
+            const jobId = String(row.job_id || row.id || `session-${idx + 1}`);
+            const createdAt = String(row.created_at || '');
+            const { date, time } = formatDateTime(createdAt || new Date().toISOString());
+            const biasRates = (row.bias_rates && typeof row.bias_rates === 'object') ? (row.bias_rates as Record<string, number>) : {};
+            const anyBiasRate = Number(biasRates.any_bias_rate || 0);
+            const score = Math.max(0, Math.min(100, Math.round((1 - anyBiasRate) * 100)));
+            const deltaPnl = Number(row.delta_pnl || 0);
+            const badgeCounts = (row.badge_counts && typeof row.badge_counts === 'object') ? (row.badge_counts as Record<string, number>) : {};
+            const totalTrades = Object.values(badgeCounts).reduce((sum, value) => sum + (Number(value) || 0), 0);
+
+            const revenge = Number(biasRates.revenge_rate || 0);
+            const overtrading = Number(biasRates.overtrading_rate || 0);
+            const lossAversion = Number(biasRates.loss_aversion_rate || 0);
+            const dominant = Math.max(revenge, overtrading, lossAversion);
+
+            let bias: string | null = null;
+            let profile: TraderProfile = 'calm_trader';
+            if (dominant > 0) {
+              if (dominant === revenge) {
+                bias = 'Revenge Trading';
+                profile = 'revenge_trader';
+              } else if (dominant === overtrading) {
+                bias = 'Overtrading';
+                profile = 'overtrader';
+              } else {
+                bias = 'Loss Aversion';
+                profile = 'loss_averse_trader';
+              }
+            }
+
+            return {
+              id: jobId,
+              title: `Session ${rows.length - idx}`,
+              date,
+              time,
+              score,
+              pnl: `${deltaPnl >= 0 ? '+' : '-'}$${Math.abs(deltaPnl).toFixed(0)}`,
+              pnlValue: deltaPnl,
+              trades: totalTrades,
+              bias,
+              profile,
+              duration: 'n/a',
+            };
+          });
+          setSessions(mapped);
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to load backend sessions:', err);
+      }
+
+      // Fallback: local session
+      const savedSession = localStorage.getItem('temper_current_session');
+      if (!savedSession || cancelled) return;
       try {
         const trades: Trade[] = JSON.parse(savedSession);
         if (trades.length > 0) {
           const analysis = analyzeSession(trades);
           const firstTrade = trades[0];
           const { date, time } = formatDateTime(firstTrade.timestamp);
-          
-          // Get or generate session title
-          let title = localStorage.getItem('temper_session_title') || 'Session 1';
-          
-          // Determine profile from biases
+          const title = localStorage.getItem('temper_session_title') || 'Session 1';
+
           let profile: TraderProfile = 'calm_trader';
           if (analysis.biases.length > 0) {
             const primaryBias = analysis.biases[0].type;
@@ -93,31 +149,36 @@ export default function SessionsPage() {
             else if (primaryBias === 'OVERTRADING') profile = 'overtrader';
             else if (primaryBias === 'LOSS_AVERSION') profile = 'loss_averse_trader';
           }
-          
+
           const session: Session = {
             id: 'session-1',
             title,
             date,
             time,
             score: Math.round(analysis.disciplineScore),
-            pnl: analysis.summary.totalPnL >= 0 
+            pnl: analysis.summary.totalPnL >= 0
               ? `+$${Math.abs(analysis.summary.totalPnL).toFixed(0)}`
               : `-$${Math.abs(analysis.summary.totalPnL).toFixed(0)}`,
             pnlValue: analysis.summary.totalPnL,
             trades: analysis.summary.totalTrades,
-            bias: analysis.biases.length > 0 
-              ? analysis.biases[0].type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+            bias: analysis.biases.length > 0
+              ? analysis.biases[0].type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
               : null,
             profile,
             duration: formatDuration(analysis.summary.tradingDuration),
           };
-          
           setSessions([session]);
         }
       } catch (err) {
         console.error('Failed to load session:', err);
       }
-    }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useGSAP(

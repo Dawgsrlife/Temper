@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { analyzeSession, Trade, SessionAnalysis, getRatingBracket } from '@/lib/biasDetector';
 import TemperMascot from '@/components/mascot/TemperMascot';
+import { fetchTradesFromJob, getLastJobId } from '@/lib/backend-bridge';
 
 /* ------------------------------------------------------------------ */
 /*  Score Ring                                                         */
@@ -107,6 +108,7 @@ export default function DashboardPage() {
 
   /* ---- Load data from localStorage ---- */
   useEffect(() => {
+    let cancelled = false;
     setMounted(true);
 
     const savedSession = localStorage.getItem('temper_current_session');
@@ -118,6 +120,19 @@ export default function DashboardPage() {
         }
       } catch (e) {
         console.error('Failed to parse session', e);
+      }
+    } else {
+      const lastJobId = getLastJobId();
+      if (lastJobId) {
+        void fetchTradesFromJob(lastJobId)
+          .then((rows) => {
+            if (cancelled || rows.length === 0) return;
+            localStorage.setItem('temper_current_session', JSON.stringify(rows));
+            setAnalysis(analyzeSession(rows));
+          })
+          .catch((error) => {
+            console.error('Failed to hydrate session from backend job', error);
+          });
       }
     }
 
@@ -132,6 +147,10 @@ export default function DashboardPage() {
         console.error('Failed to parse journal', e);
       }
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /* ---- GSAP entrance animations ---- */
