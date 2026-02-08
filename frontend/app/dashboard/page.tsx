@@ -298,7 +298,7 @@ export default function DashboardPage() {
                 <span className="absolute -bottom-1 left-0 h-[2px] w-full rounded-full bg-emerald-400/40" />
               </span>
             </h1>
-            <p className="text-sm text-gray-400 mt-2">
+            <p className="text-sm text-gray-400 mt-6">
               Your trading psychology dashboard
             </p>
           </div>
