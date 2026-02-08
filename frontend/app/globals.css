@@ -72,9 +72,9 @@
     animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
-  /* Custom Scrollbar - Minimal */
+  /* Custom Scrollbar — polished & themed */
   * {
-    scrollbar-color: #282828 transparent;
+    scrollbar-color: rgba(255,255,255,0.12) transparent;
     scrollbar-width: thin;
   }
 
@@ -88,7 +88,16 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-temper-border rounded-full hover:bg-temper-muted/50 transition-colors;
+    @apply bg-white/[0.12] rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/[0.22];
+  }
+
+  /* Global overflow guard — prevents any horizontal escape */
+  html, body {
+    overflow-x: hidden;
   }
 }
 
@@ -112,6 +121,30 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 15px rgba(6, 214, 160, 0.08); }
+  50% { box-shadow: 0 0 25px rgba(6, 214, 160, 0.15); }
+}
+
+/* Brand Energy Gradients */
+.brand-gradient-text {
+  @apply bg-clip-text text-transparent;
+  background-image: linear-gradient(135deg, #06D6A0, #38BDF8, #F59E0B);
+}
+
+.brand-gradient-subtle {
+  background-image: linear-gradient(135deg, rgba(6, 214, 160, 0.06), rgba(245, 158, 11, 0.04));
+}
+
+.brand-border-glow {
+  border-image: linear-gradient(135deg, rgba(6, 214, 160, 0.3), rgba(245, 158, 11, 0.15)) 1;
+}
+
+/* Score ring pulse — adds life to the dashboard */
+.score-pulse {
+  animation: pulse-glow 3s ease-in-out infinite;
 }
 
 /* Label Styles - Clean */

@@ -8,9 +8,7 @@ import {
   ArrowUpRight,
   Search,
   Calendar,
-  TrendingUp,
   AlertTriangle,
-  Activity,
 } from 'lucide-react';
 import { TRADER_PROFILES, TraderProfile } from '@/lib/biasDetector';
 
@@ -49,11 +47,12 @@ export default function SessionsPage() {
   useGSAP(
     () => {
       if (!mounted) return;
+      gsap.set(['.page-header', '.filter-bar', '.stats-row', '.session-card'], { clearProps: 'all' });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-      tl.from('.page-header', { y: 30, opacity: 0, duration: 0.6 })
-        .from('.filter-bar', { y: 20, opacity: 0, duration: 0.5 }, '-=0.3')
-        .from('.stats-row', { y: 20, opacity: 0, duration: 0.5 }, '-=0.3')
-        .from('.session-card', { y: 30, opacity: 0, stagger: 0.06, duration: 0.4 }, '-=0.2');
+      tl.fromTo('.page-header', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6 })
+        .fromTo('.filter-bar', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3')
+        .fromTo('.stats-row', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3')
+        .fromTo('.session-card', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, stagger: 0.06, duration: 0.4 }, '-=0.2');
     },
     { scope: container, dependencies: [mounted] },
   );
@@ -78,7 +77,7 @@ export default function SessionsPage() {
   return (
     <div
       ref={container}
-      className="min-h-screen bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
+      className="h-full overflow-y-auto overflow-x-hidden bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
     >
       <div className="mx-auto max-w-6xl space-y-8">
         {/* Header */}
@@ -89,26 +88,26 @@ export default function SessionsPage() {
           <h1 className="font-coach text-3xl font-semibold tracking-tight text-white md:text-4xl">
             Trading Sessions
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-400">
             Review your past sessions and identify patterns.
           </p>
         </header>
 
         {/* Stats Row */}
         <div className="stats-row grid grid-cols-3 gap-4">
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.04] p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Total P/L</p>
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.06] p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Total P/L</p>
             <p className={`mt-1 text-xl font-bold ${totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
               {totalPnL >= 0 ? '+' : ''}
               {totalPnL.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 })}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.04] p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Avg Discipline</p>
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.06] p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Avg Discipline</p>
             <p className="mt-1 text-xl font-bold text-white">{avgScore}</p>
           </div>
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.04] p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Bias Events</p>
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.06] p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Bias Events</p>
             <p className="mt-1 text-xl font-bold text-orange-400">{biasedCount}</p>
           </div>
         </div>
@@ -116,13 +115,13 @@ export default function SessionsPage() {
         {/* Filter */}
         <div className="filter-bar flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
               placeholder="Search sessions..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-white/[0.06] bg-white/[0.04] py-3 pl-11 pr-4 text-sm text-white outline-none placeholder:text-gray-600 focus:border-emerald-400/40 focus:ring-1 focus:ring-emerald-400/30 sm:w-64"
+              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.06] py-3 pl-11 pr-4 text-sm text-white outline-none placeholder:text-gray-500 focus:border-emerald-400/40 focus:ring-1 focus:ring-emerald-400/30 sm:w-64"
             />
           </div>
           <div className="flex gap-2">
@@ -130,10 +129,10 @@ export default function SessionsPage() {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-wide transition-all ${
+                className={`cursor-pointer rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-wide transition-all ${
                   filter === f
                     ? 'bg-emerald-500 text-black'
-                    : 'bg-white/[0.04] text-gray-500 hover:bg-white/[0.06] hover:text-white'
+                    : 'bg-white/[0.06] text-gray-400 hover:bg-white/[0.08] hover:text-white'
                 }`}
               >
                 {f === 'all' ? 'All' : f === 'winners' ? 'Winners' : f === 'losers' ? 'Losers' : 'Biased'}
@@ -145,10 +144,10 @@ export default function SessionsPage() {
         {/* Grid */}
         {filteredSessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="mb-4 rounded-2xl bg-white/[0.04] p-6">
-              <Calendar className="h-10 w-10 text-gray-600" />
+            <div className="mb-4 rounded-2xl bg-white/[0.06] p-6">
+              <Calendar className="h-10 w-10 text-gray-500" />
             </div>
-            <p className="text-sm text-gray-500">No sessions match your filters</p>
+            <p className="text-sm text-gray-400">No sessions match your filters</p>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -166,7 +165,7 @@ export default function SessionsPage() {
                 <Link
                   key={session.id}
                   href={`/dashboard/sessions/${session.id}`}
-                  className="session-card group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.04] p-5 transition-all hover:bg-white/[0.06] hover:border-white/[0.10]"
+                  className="session-card group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.06] p-5 transition-all hover:bg-white/[0.08] hover:border-white/[0.12] cursor-pointer"
                 >
                   {/* Profile indicator */}
                   <div
@@ -180,14 +179,14 @@ export default function SessionsPage() {
                     >
                       {session.score}
                     </div>
-                    <ArrowUpRight className="h-4 w-4 text-gray-600 opacity-0 transition-opacity group-hover:opacity-100" />
+                    <ArrowUpRight className="h-4 w-4 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100" />
                   </div>
 
                   <div className="space-y-1">
                     <p className="text-sm font-semibold text-white">
                       {session.date} · {session.time}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-400">
                       {session.trades} trades · {session.duration}
                     </p>
                   </div>
@@ -199,25 +198,17 @@ export default function SessionsPage() {
                     </div>
                   )}
 
-                  <div className="mt-4 flex items-center justify-between border-t border-white/[0.06] pt-4">
+                  <div className="mt-4 flex items-center justify-between border-t border-white/[0.08] pt-4">
                     <span className={`font-mono text-lg font-bold ${pnlColor}`}>
                       {session.pnl}
                     </span>
-                    <span className="text-[10px] text-gray-600">
+                    <span className="text-[10px] text-gray-500">
                       {TRADER_PROFILES[session.profile].name}
                     </span>
                   </div>
                 </Link>
               );
             })}
-          </div>
-        )}
-
-        {filteredSessions.length > 0 && (
-          <div className="flex justify-center pt-4">
-            <button className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-6 py-3 text-sm font-medium text-gray-500 transition-all hover:bg-white/[0.06] hover:text-white">
-              Load more sessions
-            </button>
           </div>
         )}
       </div>

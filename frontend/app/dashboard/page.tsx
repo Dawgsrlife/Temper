@@ -15,7 +15,7 @@ import {
   Zap,
   Network,
 } from 'lucide-react';
-import { analyzeSession, Trade, SessionAnalysis } from '@/lib/biasDetector';
+import { analyzeSession, Trade, SessionAnalysis, getRatingBracket, BiasType } from '@/lib/biasDetector';
 
 /* ------------------------------------------------------------------ */
 /*  Score Ring                                                         */
@@ -89,8 +89,8 @@ function ScoreRing({ score, size = 180 }: { score: number; size?: number }) {
         <span ref={numberRef} className="text-5xl font-bold text-white">
           0
         </span>
-        <span className="text-xs text-gray-500 uppercase tracking-widest mt-1">
-          Discipline
+        <span className="text-xs text-gray-400 uppercase tracking-widest mt-1">
+          Temper Score
         </span>
       </div>
     </div>
@@ -140,32 +140,38 @@ export default function DashboardPage() {
     () => {
       if (!mounted) return;
 
+      gsap.set(['.page-header', '.score-card', '.stat-card', '.insight-card', '.session-item', '.explorer-cta'], { clearProps: 'all' });
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
 
-      tl.from('.page-header', { y: 30, opacity: 0, duration: 0.6 })
-        .from(
+      tl.fromTo('.page-header', { y: 30, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6 })
+        .fromTo(
           '.score-card',
-          { y: 40, opacity: 0, scale: 0.95, duration: 0.7 },
+          { y: 40, autoAlpha: 0, scale: 0.95 },
+          { y: 0, autoAlpha: 1, scale: 1, duration: 0.7 },
           '-=0.4',
         )
-        .from(
+        .fromTo(
           '.stat-card',
-          { y: 30, opacity: 0, stagger: 0.08, duration: 0.5 },
+          { y: 30, autoAlpha: 0 },
+          { y: 0, autoAlpha: 1, stagger: 0.08, duration: 0.5 },
           '-=0.4',
         )
-        .from(
+        .fromTo(
           '.insight-card',
-          { y: 20, opacity: 0, stagger: 0.1, duration: 0.4 },
+          { y: 20, autoAlpha: 0 },
+          { y: 0, autoAlpha: 1, stagger: 0.1, duration: 0.4 },
           '-=0.3',
         )
-        .from(
+        .fromTo(
           '.session-item',
-          { x: -20, opacity: 0, stagger: 0.06, duration: 0.4 },
+          { x: -20, autoAlpha: 0 },
+          { x: 0, autoAlpha: 1, stagger: 0.06, duration: 0.4 },
           '-=0.2',
         )
-        .from(
+        .fromTo(
           '.explorer-cta',
-          { y: 30, opacity: 0, duration: 0.5 },
+          { y: 30, autoAlpha: 0 },
+          { y: 0, autoAlpha: 1, duration: 0.5 },
           '-=0.2',
         );
     },
@@ -176,33 +182,40 @@ export default function DashboardPage() {
   const hasData = !!analysis;
   const currentScore = analysis ? analysis.disciplineScore : 0;
 
+  /* ELO rating data */
+  const eloRating = analysis ? Math.round(analysis.eloState.rating) : 1200;
+  const eloBracket = getRatingBracket(eloRating);
+  const eloDelta = analysis ? analysis.eloState.lastSessionDelta : 0;
+
   const stats = analysis
     ? [
         {
           label: 'Win Rate',
           value: `${analysis.summary.winRate.toFixed(0)}%`,
           icon: TrendingUp,
-          positive: true,
-          sub: 'Session',
+          positive: analysis.summary.winRate > 50,
+          sub: `${analysis.summary.winners}W / ${analysis.summary.losers}L`,
         },
         {
-          label: 'Avg Interval',
-          value: `${Math.round(analysis.summary.avgTradeInterval)}s`,
-          icon: Activity,
-          positive: true,
-          sub: 'Patience',
+          label: 'ELO Rating',
+          value: eloRating.toString(),
+          icon: Shield,
+          positive: eloDelta >= 0,
+          sub: eloBracket,
         },
         {
           label: 'Biases Detected',
           value: analysis.biases.length.toString(),
           icon: AlertTriangle,
           positive: analysis.biases.length === 0,
-          sub: analysis.biases.length > 0 ? 'Found' : 'Clean',
+          sub: analysis.biases.length > 0
+            ? analysis.biases.map(b => b.type.replace(/_/g, ' ')).slice(0, 2).join(', ')
+            : 'Clean Session',
         },
       ]
     : [
         { label: 'Win Rate', value: '--', icon: TrendingUp, positive: true, sub: '--' },
-        { label: 'Avg Interval', value: '--', icon: Activity, positive: true, sub: '--' },
+        { label: 'ELO Rating', value: '1200', icon: Shield, positive: true, sub: 'Developing' },
         { label: 'Biases Detected', value: '--', icon: AlertTriangle, positive: true, sub: '--' },
       ];
 
@@ -212,7 +225,7 @@ export default function DashboardPage() {
           ? [
               {
                 title: 'Bias Detected',
-                description: `We found ${analysis.biases.length} potential behavioral issue${analysis.biases.length > 1 ? 's' : ''} in your last session.`,
+                description: `${analysis.biases.length} behavioral bias${analysis.biases.length > 1 ? 'es' : ''}: ${analysis.biases.map(b => b.type.replace(/_/g, ' ')).join(', ')}. Top score: ${Math.max(...analysis.biases.map(b => b.score))}/100.`,
                 type: 'warning' as const,
                 action: 'Review',
                 href: '/dashboard/analyze',
@@ -228,6 +241,17 @@ export default function DashboardPage() {
                 href: '/dashboard/analyze',
               },
             ]),
+        ...(analysis.report.disciplinedReplay.tradesRemoved > 0
+          ? [
+              {
+                title: 'Discipline Replay',
+                description: `${analysis.report.disciplinedReplay.tradesRemoved} trades would have been filtered. ${analysis.report.disciplinedReplay.savings >= 0 ? 'Savings' : 'Impact'}: $${Math.abs(analysis.report.disciplinedReplay.savings).toFixed(0)}.`,
+                type: 'warning' as const,
+                action: 'Explore',
+                href: '/dashboard/analyze',
+              },
+            ]
+          : []),
         ...(lastJournalDate
           ? [
               {
@@ -257,7 +281,7 @@ export default function DashboardPage() {
   return (
     <div
       ref={container}
-      className="min-h-screen bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
+      className="h-full overflow-y-auto overflow-x-hidden bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
     >
       <div className="mx-auto max-w-6xl space-y-10">
         {/* ──────────────── Header ──────────────── */}
@@ -266,10 +290,10 @@ export default function DashboardPage() {
             <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
               Bias Detector
             </p>
-            <h1 className="font-coach text-3xl font-semibold tracking-tight text-white md:text-4xl">
+            <h1 className="font-coach text-3xl font-semibold tracking-tight md:text-4xl brand-gradient-text">
               Welcome back
             </h1>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-400">
               Your trading psychology dashboard
             </p>
           </div>
@@ -285,8 +309,8 @@ export default function DashboardPage() {
         {/* ──────────────── Main Grid ──────────────── */}
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Score Card — big discipline ring */}
-          <div className="score-card flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.04] border border-white/[0.06] p-8 lg:row-span-2">
-            <div className="flex items-center gap-2 text-gray-500">
+          <div className="score-card score-pulse flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.06] border border-white/[0.08] p-8 lg:row-span-2">
+            <div className="flex items-center gap-2 text-gray-400">
               <Shield className="h-4 w-4" />
               <span className="text-xs font-semibold uppercase tracking-wider">
                 Discipline Score
@@ -295,7 +319,7 @@ export default function DashboardPage() {
 
             {mounted && <ScoreRing score={currentScore} size={180} />}
 
-            <p className="text-xs text-gray-500 text-center">
+            <p className="text-xs text-gray-400 text-center">
               {hasData
                 ? 'Based on latest session'
                 : 'Upload a session to begin'}
@@ -315,7 +339,7 @@ export default function DashboardPage() {
             {stats.map((stat) => (
               <div
                 key={stat.label}
-                className="stat-card group rounded-2xl bg-white/[0.04] border border-white/[0.06] p-5 transition-all hover:bg-white/[0.06]"
+                className="stat-card group rounded-2xl bg-white/[0.06] border border-white/[0.08] p-5 transition-all hover:bg-white/[0.08]"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <div className="rounded-xl bg-white/[0.06] p-2.5">
@@ -334,14 +358,14 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <p className="text-2xl font-bold text-white">{stat.value}</p>
-                <p className="mt-1 text-xs text-gray-500">{stat.label}</p>
+                <p className="mt-1 text-xs text-gray-400">{stat.label}</p>
               </div>
             ))}
           </div>
 
           {/* AI Insights */}
           <div className="space-y-3 lg:col-span-2">
-            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
               <Brain className="h-4 w-4" />
               AI Insights
             </h3>
@@ -352,7 +376,7 @@ export default function DashboardPage() {
                   <Link
                     key={i}
                     href={insight.href}
-                    className={`insight-card group rounded-2xl bg-white/[0.04] border p-5 transition-all hover:bg-white/[0.06] ${
+                    className={`insight-card group rounded-2xl bg-white/[0.06] border p-5 transition-all hover:bg-white/[0.08] ${
                       insight.type === 'warning'
                         ? 'border-red-400/20'
                         : 'border-emerald-400/20'
@@ -369,7 +393,7 @@ export default function DashboardPage() {
                         >
                           {insight.title}
                         </p>
-                        <p className="text-xs text-gray-500 leading-relaxed">
+                        <p className="text-xs text-gray-400 leading-relaxed">
                           {insight.description}
                         </p>
                       </div>
@@ -388,9 +412,9 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl bg-white/[0.04] border border-white/[0.06] p-6 text-center">
-                <Brain className="mx-auto h-8 w-8 text-gray-500/50 mb-2" />
-                <p className="text-sm text-gray-500">
+              <div className="rounded-2xl bg-white/[0.06] border border-white/[0.08] p-6 text-center">
+                <Brain className="mx-auto h-8 w-8 text-gray-400/50 mb-2" />
+                <p className="text-sm text-gray-400">
                   Upload a session to unlock AI insights
                 </p>
               </div>
@@ -401,23 +425,23 @@ export default function DashboardPage() {
         {/* ──────────────── Recent Sessions ──────────────── */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+            <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
               <Activity className="h-4 w-4" />
               Recent Sessions
             </h2>
             <Link
               href="/dashboard/analyze"
-              className="flex items-center gap-1.5 text-xs font-medium text-gray-500 transition-colors hover:text-emerald-400"
+              className="flex items-center gap-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-emerald-400"
             >
               View Analysis <ArrowUpRight className="h-3 w-3" />
             </Link>
           </div>
 
-          <div className="overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.06] divide-y divide-white/[0.06]">
+          <div className="overflow-hidden rounded-2xl bg-white/[0.06] border border-white/[0.08] divide-y divide-white/[0.08]">
             {analysis ? (
               <Link
                 href="/dashboard/analyze"
-                className="session-item group flex items-center justify-between p-5 transition-colors hover:bg-white/[0.06]"
+                className="session-item group flex items-center justify-between p-5 transition-colors hover:bg-white/[0.08] cursor-pointer"
               >
                 <div className="flex items-center gap-4">
                   <div
@@ -443,7 +467,7 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-400">
                       {analysis.summary.totalTrades} trades &middot; Win rate{' '}
                       {analysis.summary.winRate.toFixed(0)}%
                     </p>
@@ -465,8 +489,8 @@ export default function DashboardPage() {
               </Link>
             ) : (
               <div className="p-10 text-center">
-                <Activity className="mx-auto h-8 w-8 text-gray-500/40 mb-3" />
-                <p className="text-sm text-gray-500">
+                <Activity className="mx-auto h-8 w-8 text-gray-400/40 mb-3" />
+                <p className="text-sm text-gray-400">
                   No sessions analyzed yet.
                 </p>
                 <Link
@@ -483,10 +507,11 @@ export default function DashboardPage() {
         {/* ──────────────── 3D Explorer CTA ──────────────── */}
         <Link
           href="/dashboard/explorer"
-          className="explorer-cta group relative flex items-center justify-between overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.06] p-6 transition-all hover:bg-white/[0.06] hover:border-emerald-400/20"
+          className="explorer-cta group relative flex items-center justify-between overflow-hidden rounded-2xl bg-white/[0.06] border border-emerald-400/10 p-6 transition-all hover:bg-white/[0.08] hover:border-emerald-400/30 cursor-pointer"
         >
-          {/* Decorative glow */}
+          {/* Decorative glow — teal and gold from the logo */}
           <div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full bg-emerald-500/10 blur-3xl transition-all group-hover:bg-emerald-500/20" />
+          <div className="pointer-events-none absolute -left-10 -bottom-10 h-40 w-40 rounded-full bg-amber-500/5 blur-3xl transition-all group-hover:bg-amber-500/10" />
 
           <div className="relative flex items-center gap-5">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 ring-1 ring-emerald-400/20">
@@ -496,7 +521,7 @@ export default function DashboardPage() {
               <h3 className="font-coach text-lg font-semibold text-white">
                 3D Explorer
               </h3>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-400">
                 Visualize your trading patterns in an interactive 3D graph
               </p>
             </div>
