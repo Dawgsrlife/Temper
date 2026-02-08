@@ -14,6 +14,7 @@ import {
   Menu,
   X,
   Network,
+  Trophy,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useGSAP } from '@gsap/react';
@@ -24,6 +25,7 @@ const navigation = [
   { name: 'Journal', href: '/dashboard/journal', icon: BookOpen },
   { name: 'Analyze', href: '/dashboard/analyze', icon: Activity },
   { name: 'Explorer', href: '/dashboard/explorer', icon: Network },
+  { name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy },
   { name: 'Sessions', href: '/dashboard/sessions', icon: History },
   { name: 'Upload', href: '/dashboard/upload', icon: Upload },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
