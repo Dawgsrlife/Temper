@@ -8,9 +8,7 @@ import {
   ArrowUpRight,
   Search,
   Calendar,
-  TrendingUp,
   AlertTriangle,
-  Activity,
 } from 'lucide-react';
 import { TRADER_PROFILES, TraderProfile } from '@/lib/biasDetector';
 
@@ -210,14 +208,6 @@ export default function SessionsPage() {
                 </Link>
               );
             })}
-          </div>
-        )}
-
-        {filteredSessions.length > 0 && (
-          <div className="flex justify-center pt-4">
-            <button className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-6 py-3 text-sm font-medium text-gray-500 transition-all hover:bg-white/[0.06] hover:text-white">
-              Load more sessions
-            </button>
           </div>
         )}
       </div>

@@ -97,7 +97,7 @@ export default function DashboardLayout({
               <p className="truncate text-sm font-medium text-white">Alex Trader</p>
               <p className="truncate text-[11px] text-gray-500">Pro Plan</p>
             </div>
-            <Link href="/" className="text-gray-600 hover:text-red-400 transition-colors">
+            <Link href="/login" className="text-gray-600 hover:text-red-400 transition-colors">
               <LogOut className="h-4 w-4" />
             </Link>
           </div>

@@ -14,14 +14,8 @@ import {
   SkipForward,
   Brain,
   AlertTriangle,
-  TrendingUp,
-  TrendingDown,
-  Clock,
   Zap,
   Target,
-  ChevronDown,
-  Download,
-  Share2,
 } from 'lucide-react';
 import {
   analyzeSession,
@@ -148,7 +142,7 @@ export default function AnalyzePage() {
           <div>
             <h1 className="font-coach text-lg font-bold text-white">Session Analysis</h1>
             <p className="text-xs text-gray-500">
-              {analysis.trades.length} trades · March 1, 2025
+              {analysis.trades.length} trades
             </p>
           </div>
         </div>
