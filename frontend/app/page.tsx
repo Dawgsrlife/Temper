@@ -8,10 +8,9 @@ import { ArrowRight, Shield, BarChart3, Lightbulb, Target } from 'lucide-react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
-  RevengeAnnotation,
-  OvertradingAnnotation,
-  DrawdownAnnotation,
-  ScoreAnnotation,
+  AnalysisLabelsStrip,
+  InsightPanel,
+  TemperGauge,
 } from '@/components/landing/TerminalAnnotations';
 
 const TradingTerminal = dynamic(
@@ -23,92 +22,75 @@ if (typeof window !== 'undefined') {
   gsap.registerPlugin(ScrollTrigger);
 }
 
-/* ── LANDING PAGE ── */
 export default function LandingPage() {
   const root = useRef<HTMLDivElement>(null);
 
   useGSAP(
     () => {
-      /* ─ Hero text entrance ─ */
+      /* ─ Hero entrance ─ */
       const heroTl = gsap.timeline({ defaults: { ease: 'power3.out' } });
       heroTl
-        .fromTo('.hero-tag', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6, delay: 0.2 })
-        .fromTo('.hero-h1', { y: 40, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.8 }, '-=0.3')
+        .fromTo('.hero-tag', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6, delay: 0.15 })
+        .fromTo('.hero-h1', { y: 40, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.8 }, '-=0.35')
         .fromTo('.hero-sub', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.6 }, '-=0.4')
         .fromTo('.hero-cta', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, '-=0.3');
 
-      /* ─ Hero fades out on scroll ─ */
+      /* ─ Hero fades out ─ */
       gsap.to('.hero-content', {
-        yPercent: -15,
+        yPercent: -12,
         autoAlpha: 0,
         ease: 'none',
-        scrollTrigger: { trigger: '.hero-section', start: 'top top', end: '60% top', scrub: true },
+        scrollTrigger: { trigger: '.hero-section', start: 'top top', end: '55% top', scrub: true },
       });
 
-      /* ─ Terminal materialises ─ */
-      const termTl = gsap.timeline({
-        scrollTrigger: {
-          trigger: '.terminal-section',
-          start: 'top 85%',
-          end: 'top 25%',
-          scrub: 1,
-        },
+      /* ─ Analysis showcase fades in ─ */
+      gsap.fromTo('.showcase-section', { autoAlpha: 0 }, {
+        autoAlpha: 1,
+        scrollTrigger: { trigger: '.showcase-section', start: 'top 90%', end: 'top 50%', scrub: true },
       });
-      termTl
-        .fromTo('.terminal-frame', { y: 100, scale: 0.92, autoAlpha: 0 }, { y: 0, scale: 1, autoAlpha: 1, duration: 1 });
 
-      /* ─ Pin terminal & reveal annotations ─ */
+      /* ─ Pin the showcase: chart → labels → insights → gauge ─ */
       const pinTl = gsap.timeline({
         scrollTrigger: {
-          trigger: '.terminal-pin',
-          start: 'top 10%',
-          end: '+=200%',
-          scrub: 1,
+          trigger: '.showcase-pin',
+          start: 'top 8%',
+          end: '+=120%',
+          scrub: 0.8,
           pin: true,
           pinSpacing: true,
         },
       });
 
-      // Sequentially reveal each annotation
       pinTl
-        .fromTo('.annotation-revenge', { x: 60, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: 0.3 })
-        .fromTo('.annotation-overtrade', { x: -60, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: 0.3 }, '+=0.15')
-        .fromTo('.annotation-drawdown', { x: 60, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: 0.3 }, '+=0.15')
-        // Fade chart slightly and bring in score
-        .to('.terminal-wrap', { filter: 'brightness(0.35)', duration: 0.3 }, '+=0.1')
-        .fromTo('.annotation-score', { scale: 0.7, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 0.35 }, '-=0.15')
-        // Hold
-        .to({}, { duration: 0.6 });
+        // 1. Labels strip slides in
+        .fromTo('.analysis-labels', { y: 15, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.25 })
+        // 2. Insight panel appears
+        .fromTo('.insight-panel', { y: 20, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.25 }, '+=0.08')
+        // 3. Chart dims, gauge rises
+        .to('.terminal-wrap', { filter: 'brightness(0.3)', duration: 0.2 }, '+=0.08')
+        .fromTo('.gauge-overlay', { scale: 0.85, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 0.25 }, '-=0.1')
+        // brief hold
+        .to({}, { duration: 0.3 });
 
-      /* ─ Story sections reveal ─ */
+      /* ─ Section reveals ─ */
       gsap.utils.toArray<HTMLElement>('.story-reveal').forEach((el) => {
-        gsap.fromTo(el, { y: 50, autoAlpha: 0 }, {
-          y: 0,
-          autoAlpha: 1,
-          duration: 0.8,
-          ease: 'power3.out',
+        gsap.fromTo(el, { y: 40, autoAlpha: 0 }, {
+          y: 0, autoAlpha: 1, duration: 0.7, ease: 'power3.out',
           scrollTrigger: { trigger: el, start: 'top 88%', toggleActions: 'play none none reverse' },
         });
       });
 
-      /* ─ Feature cards stagger ─ */
-      gsap.fromTo('.pillar-card', { y: 70, autoAlpha: 0 }, {
-        y: 0,
-        autoAlpha: 1,
-        stagger: 0.12,
-        duration: 0.7,
-        ease: 'power3.out',
-        scrollTrigger: { trigger: '.pillars-grid', start: 'top 80%' },
+      /* ─ Pillar cards stagger ─ */
+      gsap.fromTo('.pillar-card', { y: 50, autoAlpha: 0 }, {
+        y: 0, autoAlpha: 1, stagger: 0.1, duration: 0.6, ease: 'power3.out',
+        scrollTrigger: { trigger: '.pillars-grid', start: 'top 82%' },
       });
 
-      /* ─ Stats count-up ─ */
+      /* ─ Stat count-up ─ */
       gsap.utils.toArray<HTMLElement>('.stat-number').forEach((el) => {
         const end = parseInt(el.dataset.val ?? '0', 10);
         gsap.fromTo(el, { textContent: '0' }, {
-          textContent: end,
-          duration: 1.5,
-          ease: 'power2.out',
-          snap: { textContent: 1 },
+          textContent: end, duration: 1.4, ease: 'power2.out', snap: { textContent: 1 },
           scrollTrigger: { trigger: el, start: 'top 90%' },
         });
       });
@@ -118,31 +100,27 @@ export default function LandingPage() {
 
   return (
     <div ref={root} className="bg-[#050505] text-white">
-      {/* ── Fixed video background ── */}
+      {/* ── Video bg ── */}
       <div className="fixed inset-0 z-0">
-        <video autoPlay muted loop playsInline preload="auto" className="h-full w-full object-cover opacity-60">
+        <video autoPlay muted loop playsInline preload="auto" className="h-full w-full object-cover opacity-50">
           <source src="/assets/4990245-hd_1920_1080_30fps.mp4" type="video/mp4" />
         </video>
-        <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/80 via-[#050505]/60 to-[#050505]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/85 via-[#050505]/65 to-[#050505]" />
       </div>
 
-      {/* ── Sticky Header ── */}
-      <header className="fixed left-0 right-0 top-0 z-50 px-6 py-4 md:px-12 backdrop-blur-md bg-[#050505]/60 border-b border-white/[0.04]">
+      {/* ── Header ── */}
+      <header className="fixed left-0 right-0 top-0 z-50 border-b border-white/[0.04] bg-[#050505]/60 px-6 py-4 backdrop-blur-md md:px-12">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-coach text-xl font-bold tracking-tight">
             <img src="/Temper_logo.png" alt="Temper" className="h-7 w-auto" />
             <span>Temper</span>
           </Link>
-          <Link
-            href="/login"
-            className="rounded-lg bg-emerald-500 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-black transition-all hover:bg-white"
-          >
+          <Link href="/login" className="rounded-lg bg-emerald-500 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-black transition-all hover:bg-white">
             Get Started
           </Link>
         </div>
       </header>
 
-      {/* ── Main content ── */}
       <main className="relative z-10">
         {/* ━━ HERO ━━ */}
         <section className="hero-section relative flex min-h-screen items-center justify-center px-6 pt-20">
@@ -158,8 +136,8 @@ export default function LandingPage() {
               </span>
             </h1>
             <p className="hero-sub mx-auto mb-10 max-w-lg text-base leading-relaxed text-gray-400 md:text-lg">
-              Temper watches your trades, detects tilt and revenge patterns in
-              real time, and coaches you toward discipline.
+              Temper analyzes your trading sessions to identify emotional
+              patterns and help you make better decisions.
             </p>
             <div className="hero-cta flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
               <Link
@@ -177,44 +155,47 @@ export default function LandingPage() {
               </Link>
             </div>
           </div>
-
-          {/* scroll hint */}
-          <div className="absolute bottom-10 left-1/2 -translate-x-1/2">
-            <div className="flex flex-col items-center gap-2 text-gray-600">
-              <span className="text-[10px] uppercase tracking-widest">Scroll</span>
-              <div className="h-8 w-px bg-gradient-to-b from-gray-600 to-transparent" />
-            </div>
-          </div>
         </section>
 
-        {/* ━━ TERMINAL SECTION ━━ */}
-        <section className="terminal-section relative px-4 md:px-8">
-          <div className="terminal-pin mx-auto max-w-6xl">
-            {/* Section title */}
-            <div className="story-reveal mb-8 text-center">
+        {/* ━━ ANALYSIS SHOWCASE ━━ */}
+        <section className="showcase-section relative px-4 md:px-8">
+          <div className="showcase-pin mx-auto max-w-6xl">
+            <div className="story-reveal mb-6 text-center">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-400/70">
-                Live Analysis
+                Behavioral Analysis
               </p>
-              <h2 className="text-2xl font-medium tracking-tight text-white md:text-3xl">
-                Your trading terminal. Our psychology layer.
+              <h2 className="text-2xl font-medium tracking-tight md:text-3xl">
+                Every trade scored. Every pattern caught.
               </h2>
             </div>
 
-            {/* Terminal with annotations */}
-            <div className="terminal-frame relative mx-auto" style={{ height: 'clamp(420px, 60vh, 620px)' }}>
+            {/* Chart */}
+            <div className="relative mx-auto" style={{ height: 'clamp(360px, 50vh, 520px)' }}>
               <TradingTerminal />
-              <RevengeAnnotation />
-              <OvertradingAnnotation />
-              <DrawdownAnnotation />
-              <ScoreAnnotation />
+              {/* Gauge overlay — centered on chart */}
+              <div className="gauge-overlay pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+                <div className="rounded-2xl border border-white/[0.06] bg-black/60 px-10 py-8 backdrop-blur-xl">
+                  <TemperGauge score={38} />
+                </div>
+              </div>
+            </div>
+
+            {/* Labels strip */}
+            <div className="mt-4">
+              <AnalysisLabelsStrip />
+            </div>
+
+            {/* Insight panel */}
+            <div className="mt-3">
+              <InsightPanel />
             </div>
           </div>
         </section>
 
-        {/* ━━ STORY: HOW IT WORKS ━━ */}
-        <section className="relative bg-[#050505] px-6 py-32 md:px-12">
+        {/* ━━ HOW IT WORKS ━━ */}
+        <section className="relative bg-[#050505] px-6 py-28 md:px-12">
           <div className="mx-auto max-w-5xl">
-            <div className="story-reveal mb-20 text-center">
+            <div className="story-reveal mb-16 text-center">
               <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-400/70">
                 How It Works
               </p>
@@ -224,40 +205,24 @@ export default function LandingPage() {
               </h2>
             </div>
 
-            {/* Steps — alternating layout */}
-            <div className="space-y-24">
+            <div className="space-y-20">
               {[
-                {
-                  num: '01',
-                  title: 'Upload your trades',
-                  desc: 'Import a CSV from any broker — or try our sample datasets. Temper auto-detects columns, timestamps, and position sizing.',
-                  accent: 'emerald',
-                },
-                {
-                  num: '02',
-                  title: 'We find the patterns',
-                  desc: 'Our engine scores every trade decision, flags revenge sequences, tilt streaks, and overtrading bursts. No guesswork — pure behavioral data.',
-                  accent: 'orange',
-                },
-                {
-                  num: '03',
-                  title: 'You build discipline',
-                  desc: 'Review annotated equity curves, journal your emotions, track your ELO discipline rating over time. Improve trade by trade.',
-                  accent: 'purple',
-                },
+                { num: '01', title: 'Upload your trades', desc: 'Import a CSV from any broker — or try our sample datasets. Temper auto-detects columns, timestamps, and position sizing.', accent: 'emerald' },
+                { num: '02', title: 'We find the patterns', desc: 'Each trade is labeled like a chess move — Brilliant, Good, Inaccuracy, Mistake, Blunder. Revenge sequences and tilt streaks are flagged automatically.', accent: 'orange' },
+                { num: '03', title: 'You build discipline', desc: 'Review annotated equity curves, journal your emotions, and track your ELO discipline rating over time.', accent: 'purple' },
               ].map((step, i) => (
                 <div
                   key={step.num}
                   className={`story-reveal flex flex-col items-center gap-8 md:flex-row ${i % 2 === 1 ? 'md:flex-row-reverse' : ''}`}
                 >
-                  <div className="flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.03]">
-                    <span className={`text-3xl font-bold ${
+                  <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.03] backdrop-blur-sm">
+                    <span className={`text-2xl font-bold ${
                       step.accent === 'emerald' ? 'text-emerald-400' :
                       step.accent === 'orange' ? 'text-orange-400' : 'text-purple-400'
                     }`}>{step.num}</span>
                   </div>
                   <div className="max-w-lg text-center md:text-left">
-                    <h3 className="mb-3 text-xl font-medium">{step.title}</h3>
+                    <h3 className="mb-2 text-lg font-medium">{step.title}</h3>
                     <p className="text-sm leading-relaxed text-gray-400">{step.desc}</p>
                   </div>
                 </div>
@@ -266,10 +231,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ━━ PILLARS ━━ */}
-        <section className="relative bg-[#0a0a0f] px-6 py-32 md:px-12">
+        {/* ━━ FEATURE PILLARS ━━ */}
+        <section className="relative bg-[#080810] px-6 py-28 md:px-12">
           <div className="mx-auto max-w-6xl">
-            <div className="story-reveal mb-16 text-center">
+            <div className="story-reveal mb-14 text-center">
               <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-400/70">
                 Built For Traders
               </p>
@@ -278,18 +243,18 @@ export default function LandingPage() {
               </h2>
             </div>
 
-            <div className="pillars-grid grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="pillars-grid grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                { icon: Shield, title: 'Bias Detection', desc: 'Revenge, FOMO, overtrading, loss aversion — caught automatically.', color: 'text-red-400' },
-                { icon: BarChart3, title: 'Equity Replay', desc: 'See your "what-if" disciplined equity curve vs actual performance.', color: 'text-emerald-400' },
-                { icon: Lightbulb, title: 'AI Coach', desc: 'Personalized prompts and journaling that target your specific patterns.', color: 'text-purple-400' },
-                { icon: Target, title: 'ELO Rating', desc: 'Chess-style discipline scoring. Track progress session over session.', color: 'text-orange-400' },
-              ].map(({ icon: Icon, title, desc, color }) => (
+                { icon: Shield, title: 'Bias Detection', desc: 'Revenge, FOMO, overtrading, loss aversion — caught automatically.', color: 'text-red-400', glow: 'hover:shadow-red-500/5' },
+                { icon: BarChart3, title: 'Equity Replay', desc: 'See your "what-if" disciplined equity curve vs actual performance.', color: 'text-emerald-400', glow: 'hover:shadow-emerald-500/5' },
+                { icon: Lightbulb, title: 'AI Coach', desc: 'Personalized prompts and journaling that target your specific patterns.', color: 'text-purple-400', glow: 'hover:shadow-purple-500/5' },
+                { icon: Target, title: 'ELO Rating', desc: 'Chess-style discipline scoring. Track progress session over session.', color: 'text-orange-400', glow: 'hover:shadow-orange-500/5' },
+              ].map(({ icon: Icon, title, desc, color, glow }) => (
                 <div
                   key={title}
-                  className="pillar-card group rounded-2xl border border-white/[0.06] bg-white/[0.03] p-6 transition-all duration-300 hover:border-emerald-500/20 hover:bg-white/[0.05]"
+                  className={`pillar-card group rounded-2xl border border-white/[0.06] bg-white/[0.025] p-6 backdrop-blur-sm transition-all duration-300 hover:border-white/[0.1] hover:bg-white/[0.04] hover:shadow-lg ${glow}`}
                 >
-                  <Icon className={`mb-4 h-6 w-6 ${color}`} />
+                  <Icon className={`mb-4 h-5 w-5 ${color} opacity-80`} />
                   <h3 className="mb-2 text-sm font-semibold">{title}</h3>
                   <p className="text-[12px] leading-relaxed text-gray-500">{desc}</p>
                 </div>
@@ -298,22 +263,17 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ━━ STATS BAR ━━ */}
-        <section className="relative border-y border-white/[0.06] bg-[#050505] px-6 py-16 md:px-12">
-          <div className="mx-auto grid max-w-4xl grid-cols-2 gap-8 text-center md:grid-cols-4">
+        {/* ━━ STATS ━━ */}
+        <section className="relative border-y border-white/[0.06] bg-[#050505] px-6 py-14 md:px-12">
+          <div className="mx-auto grid max-w-3xl grid-cols-3 gap-8 text-center">
             {[
               { val: 8, suffix: '', label: 'Decision Labels' },
               { val: 5, suffix: '', label: 'Bias Detectors' },
               { val: 100, suffix: '%', label: 'Deterministic' },
-              { val: 0, suffix: '', label: 'API Keys Needed', special: true },
-            ].map(({ val, suffix, label, special }) => (
+            ].map(({ val, suffix, label }) => (
               <div key={label} className="story-reveal">
                 <p className="text-3xl font-bold text-white md:text-4xl">
-                  {special ? (
-                    <span>0</span>
-                  ) : (
-                    <><span className="stat-number" data-val={val}>0</span>{suffix}</>
-                  )}
+                  <span className="stat-number" data-val={val}>0</span>{suffix}
                 </p>
                 <p className="mt-1 text-[11px] text-gray-500">{label}</p>
               </div>
@@ -322,8 +282,8 @@ export default function LandingPage() {
         </section>
 
         {/* ━━ CTA ━━ */}
-        <section className="relative px-6 py-28 md:px-12">
-          <div className="story-reveal mx-auto max-w-3xl space-y-8 text-center">
+        <section className="relative px-6 py-24 md:px-12">
+          <div className="story-reveal mx-auto max-w-3xl space-y-7 text-center">
             <h2 className="text-3xl font-medium tracking-tight md:text-5xl">
               Stop losing to <span className="text-emerald-400">yourself.</span>
             </h2>
