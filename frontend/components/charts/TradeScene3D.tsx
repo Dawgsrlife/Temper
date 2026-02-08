@@ -56,8 +56,8 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
 
         // Scene
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a0a);
-        scene.fog = new THREE.FogExp2(0x0a0a0a, 0.015);
+        scene.background = new THREE.Color(0x141414);
+        scene.fog = new THREE.FogExp2(0x1a1a1a, 0.008);
         sceneRef.current = scene;
 
         const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
@@ -68,7 +68,7 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
         renderer.setSize(container.clientWidth, container.clientHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.2;
+        renderer.toneMappingExposure = 1.8;
         container.appendChild(renderer.domElement);
         rendererRef.current = renderer;
 
@@ -82,19 +82,19 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
         controlsRef.current = controls;
 
         // Lighting
-        scene.add(new THREE.AmbientLight(0xffffff, 0.35));
-        const ptLight1 = new THREE.PointLight(0x06d6a0, 2, 60);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+        const ptLight1 = new THREE.PointLight(0x06d6a0, 3.5, 60);
         ptLight1.position.set(12, 12, 12);
         scene.add(ptLight1);
-        const ptLight2 = new THREE.PointLight(0xef476f, 1.5, 50);
+        const ptLight2 = new THREE.PointLight(0xef476f, 2.5, 50);
         ptLight2.position.set(-10, -5, -10);
         scene.add(ptLight2);
-        const ptLight3 = new THREE.PointLight(0xf59e0b, 0.8, 40);
+        const ptLight3 = new THREE.PointLight(0xf59e0b, 1.8, 40);
         ptLight3.position.set(0, 15, 0);
         scene.add(ptLight3);
 
         // Grid
-        const grid = new THREE.GridHelper(40, 40, 0x1a1a1a, 0x111111);
+        const grid = new THREE.GridHelper(40, 40, 0x2a2a2a, 0x1a1a1a);
         grid.position.y = -3;
         scene.add(grid);
 
@@ -125,10 +125,10 @@ export default function TradeScene3D({ trades, onNodeClick, onNodeHover, classNa
                 const geometry = new THREE.SphereGeometry(Math.min(size, 0.6), 24, 24);
                 const material = new THREE.MeshStandardMaterial({
                     color,
-                    roughness: 0.2,
-                    metalness: 0.8,
+                    roughness: 0.3,
+                    metalness: 0.6,
                     emissive: new THREE.Color(color),
-                    emissiveIntensity: 0.15,
+                    emissiveIntensity: 0.3,
                 });
 
                 const mesh = new THREE.Mesh(geometry, material);
