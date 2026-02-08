@@ -1,173 +1,149 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useRef, useEffect } from 'react';
-import { useGSAP } from '@gsap/react';
-import gsap from 'gsap';
+import Link from 'next/link';
+import Image from 'next/image';
 import {
   LayoutDashboard,
   History,
   Upload,
   Settings,
+  BookOpen,
+  Activity,
   LogOut,
-  LineChart,
-  ChevronLeft,
-  ChevronRight,
   Menu,
   X,
+  Network,
 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { useGSAP } from '@gsap/react';
+import gsap from 'gsap';
+
+const navigation = [
+  { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Journal', href: '/dashboard/journal', icon: BookOpen },
+  { name: 'Analyze', href: '/dashboard/analyze', icon: Activity },
+  { name: 'Explorer', href: '/dashboard/explorer', icon: Network },
+  { name: 'Sessions', href: '/dashboard/sessions', icon: History },
+  { name: 'Upload', href: '/dashboard/upload', icon: Upload },
+  { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+];
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useGSAP(() => {
-    gsap.from(sidebarRef.current, {
-      x: -20,
-      opacity: 0,
-      duration: 0.5,
-      ease: 'power3.out',
+    if (!mounted) return;
+    gsap.from('.sidebar-nav-item', {
+      x: -20, opacity: 0, stagger: 0.04, duration: 0.4, ease: 'power3.out',
     });
-  }, { scope: sidebarRef });
+  }, { scope: sidebarRef, dependencies: [mounted] });
 
-  const navItems = [
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Overview' },
-    { href: '/dashboard/sessions', icon: History, label: 'Sessions' },
-    { href: '/dashboard/upload', icon: Upload, label: 'Upload' },
-    { href: '/dashboard/demo', icon: LineChart, label: 'Demo' },
-  ];
-
-  const bottomItems = [
-    { href: '/dashboard/settings', icon: Settings, label: 'Settings' },
-  ];
+  useGSAP(() => {
+    if (isMobileMenuOpen) {
+      gsap.to('.mobile-menu', { x: 0, duration: 0.3, ease: 'power3.out' });
+    } else {
+      gsap.to('.mobile-menu', { x: '-100%', duration: 0.3, ease: 'power3.in' });
+    }
+  }, [isMobileMenuOpen]);
 
   return (
-    <div className="flex min-h-screen bg-temper-bg">
-      {/* Subtle gradient background */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-br from-temper-bg via-temper-bg to-temper-surface/20" />
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        ref={sidebarRef}
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col border-r border-temper-border/10 bg-temper-bg/95 backdrop-blur-xl transition-all duration-300 md:relative md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'
-          } ${collapsed ? 'w-20' : 'w-64'}`}
-      >
-        {/* Header */}
-        <div
-          className={`flex h-16 items-center border-b border-temper-border/10 ${collapsed ? 'justify-center px-4' : 'justify-between px-5'
-            }`}
-        >
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-temper-teal font-coach text-sm font-bold text-temper-bg">
-              T
-            </div>
-            {!collapsed && (
-              <span className="font-coach text-lg font-bold text-temper-text">
-                Temper
-              </span>
-            )}
+    <div className="flex min-h-screen bg-[#0a0a0a] text-white selection:bg-emerald-500/30 selection:text-white">
+      {/* Desktop Sidebar */}
+      <aside ref={sidebarRef} className="hidden w-[260px] flex-col border-r border-white/[0.06] bg-[#0a0a0a] lg:flex">
+        {/* Logo */}
+        <div className="flex h-16 items-center gap-3 border-b border-white/[0.06] px-6">
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <Image src="/Temper_logo.png" alt="Temper" width={32} height={32} className="rounded-lg transition-transform group-hover:scale-110" />
+            <span className="font-coach text-lg font-bold tracking-tight text-white">Temper</span>
           </Link>
-
-          {/* Collapse toggle (desktop) */}
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className={`hidden rounded-lg p-1.5 text-temper-muted transition-colors hover:bg-temper-surface hover:text-temper-text md:block ${collapsed ? 'absolute -right-3 top-5 bg-temper-surface ring-1 ring-temper-border/20' : ''
-              }`}
-          >
-            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-          </button>
-
-          {/* Mobile close */}
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="rounded-lg p-1.5 text-temper-muted hover:bg-temper-surface hover:text-temper-text md:hidden"
-          >
-            <X size={18} />
-          </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-1 p-3">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname?.startsWith(`${item.href}/`));
+        <nav className="flex-1 space-y-0.5 px-3 py-5">
+          {navigation.map((item) => {
+            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
             return (
               <Link
-                key={item.href}
+                key={item.name}
                 href={item.href}
-                className={`group flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${isActive
-                    ? 'bg-temper-teal/10 text-temper-teal'
-                    : 'text-temper-muted hover:bg-temper-surface/60 hover:text-temper-text'
-                  } ${collapsed ? 'justify-center' : ''}`}
-                title={collapsed ? item.label : undefined}
+                className={`sidebar-nav-item group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${isActive
+                    ? 'bg-white/[0.08] text-white shadow-sm'
+                    : 'text-gray-500 hover:bg-white/[0.04] hover:text-gray-300'
+                  }`}
               >
-                <item.icon size={18} />
-                {!collapsed && <span>{item.label}</span>}
+                <item.icon className={`h-[18px] w-[18px] transition-colors ${isActive ? 'text-emerald-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
+                {item.name}
+                {isActive && <div className="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-400" />}
               </Link>
             );
           })}
         </nav>
 
-        {/* Bottom section */}
-        <div className="border-t border-temper-border/10 p-3">
-          {bottomItems.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`group flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${isActive
-                    ? 'bg-temper-teal/10 text-temper-teal'
-                    : 'text-temper-muted hover:bg-temper-surface/60 hover:text-temper-text'
-                  } ${collapsed ? 'justify-center' : ''}`}
-                title={collapsed ? item.label : undefined}
-              >
-                <item.icon size={18} />
-                {!collapsed && <span>{item.label}</span>}
-              </Link>
-            );
-          })}
-
-          <button
-            className={`mt-1 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium text-temper-red/70 transition-all hover:bg-temper-red/10 hover:text-temper-red ${collapsed ? 'justify-center' : ''
-              }`}
-            title={collapsed ? 'Sign Out' : undefined}
-          >
-            <LogOut size={18} />
-            {!collapsed && <span>Sign Out</span>}
-          </button>
+        {/* User Footer */}
+        <div className="border-t border-white/[0.06] p-4">
+          <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] p-3">
+            <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-emerald-500 to-cyan-400 flex items-center justify-center text-xs font-bold text-black">AT</div>
+            <div className="flex-1 overflow-hidden">
+              <p className="truncate text-sm font-medium text-white">Alex Trader</p>
+              <p className="truncate text-[11px] text-gray-500">Pro Plan</p>
+            </div>
+            <Link href="/" className="text-gray-600 hover:text-red-400 transition-colors">
+              <LogOut className="h-4 w-4" />
+            </Link>
+          </div>
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="relative z-10 flex-1">
-        {/* Mobile header */}
-        <div className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-temper-border/10 bg-temper-bg/90 px-4 backdrop-blur-xl md:hidden">
-          <button
-            onClick={() => setMobileOpen(true)}
-            className="rounded-lg p-1.5 text-temper-muted hover:bg-temper-surface hover:text-temper-text"
-          >
-            <Menu size={18} />
+      {/* Main Content */}
+      <div className="flex min-h-screen flex-1 flex-col">
+        {/* Mobile Header */}
+        <header className="flex h-14 items-center justify-between border-b border-white/[0.06] bg-[#0a0a0a] px-4 lg:hidden">
+          <div className="flex items-center gap-2.5">
+            <Image src="/Temper_logo.png" alt="Temper" width={28} height={28} className="rounded-lg" />
+            <span className="font-coach text-base font-bold">Temper</span>
+          </div>
+          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-gray-500 hover:text-white">
+            {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <span className="font-coach text-lg font-bold text-temper-text">Temper</span>
+        </header>
+
+        {/* Mobile Menu */}
+        <div className="mobile-menu fixed inset-0 z-50 flex flex-col bg-[#0a0a0a] lg:hidden" style={{ transform: 'translateX(-100%)' }}>
+          <div className="flex h-14 items-center justify-between px-4 border-b border-white/[0.06]">
+            <span className="font-coach text-base font-bold">Menu</span>
+            <button onClick={() => setIsMobileMenuOpen(false)}>
+              <X className="h-5 w-5 text-gray-500" />
+            </button>
+          </div>
+          <nav className="flex-1 space-y-1 p-4">
+            {navigation.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link key={item.name} href={item.href} onClick={() => setIsMobileMenuOpen(false)}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium ${isActive ? 'bg-white/[0.08] text-white' : 'text-gray-500'}`}>
+                  <item.icon className={isActive ? 'text-emerald-400' : 'text-gray-600'} />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
 
-        <div className="min-h-screen">{children}</div>
-      </main>
+        {/* Content Area */}
+        <main className="flex-1 overflow-y-auto bg-[#0a0a0a]">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

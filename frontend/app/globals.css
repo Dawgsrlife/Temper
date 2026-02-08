@@ -1,169 +1,139 @@
 @import "tailwindcss";
+@config "../tailwind.config.ts";
 
-/* 
-  Temper Branding Palette
-  Primary: #06D6A0 (Teal), #F9C74F (Check/Gold), #EF476F (Danger/Red)
-  Backgrounds: #0B0B16 (Base), #1E1E2F (Card), #232336 (Input)
-*/
+@layer base {
+  :root {
+    /* Minimalist Palette - Temper */
+    --color-temper-bg: 5 5 5;
+    /* #050505 - Almost black */
+    --color-temper-surface: 20 20 20;
+    /* #141414 - Dark gray for cards */
+    --color-temper-border: 40 40 40;
+    /* #282828 - Subtle borders */
 
-@theme {
-  --color-temper-bg: #0B0B16;
-  --color-temper-surface: #1E1E2F;
-  --color-temper-subtle: #232336;
-  --color-temper-border: #2F2F42;
-  --color-temper-text: #F9FAFB;
-  --color-temper-muted: #9CA3AF;
+    --color-temper-text: 255 255 255;
+    /* #FFFFFF - Primary text */
+    --color-temper-muted: 140 140 140;
+    /* #8C8C8C - Secondary text */
 
-  --color-temper-teal: #06D6A0;
-  --color-temper-teal-hover: #05956F;
-  --color-temper-gold: #F9C74F;
-  --color-temper-red: #EF476F;
-  --color-temper-blue: #3B82F6;
+    /* Brand Colors */
+    --color-temper-teal: 6 214 160;
+    /* #06D6A0 - Main Brand Color (Success/Action) */
+    --color-temper-red: 239 71 111;
+    /* #EF476F - Danger/Loss */
+    --color-temper-blue: 59 130 246;
+    /* #3B82F6 - Info/Neutral */
+    --color-temper-orange: 249 115 22;
+    /* #F97316 - Warning */
+    --color-temper-purple: 139 92 246;
+    /* #8B5CF6 - Insight/AI */
+    --color-temper-gold: 245 158 11;
+    /* #F59E0B - Premium/Score */
 
-  --color-bias-overtrading: #F97316;
-  --color-bias-revenge: #EF476F;
-  --color-bias-lossaversion: #8B5CF6;
-  --color-bias-fomo: #3B82F6;
-  --color-bias-greed: #22C55E;
-
-  --font-inter: 'Inter', system-ui, sans-serif;
-  --font-coach: 'Baloo 2', system-ui, sans-serif;
-}
-
-/* Base Styles */
-html {
-  scroll-behavior: smooth;
-}
-
-body {
-  background-color: var(--color-temper-bg);
-  color: var(--color-temper-text);
-  font-family: var(--font-inter);
-  @apply antialiased;
-}
-
-/* Coach Font */
-.font-coach {
-  font-family: var(--font-coach);
-}
-
-/* Glassmorphism Utilities */
-.glass {
-  background: rgba(30, 30, 47, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(47, 47, 66, 0.7);
-}
-
-.glass-subtle {
-  background: rgba(35, 35, 54, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(47, 47, 66, 0.5);
-}
-
-.glass-card {
-  background: linear-gradient(135deg, rgba(30, 30, 47, 0.9) 0%, rgba(11, 11, 22, 0.8) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
-}
-
-/* Gradient Backgrounds */
-.gradient-hero {
-  background:
-    radial-gradient(circle at 30% 20%, rgba(6, 214, 160, 0.12) 0%, transparent 50%),
-    radial-gradient(circle at 70% 80%, rgba(239, 71, 111, 0.12) 0%, transparent 50%),
-    radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 60%);
-}
-
-.gradient-glow-teal {
-  box-shadow: 0 0 60px rgba(6, 214, 160, 0.3), inset 0 0 60px rgba(6, 214, 160, 0.05);
-}
-
-.gradient-glow-red {
-  box-shadow: 0 0 40px rgba(239, 71, 111, 0.25);
-}
-
-/* Text Gradients */
-.text-gradient-teal {
-  background: linear-gradient(135deg, #06D6A0 0%, #05956F 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* Utility Animations */
-@keyframes pulse-glow-teal {
-
-  0%,
-  100% {
-    box-shadow: 0 0 10px rgba(6, 214, 160, 0.4);
-  }
-
-  50% {
-    box-shadow: 0 0 20px rgba(6, 214, 160, 0.7);
+    /* Bias Specific Colors */
+    --color-bias-revenge: 239 71 111;
+    --color-bias-overtrading: 249 115 22;
+    --color-bias-loss: 139 92 246;
   }
 }
 
-@keyframes float {
+@layer base {
+  body {
+    @apply bg-temper-bg text-temper-text antialiased;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+  }
+}
 
-  0%,
-  100% {
+@layer utilities {
+
+  /* Minimalist Utilities */
+  .glass-panel {
+    @apply bg-temper-surface/60 backdrop-blur-md border border-temper-border/40;
+  }
+
+  .glass-card {
+    @apply bg-temper-surface border border-temper-border/50;
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-temper-text to-temper-muted;
+  }
+
+  .text-gradient-teal {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-temper-teal to-[#4DFFC9];
+  }
+
+  /* Sharp Animations */
+  .animate-in-fade {
+    animation: fadeIn 0.4s ease-out forwards;
+  }
+
+  .animate-in-slide-up {
+    animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* Custom Scrollbar - Minimal */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-temper-border rounded-full hover:bg-temper-muted/50 transition-colors;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
     transform: translateY(0);
   }
-
-  50% {
-    transform: translateY(-10px);
-  }
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-
-  100% {
-    background-position: 200% 0;
-  }
+/* Label Styles - Clean */
+.label-brilliant {
+  @apply bg-green-500/10 text-green-400 border border-green-500/20;
 }
 
-.animate-pulse-glow-teal {
-  animation: pulse-glow-teal 2s infinite;
+.label-excellent {
+  @apply bg-temper-teal/10 text-temper-teal border border-temper-teal/20;
 }
 
-.animate-float {
-  animation: float 4s ease-in-out infinite;
+.label-good {
+  @apply bg-blue-500/10 text-blue-400 border border-blue-500/20;
 }
 
-.animate-shimmer {
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.05) 50%, transparent 100%);
-  background-size: 200% 100%;
-  animation: shimmer 2s infinite;
+.label-neutral {
+  @apply bg-gray-500/10 text-gray-400 border border-gray-500/20;
 }
 
-/* Scrollbar Customization */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+.label-inaccuracy {
+  @apply bg-temper-gold/10 text-temper-gold border border-temper-gold/20;
 }
 
-::-webkit-scrollbar-track {
-  background: var(--color-temper-bg);
+.label-mistake {
+  @apply bg-temper-orange/10 text-temper-orange border border-temper-orange/20;
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--color-temper-border);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-temper-muted);
-}
-
-/* Selection */
-::selection {
-  background: rgba(6, 214, 160, 0.3);
-  color: #F9FAFB;
+.label-blunder {
+  @apply bg-temper-red/10 text-temper-red border border-temper-red/20;
 }

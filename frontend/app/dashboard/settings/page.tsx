@@ -1,141 +1,213 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
-import { User, Bell, Shield, Moon, Eye, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Bell, Shield, LogOut, Trash2, User, Palette } from 'lucide-react';
 
-interface SettingItem {
-    id: string;
-    title: string;
-    description: string;
-    enabled: boolean;
-}
-
-interface SettingGroup {
-    title: string;
-    icon: typeof User;
-    items: SettingItem[];
+function Toggle({ defaultOn = false }: { defaultOn?: boolean }) {
+  const [on, setOn] = useState(defaultOn);
+  return (
+    <button
+      onClick={() => setOn(!on)}
+      className={`relative h-6 w-11 rounded-full transition-colors ${
+        on ? 'bg-emerald-500' : 'bg-white/[0.10]'
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+          on ? 'translate-x-[22px]' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
 }
 
 export default function SettingsPage() {
-    const container = useRef<HTMLDivElement>(null);
+  const container = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+  const router = useRouter();
 
-    const [settings, setSettings] = useState<SettingGroup[]>([
-        {
-            title: 'Notifications',
-            icon: Bell,
-            items: [
-                { id: 'email', title: 'Email Alerts', description: 'Daily discipline reports and tilt warnings', enabled: true },
-                { id: 'browser', title: 'Browser Notifications', description: 'Real-time alerts when reviewing sessions', enabled: false },
-            ],
-        },
-        {
-            title: 'Privacy',
-            icon: Shield,
-            items: [
-                { id: 'analytics', title: 'Usage Analytics', description: 'Help improve Temper with anonymous data', enabled: true },
-                { id: 'share', title: 'Share Sessions', description: 'Allow sharing session reviews with others', enabled: false },
-            ],
-        },
-        {
-            title: 'Appearance',
-            icon: Eye,
-            items: [
-                { id: 'dark', title: 'Dark Mode', description: 'Always use dark theme', enabled: true },
-                { id: 'compact', title: 'Compact View', description: 'Reduce spacing for denser layouts', enabled: false },
-            ],
-        },
-    ]);
+  useEffect(() => { setMounted(true); }, []);
 
-    useGSAP(() => {
-        const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-        tl.from('.page-header', { y: 20, opacity: 0, duration: 0.5 })
-            .from('.settings-group', { y: 30, opacity: 0, stagger: 0.1, duration: 0.4 }, '-=0.2');
-    }, { scope: container });
+  useGSAP(
+    () => {
+      if (!mounted) return;
+      gsap.from('.settings-section', {
+        y: 20,
+        opacity: 0,
+        stagger: 0.1,
+        duration: 0.5,
+        ease: 'power3.out',
+      });
+    },
+    { scope: container, dependencies: [mounted] },
+  );
 
-    const toggleSetting = (groupIndex: number, itemId: string) => {
-        setSettings(prev => {
-            const newSettings = [...prev];
-            const group = newSettings[groupIndex];
-            const itemIndex = group.items.findIndex(i => i.id === itemId);
-            if (itemIndex !== -1) {
-                group.items[itemIndex].enabled = !group.items[itemIndex].enabled;
-            }
-            return newSettings;
-        });
-    };
+  const handleClearData = () => {
+    localStorage.removeItem('temper_current_session');
+    localStorage.removeItem('temper_journal_entries');
+    window.location.reload();
+  };
 
-    return (
-        <div ref={container} className="px-6 py-8 md:px-10 md:py-10 lg:px-12">
-            <div className="mx-auto max-w-2xl space-y-10">
-                {/* Header */}
-                <header className="page-header space-y-1">
-                    <p className="text-xs font-medium uppercase tracking-wider text-temper-teal">
-                        Preferences
-                    </p>
-                    <h1 className="text-3xl font-medium tracking-tight text-temper-text">
-                        Settings
-                    </h1>
-                </header>
+  return (
+    <div
+      ref={container}
+      className="min-h-screen bg-[#0a0a0a] px-6 py-8 text-white md:px-10 md:py-10 lg:px-12"
+    >
+      <div className="mx-auto max-w-3xl space-y-8">
+        <header className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+            Configuration
+          </p>
+          <h1 className="font-coach text-3xl font-semibold tracking-tight text-white md:text-4xl">
+            Settings
+          </h1>
+          <p className="text-sm text-gray-500">
+            Manage your account and preferences.
+          </p>
+        </header>
 
-                {/* Settings Groups */}
-                {settings.map((group, groupIndex) => (
-                    <section key={group.title} className="settings-group space-y-3">
-                        <div className="flex items-center gap-2.5">
-                            <group.icon className="h-4 w-4 text-temper-teal" />
-                            <h2 className="text-sm font-medium uppercase tracking-wider text-temper-muted">
-                                {group.title}
-                            </h2>
-                        </div>
-
-                        <div className="divide-y divide-temper-border/10 overflow-hidden rounded-2xl bg-temper-surface/50 ring-1 ring-temper-border/20">
-                            {group.items.map((item) => (
-                                <div
-                                    key={item.id}
-                                    className="flex items-center justify-between p-5"
-                                >
-                                    <div className="space-y-0.5">
-                                        <p className="text-sm font-medium text-temper-text">{item.title}</p>
-                                        <p className="text-xs text-temper-muted">{item.description}</p>
-                                    </div>
-                                    <button
-                                        onClick={() => toggleSetting(groupIndex, item.id)}
-                                        className={`relative h-6 w-11 rounded-full transition-colors ${item.enabled ? 'bg-temper-teal' : 'bg-temper-subtle'
-                                            }`}
-                                    >
-                                        <span
-                                            className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${item.enabled ? 'left-6' : 'left-1'
-                                                }`}
-                                        />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </section>
-                ))}
-
-                {/* Danger Zone */}
-                <section className="settings-group space-y-3">
-                    <div className="flex items-center gap-2.5">
-                        <Trash2 className="h-4 w-4 text-temper-red" />
-                        <h2 className="text-sm font-medium uppercase tracking-wider text-temper-muted">
-                            Danger Zone
-                        </h2>
-                    </div>
-                    <div className="rounded-2xl bg-temper-red/5 p-5 ring-1 ring-temper-red/20">
-                        <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                                <p className="text-sm font-medium text-temper-text">Delete Account</p>
-                                <p className="text-xs text-temper-muted">Permanently delete all sessions and data</p>
-                            </div>
-                            <button className="rounded-lg bg-temper-red/10 px-4 py-2 text-xs font-medium text-temper-red transition-colors hover:bg-temper-red/20">
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                </section>
+        <div className="space-y-6">
+          {/* Profile */}
+          <section className="settings-section rounded-2xl border border-white/[0.06] bg-white/[0.04] p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-lg bg-emerald-400/10 p-2 text-emerald-400">
+                <User className="h-5 w-5" />
+              </div>
+              <h2 className="text-lg font-semibold text-white">Profile</h2>
             </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Display Name</p>
+                  <p className="text-xs text-gray-500">Shown on your dashboard.</p>
+                </div>
+                <input
+                  type="text"
+                  defaultValue="Trader"
+                  className="w-40 rounded-lg border border-white/[0.06] bg-white/[0.04] px-3 py-2 text-right text-sm text-white outline-none focus:border-emerald-400/40"
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Notifications */}
+          <section className="settings-section rounded-2xl border border-white/[0.06] bg-white/[0.04] p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-lg bg-blue-400/10 p-2 text-blue-400">
+                <Bell className="h-5 w-5" />
+              </div>
+              <h2 className="text-lg font-semibold text-white">Notifications</h2>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Email Alerts</p>
+                  <p className="text-xs text-gray-500">
+                    Receive weekly summaries of your trading psychology.
+                  </p>
+                </div>
+                <Toggle />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Bias Warnings</p>
+                  <p className="text-xs text-gray-500">
+                    Get notified when a bias pattern is detected.
+                  </p>
+                </div>
+                <Toggle defaultOn />
+              </div>
+            </div>
+          </section>
+
+          {/* Privacy */}
+          <section className="settings-section rounded-2xl border border-white/[0.06] bg-white/[0.04] p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-lg bg-purple-400/10 p-2 text-purple-400">
+                <Shield className="h-5 w-5" />
+              </div>
+              <h2 className="text-lg font-semibold text-white">Privacy</h2>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Data Sharing</p>
+                  <p className="text-xs text-gray-500">
+                    Allow anonymized data usage for model improvements.
+                  </p>
+                </div>
+                <Toggle defaultOn />
+              </div>
+            </div>
+          </section>
+
+          {/* Appearance */}
+          <section className="settings-section rounded-2xl border border-white/[0.06] bg-white/[0.04] p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-lg bg-yellow-400/10 p-2 text-yellow-400">
+                <Palette className="h-5 w-5" />
+              </div>
+              <h2 className="text-lg font-semibold text-white">Appearance</h2>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-white">Theme</p>
+                <p className="text-xs text-gray-500">Select your preferred color scheme.</p>
+              </div>
+              <div className="flex gap-2">
+                <button className="flex items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
+                  Dark
+                </button>
+                <button className="rounded-lg border border-white/[0.06] bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-gray-500">
+                  Light
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* Danger Zone */}
+          <section className="settings-section rounded-2xl border border-red-400/20 bg-red-400/5 p-6">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-lg bg-red-400/10 p-2 text-red-400">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <h2 className="text-lg font-semibold text-red-400">Danger Zone</h2>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Clear Local Data</p>
+                  <p className="text-xs text-gray-500">
+                    Remove all saved sessions and journal entries from this browser.
+                  </p>
+                </div>
+                <button
+                  onClick={handleClearData}
+                  className="rounded-lg bg-red-400/10 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-400/20"
+                >
+                  Clear Data
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Sign Out</p>
+                  <p className="text-xs text-gray-500">Log out of your account.</p>
+                </div>
+                <button
+                  onClick={() => router.push('/login')}
+                  className="flex items-center gap-2 rounded-lg bg-white/[0.06] px-4 py-2 text-sm font-medium text-gray-400 transition-colors hover:bg-white/[0.10] hover:text-white"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
-    );
+      </div>
+    </div>
+  );
 }
