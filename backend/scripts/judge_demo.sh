@@ -122,6 +122,13 @@ done
 
 if [[ "${TERMINAL_STATUS}" != "COMPLETED" ]]; then
   echo "job did not complete successfully: ${TERMINAL_STATUS}" >&2
+  python3 - "${JOB_JSON}" <<'PY' >&2
+import json,sys
+payload=json.loads(sys.argv[1])
+data=payload.get('data') or {}
+print('error_type:', data.get('error_type'))
+print('error_message:', data.get('error_message'))
+PY
   echo "${JOB_JSON}" >&2
   exit 1
 fi
@@ -194,6 +201,18 @@ move_review=coach.get('move_review') or []
 print('move_review_top3:')
 for row in move_review[:3]:
     print(' -', f"{row.get('label')} | {row.get('timestamp')} | {row.get('asset')} | {row.get('explanation')}")
+
+personalized_line = None
+for row in move_review:
+    refs = row.get('metric_refs') or []
+    if refs:
+        ref = refs[0]
+        personalized_line = f"{row.get('label')} | {ref.get('name')}={ref.get('value')} {ref.get('unit')}"
+        break
+if personalized_line:
+    print('personalized_evidence:', personalized_line)
+else:
+    print('personalized_evidence: none')
 PY
 
 HISTORY_JSON="$(curl -fsS "${BASE_URL}/users/${USER_ID}/jobs?limit=1")"

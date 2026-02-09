@@ -1,0 +1,53 @@
+{
+  "columns": [
+    "Account",
+    "Coin",
+    "Execution Price",
+    "Size Tokens",
+    "Size USD",
+    "Side",
+    "Timestamp IST",
+    "Start Position",
+    "Direction",
+    "Closed PnL",
+    "Transaction Hash",
+    "Order ID",
+    "Crossed",
+    "Fee",
+    "Trade ID",
+    "Timestamp"
+  ],
+  "metrics": {
+    "duplicate_timestamp_count": 183247,
+    "duplicate_timestamp_pct": 86.75481952808393,
+    "missing_asset_count": 0,
+    "missing_asset_pct": 0.0,
+    "nat_timestamp_count": 0,
+    "nat_timestamp_pct": 0.0,
+    "nonpositive_price_count": 0,
+    "nonpositive_price_pct": 0.0,
+    "nonpositive_size_usd_count": 43,
+    "nonpositive_size_usd_pct": 0.020357535128583872,
+    "out_of_order_rows_count": 31,
+    "out_of_order_rows_pct": 0.014676362534560467,
+    "pnl_non_numeric_coercions_count": 0,
+    "pnl_non_numeric_coercions_pct": 0.0,
+    "rows": 211224
+  },
+  "quality_flags": {
+    "has_warnings": true
+  },
+  "rows": 211224,
+  "source_columns": {
+    "asset": "Coin",
+    "pnl": "Closed PnL",
+    "price": "Execution Price",
+    "size": "Size USD",
+    "timestamp": "Timestamp IST"
+  },
+  "warnings": [
+    "0.02% rows have nonpositive size.",
+    "86.75% rows have duplicate timestamps.",
+    "0.01% rows are out of timestamp order."
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "artifact_hashes": {
+    "counterfactual.csv": "a669e99e8ed6ac15ef4aa5139f78e43986a91b4a45a6729d60eea44640d7f69a",
+    "data_quality.json": "38ab8192a7061113db43ebd851278d25d5bd5549d269b80ff8f4dfa1d7b71c6f",
+    "flagged.csv": "fb3e4d9c4c70c1cf02a19d547f29ec44e8b19bee1cfd588615cad0f2e8983241",
+    "normalized.csv": "45df09cf0a6ae0b5ef16ad6959d40798ccbbfcada729cb48582f27959b92119c",
+    "policy_report.txt": "a40a145203d7ee9757172dbfef453f66ee55515ed8edc5573291a642ca1b3401",
+    "review.json": "8e4d1200d5970250b9dd79fb84c3cdbda61154d0a6271d1bd151f74df37d1aa2"
+  },
+  "data_quality": {
+    "columns": [
+      "Account",
+      "Coin",
+      "Execution Price",
+      "Size Tokens",
+      "Size USD",
+      "Side",
+      "Timestamp IST",
+      "Start Position",
+      "Direction",
+      "Closed PnL",
+      "Transaction Hash",
+      "Order ID",
+      "Crossed",
+      "Fee",
+      "Trade ID",
+      "Timestamp"
+    ],
+    "metrics": {
+      "duplicate_timestamp_count": 183247,
+      "duplicate_timestamp_pct": 86.75481952808393,
+      "missing_asset_count": 0,
+      "missing_asset_pct": 0.0,
+      "nat_timestamp_count": 0,
+      "nat_timestamp_pct": 0.0,
+      "nonpositive_price_count": 0,
+      "nonpositive_price_pct": 0.0,
+      "nonpositive_size_usd_count": 43,
+      "nonpositive_size_usd_pct": 0.020357535128583872,
+      "out_of_order_rows_count": 31,
+      "out_of_order_rows_pct": 0.014676362534560467,
+      "pnl_non_numeric_coercions_count": 0,
+      "pnl_non_numeric_coercions_pct": 0.0,
+      "rows": 211224
+    },
+    "quality_flags": {
+      "has_warnings": true
+    },
+    "rows": 211224,
+    "source_columns": {
+      "asset": "Coin",
+      "pnl": "Closed PnL",
+      "price": "Execution Price",
+      "size": "Size USD",
+      "timestamp": "Timestamp IST"
+    },
+    "warnings": [
+      "0.02% rows have nonpositive size.",
+      "86.75% rows have duplicate timestamps.",
+      "0.01% rows are out of timestamp order."
+    ]
+  },
+  "error_message": "",
+  "error_type": "",
+  "execution_status": "COMPLETED",
+  "input": "/Users/vishnu/Documents/Temper/historical_data.csv",
+  "k_repeat": 1,
+  "out_dir": "/Users/vishnu/Documents/Temper/outputs/_smoke_200k",
+  "recommended_daily_max_loss": 98077.0253056125,
+  "rows": 211224,
+  "rows_per_second": 4526.8595186744915,
+  "seed": 42,
+  "stage_seconds": {
+    "counterfactual": 0.4050229589920491,
+    "data_quality": 0.09002137498464435,
+    "detect": 0.12198629195336252,
+    "load_and_repeat": 0.19099916698178276,
+    "normalize": 0.2994238340179436,
+    "review": 0.3539919159957208,
+    "risk_recommend": 0.08371424995129928,
+    "write_artifacts": 44.293858250021
+  },
+  "summary": {
+    "actual_total_pnl": 10296958.943436,
+    "blocked_bias_count": 51171,
+    "blocked_risk_count": 15950,
+    "cost_of_bias": 0.0,
+    "delta_pnl": -1256200.2452148162,
+    "outcome": "CHECKMATED",
+    "simulated_total_pnl": 9040758.698221184
+  },
+  "total_seconds": 46.660162332991604,
+  "used_daily_max_loss": 500.0
+}

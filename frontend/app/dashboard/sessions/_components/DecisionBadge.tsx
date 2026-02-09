@@ -24,9 +24,11 @@ const labelColors: Record<DecisionLabel, string> = {
     FORCED: 'bg-purple-500 text-white shadow-purple-500/50',
     INTERESTING: 'bg-amber-500 text-white shadow-amber-500/50',
     CHECKMATED: 'bg-rose-700 text-white shadow-rose-700/50',
+    ABANDON: 'bg-zinc-600 text-white shadow-zinc-600/50',
     WINNER: 'bg-yellow-500 text-black shadow-yellow-500/50',
     DRAW: 'bg-slate-500 text-white shadow-slate-500/50',
     RESIGN: 'bg-stone-600 text-white shadow-stone-600/50',
+    TIMEOUT: 'bg-red-500 text-white shadow-red-500/50',
 };
 
 const sizeClasses = {

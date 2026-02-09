@@ -103,24 +103,38 @@ def main() -> int:
 
     tests_run = 0
     failures = 0
-    for module in imported_modules:
-        for function_name, fn in sorted(inspect.getmembers(module, inspect.isfunction)):
-            if not function_name.startswith("test_"):
-                continue
-            tests_run += 1
-            ok, error = _run_test_function(
-                module_name=module.__name__,
-                function_name=function_name,
-                fn=fn,
-                conftest_module=conftest,
-            )
-            if ok:
-                print(f"PASS {module.__name__}.{function_name}")
-            else:
-                failures += 1
-                print(f"FAIL {module.__name__}.{function_name}")
-                if error:
-                    print(error)
+    
+    # Enter the API environment context once for the entire suite
+    with _api_env_context(conftest) as api_env:
+        for module in imported_modules:
+            for function_name, fn in sorted(inspect.getmembers(module, inspect.isfunction)):
+                if not function_name.startswith("test_"):
+                    continue
+                tests_run += 1
+                
+                # Check signature to see if api_env is needed
+                signature = inspect.signature(fn)
+                params = list(signature.parameters.keys())
+                
+                try:
+                    if not params:
+                        fn()
+                        ok, error = True, None
+                    elif params == ["api_env"]:
+                        fn(api_env)
+                        ok, error = True, None
+                    else:
+                        ok, error = False, f"{module.__name__}.{function_name} has unsupported params: {params}"
+                except Exception:
+                    ok, error = False, traceback.format_exc()
+
+                if ok:
+                    print(f"PASS {module.__name__}.{function_name}")
+                else:
+                    failures += 1
+                    print(f"FAIL {module.__name__}.{function_name}")
+                    if error:
+                        print(error)
 
     print(f"Ran {tests_run} gate tests; failures={failures}")
     return 0 if failures == 0 else 1

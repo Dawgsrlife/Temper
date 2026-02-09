@@ -40,10 +40,12 @@ export enum DecisionLabel {
   FORCED = "FORCED",
   INTERESTING = "INTERESTING",
   // ── Session results ──
+  ABANDON = "ABANDON",
   CHECKMATED = "CHECKMATED",
   WINNER = "WINNER",
   DRAW = "DRAW",
   RESIGN = "RESIGN",
+  TIMEOUT = "TIMEOUT",
 }
 
 export enum TradeSide {
@@ -70,10 +72,12 @@ export const DECISION_SYMBOLS: Record<DecisionLabel, string> = {
   [DecisionLabel.MISS]: "⨯",
   [DecisionLabel.BLUNDER]: "??",
   [DecisionLabel.MEGABLUNDER]: "???",
+  [DecisionLabel.ABANDON]: "⊘",
   [DecisionLabel.CHECKMATED]: "#",
   [DecisionLabel.WINNER]: "♔",
   [DecisionLabel.DRAW]: "½",
   [DecisionLabel.RESIGN]: "⊘",
+  [DecisionLabel.TIMEOUT]: "⏱",
 };
 
 /**
@@ -94,10 +98,12 @@ export const DECISION_SCORE_WEIGHTS: Record<DecisionLabel, number> = {
   [DecisionLabel.MISS]: 4,
   [DecisionLabel.BLUNDER]: 0,
   [DecisionLabel.MEGABLUNDER]: 0,
+  [DecisionLabel.ABANDON]: 1,
   [DecisionLabel.CHECKMATED]: 1,
   [DecisionLabel.WINNER]: 9,
   [DecisionLabel.DRAW]: 5,
   [DecisionLabel.RESIGN]: 2,
+  [DecisionLabel.TIMEOUT]: 2,
 };
 
 /**
@@ -118,10 +124,12 @@ export const DECISION_ELO_VALUES: Record<DecisionLabel, number> = {
   [DecisionLabel.MISS]: 0.4,
   [DecisionLabel.BLUNDER]: 0.0,
   [DecisionLabel.MEGABLUNDER]: 0.0,
+  [DecisionLabel.ABANDON]: 0.15,
   [DecisionLabel.CHECKMATED]: 0.1,
   [DecisionLabel.WINNER]: 0.95,
   [DecisionLabel.DRAW]: 0.5,
   [DecisionLabel.RESIGN]: 0.2,
+  [DecisionLabel.TIMEOUT]: 0.2,
 };
 
 /**
@@ -141,10 +149,12 @@ export const DECISION_COLORS: Record<DecisionLabel, string> = {
   [DecisionLabel.MISS]: "text-gray-400",
   [DecisionLabel.BLUNDER]: "text-red-500",
   [DecisionLabel.MEGABLUNDER]: "text-red-700",
+  [DecisionLabel.ABANDON]: "text-zinc-400",
   [DecisionLabel.CHECKMATED]: "text-rose-600",
   [DecisionLabel.WINNER]: "text-yellow-300",
   [DecisionLabel.DRAW]: "text-slate-400",
   [DecisionLabel.RESIGN]: "text-stone-500",
+  [DecisionLabel.TIMEOUT]: "text-red-500",
 };
 
 export const DECISION_BG_COLORS: Record<DecisionLabel, string> = {
@@ -161,10 +171,12 @@ export const DECISION_BG_COLORS: Record<DecisionLabel, string> = {
   [DecisionLabel.MISS]: "bg-gray-400/10",
   [DecisionLabel.BLUNDER]: "bg-red-500/15",
   [DecisionLabel.MEGABLUNDER]: "bg-red-700/15",
+  [DecisionLabel.ABANDON]: "bg-zinc-500/15",
   [DecisionLabel.CHECKMATED]: "bg-rose-600/15",
   [DecisionLabel.WINNER]: "bg-yellow-300/15",
   [DecisionLabel.DRAW]: "bg-slate-400/10",
   [DecisionLabel.RESIGN]: "bg-stone-500/10",
+  [DecisionLabel.TIMEOUT]: "bg-red-500/15",
 };
 
 // ═══════════════════════════════════════════════════════════════

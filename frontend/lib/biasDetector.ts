@@ -94,6 +94,11 @@ export interface Trade {
   entryPrice?: number;
   exitPrice?: number;
   balance?: number;
+  tradeId?: number;
+  serverLabel?: TradeLabel;
+  serverOutcome?: string;
+  reasonLabel?: string;
+  blockedReason?: string;
 }
 
 export type TradeLabel =
@@ -110,10 +115,12 @@ export type TradeLabel =
   | "BOOK"
   | "FORCED"
   | "INTERESTING"
+  | "ABANDON"
   | "CHECKMATED"
   | "WINNER"
   | "DRAW"
-  | "RESIGN";
+  | "RESIGN"
+  | "TIMEOUT";
 
 export interface BiasDetection {
   type: string;

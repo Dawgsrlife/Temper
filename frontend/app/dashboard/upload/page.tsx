@@ -26,6 +26,15 @@ import {
   parseCSV,
   analyzeSession,
 } from '@/lib/biasDetector';
+import {
+  createAndWaitForJob,
+  fetchJobElo,
+  fetchJobSummary,
+  fetchTradesFromJob,
+  getUserId,
+  setLastJobId,
+} from '@/lib/backend-bridge';
+import { saveCachedSessionTrades } from '@/lib/session-cache';
 
 function generateSessionTitle(): string {
   const titleCounter = parseInt(localStorage.getItem('temper_session_counter') || '0', 10);
@@ -46,9 +55,71 @@ export default function UploadPage() {
     biases: string[];
     profile: TraderProfile;
   } | null>(null);
+  const [completedJobId, setCompletedJobId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [inputMode, setInputMode] = useState<'file' | 'manual'>('file');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const MAX_LOCAL_PARSE_BYTES = 8 * 1024 * 1024;
   const router = useRouter();
+
+  const tradesToCsv = useCallback((trades: Trade[]): string => {
+    const header = ['timestamp', 'asset', 'side', 'quantity', 'price', 'pnl'];
+    const rows = trades.map((trade) => [
+      trade.timestamp,
+      trade.asset,
+      trade.side,
+      String(trade.quantity ?? 1),
+      trade.price != null ? String(trade.price) : '',
+      trade.pnl != null ? String(trade.pnl) : '',
+    ]);
+    return [header.join(','), ...rows.map((row) => row.join(','))].join('\n');
+  }, []);
+
+  const resultFromBackend = useCallback(
+    async (jobId: string, fallbackTrades: Trade[], fallbackProfile?: TraderProfile) => {
+      try {
+        const [summary, elo] = await Promise.all([
+          fetchJobSummary(jobId),
+          fetchJobElo(jobId),
+        ]);
+
+        const biasRates = summary.bias_rates || {};
+        const rankedBiases = Object.entries(biasRates)
+          .filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
+          .sort((a, b) => (Number(b[1]) - Number(a[1])));
+
+        const biasNames = rankedBiases
+          .filter(([, value]) => Number(value) > 0)
+          .map(([key]) => key.replace(/_rate$/i, '').replace(/_/g, ' ').toUpperCase())
+          .slice(0, 3);
+
+        const topBiasKey = rankedBiases.length > 0 ? rankedBiases[0][0] : '';
+        const inferredProfile: TraderProfile =
+          topBiasKey.includes('revenge')
+            ? 'revenge_trader'
+            : topBiasKey.includes('overtrading')
+              ? 'overtrader'
+              : topBiasKey.includes('loss')
+                ? 'loss_averse_trader'
+                : (fallbackProfile || 'calm_trader');
+
+        const projectedElo = Math.round(Number(elo?.elo?.projected ?? 1200));
+        setAnalysisResult({
+          score: projectedElo,
+          biases: biasNames,
+          profile: inferredProfile,
+        });
+      } catch {
+        const fallback = analyzeSession(fallbackTrades);
+        setAnalysisResult({
+          score: fallback.disciplineScore,
+          biases: fallback.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
+          profile: fallbackProfile || (fallback.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader'),
+        });
+      }
+    },
+    [],
+  );
 
   /* ── Manual trade entry state ── */
   interface ManualTrade {
@@ -104,7 +175,7 @@ export default function UploadPage() {
     );
   };
 
-  const submitManualTrades = () => {
+  const submitManualTrades = async () => {
     const validTrades: Trade[] = manualTrades
       .filter((t) => t.asset && t.quantity)
       .map((t) => ({
@@ -118,19 +189,26 @@ export default function UploadPage() {
 
     if (validTrades.length === 0) return;
     setIsUploading(true);
+    setUploadError(null);
+    try {
+      const csv = tradesToCsv(validTrades);
+      const file = new File([csv], 'manual_trades.csv', { type: 'text/csv' });
+      const jobId = await createAndWaitForJob(file, getUserId());
+      setLastJobId(jobId);
+      setCompletedJobId(jobId);
 
-    setTimeout(() => {
+      // Prefer backend-normalized rows when available.
+      const backendTrades = await fetchTradesFromJob(jobId, 2000);
+      const effectiveTrades = backendTrades.length > 0 ? backendTrades : validTrades;
       generateSessionTitle();
-      localStorage.setItem('temper_current_session', JSON.stringify(validTrades));
-      const result = analyzeSession(validTrades);
+      saveCachedSessionTrades(effectiveTrades);
       setIsUploading(false);
       setIsComplete(true);
-      setAnalysisResult({
-        score: result.disciplineScore,
-        biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
-        profile: result.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader',
-      });
-    }, 1200);
+      await resultFromBackend(jobId, effectiveTrades);
+    } catch (error) {
+      setIsUploading(false);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+    }
   };
 
   useEffect(() => { setMounted(true); }, []);
@@ -185,34 +263,55 @@ export default function UploadPage() {
   const handleUpload = async () => {
     if (!file) return;
     setIsUploading(true);
+    setUploadError(null);
 
-    let trades: Trade[];
+    let trades: Trade[] = [];
+    let backendFile: File = file;
+    let parsedLocally = false;
 
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-      // Excel handling via dynamic import
-      const XLSX = await import('xlsx');
-      const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const csvText = XLSX.utils.sheet_to_csv(ws);
-      trades = parseCSV(csvText);
-    } else {
-      const text = await file.text();
-      trades = parseCSV(text);
-    }
+    try {
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        // Excel handling via dynamic import
+        const XLSX = await import('xlsx');
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const csvText = XLSX.utils.sheet_to_csv(ws);
+        if (csvText.length <= MAX_LOCAL_PARSE_BYTES) {
+          trades = parseCSV(csvText);
+          parsedLocally = true;
+        }
+        backendFile = new File([csvText], file.name.replace(/\.(xlsx|xls)$/i, '.csv'), {
+          type: 'text/csv',
+        });
+      } else {
+        if (file.size <= MAX_LOCAL_PARSE_BYTES) {
+          const text = await file.text();
+          trades = parseCSV(text);
+          parsedLocally = true;
+        }
+      }
 
-    setTimeout(() => {
+      const jobId = await createAndWaitForJob(backendFile, getUserId());
+      setLastJobId(jobId);
+      setCompletedJobId(jobId);
+      const backendTrades = await fetchTradesFromJob(jobId, 2000);
+      const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
+
       generateSessionTitle();
-      localStorage.setItem('temper_current_session', JSON.stringify(trades));
-      const result = analyzeSession(trades);
+      if (effectiveTrades.length > 0) {
+        saveCachedSessionTrades(effectiveTrades);
+      }
       setIsUploading(false);
       setIsComplete(true);
-      setAnalysisResult({
-        score: result.disciplineScore,
-        biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
-        profile: result.biases.length > 0 ? 'loss_averse_trader' : 'calm_trader',
-      });
-    }, 1500);
+      if (!parsedLocally && backendTrades.length === 0) {
+        setUploadError('Upload completed. Opening backend session...');
+      }
+      await resultFromBackend(jobId, effectiveTrades);
+    } catch (error) {
+      setIsUploading(false);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+    }
   };
 
   const loadSampleData = (profile: TraderProfile) => {
@@ -260,14 +359,34 @@ export default function UploadPage() {
 
     // Immediately analyze and store in localStorage so it reflects everywhere
     generateSessionTitle();
-    localStorage.setItem('temper_current_session', JSON.stringify(trades));
-    const result = analyzeSession(trades);
-    setIsComplete(true);
-    setAnalysisResult({
-      score: result.disciplineScore,
-      biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
-      profile,
-    });
+    saveCachedSessionTrades(trades);
+    const csv = tradesToCsv(trades);
+    const sampleFile = new File([csv], `${profile}.csv`, { type: 'text/csv' });
+    setIsUploading(true);
+    setUploadError(null);
+      void createAndWaitForJob(sampleFile, getUserId(), { maxSeconds: 600 })
+        .then(async (jobId) => {
+          setLastJobId(jobId);
+          setCompletedJobId(jobId);
+          const backendTrades = await fetchTradesFromJob(jobId, 2000);
+          const effectiveTrades = backendTrades.length > 0 ? backendTrades : trades;
+        saveCachedSessionTrades(effectiveTrades);
+        setIsComplete(true);
+        await resultFromBackend(jobId, effectiveTrades, profile);
+      })
+      .catch((error) => {
+        const result = analyzeSession(trades);
+        setIsComplete(true);
+        setAnalysisResult({
+          score: result.disciplineScore,
+          biases: result.biases.map((b) => b.type.replace('_', ' ')).slice(0, 3),
+          profile,
+        });
+        setUploadError(error instanceof Error ? error.message : 'Upload failed');
+      })
+      .finally(() => {
+        setIsUploading(false);
+      });
   };
 
   const removeFile = () => {
@@ -320,6 +439,12 @@ export default function UploadPage() {
             Manual Entry
           </button>
         </div>
+
+        {uploadError ? (
+          <div className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-300">
+            {uploadError}
+          </div>
+        ) : null}
 
         {/* Upload Zone */}
         {inputMode === 'file' ? (
@@ -392,7 +517,7 @@ export default function UploadPage() {
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-2xl font-bold text-yellow-400">{analysisResult.score}</p>
-                      <p className="text-[10px] text-gray-400">Discipline Score</p>
+                      <p className="text-[10px] text-gray-400">Projected ELO</p>
                     </div>
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.06] p-4 text-center">
                       <p className="text-2xl font-bold text-orange-400">{analysisResult.biases.length}</p>
@@ -419,7 +544,7 @@ export default function UploadPage() {
                   )}
 
                   <Link
-                    href="/dashboard/analyze"
+                    href={completedJobId ? `/dashboard/analyze?jobId=${encodeURIComponent(completedJobId)}` : '/dashboard/analyze'}
                     className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110"
                   >
                     View Full Analysis
@@ -585,7 +710,7 @@ export default function UploadPage() {
                     </div>
                   </div>
                   <Link
-                    href="/dashboard/analyze"
+                    href={completedJobId ? `/dashboard/analyze?jobId=${encodeURIComponent(completedJobId)}` : '/dashboard/analyze'}
                     className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-8 py-3.5 text-sm font-semibold text-black transition-all hover:brightness-110"
                   >
                     View Full Analysis

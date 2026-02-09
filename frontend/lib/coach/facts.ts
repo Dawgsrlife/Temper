@@ -227,10 +227,12 @@ export function buildCoachFacts(report: TemperReport): CoachFactsPayload {
   const severity: Record<DecisionLabel, number> = {
     [DecisionLabel.MEGABLUNDER]: 12,
     [DecisionLabel.BLUNDER]: 10,
+    [DecisionLabel.ABANDON]: 9.5,
     [DecisionLabel.CHECKMATED]: 9,
     [DecisionLabel.MISTAKE]: 8,
     [DecisionLabel.BRILLIANT]: 7,
     [DecisionLabel.RESIGN]: 6,
+    [DecisionLabel.TIMEOUT]: 5.5,
     [DecisionLabel.INACCURACY]: 5,
     [DecisionLabel.MISS]: 4.5,
     [DecisionLabel.EXCELLENT]: 4,

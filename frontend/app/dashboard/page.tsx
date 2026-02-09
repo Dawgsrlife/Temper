@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { analyzeSession, Trade, SessionAnalysis, getRatingBracket } from '@/lib/biasDetector';
 import TemperMascot from '@/components/mascot/TemperMascot';
+import { fetchTradesFromJob, getLastJobId } from '@/lib/backend-bridge';
+import { loadCachedSessionTrades, saveCachedSessionTrades } from '@/lib/session-cache';
 
 /* ------------------------------------------------------------------ */
 /*  Score Ring                                                         */
@@ -107,17 +109,24 @@ export default function DashboardPage() {
 
   /* ---- Load data from localStorage ---- */
   useEffect(() => {
+    let cancelled = false;
     setMounted(true);
 
-    const savedSession = localStorage.getItem('temper_current_session');
-    if (savedSession) {
-      try {
-        const trades: Trade[] = JSON.parse(savedSession);
-        if (Array.isArray(trades) && trades.length > 0) {
-          setAnalysis(analyzeSession(trades));
-        }
-      } catch (e) {
-        console.error('Failed to parse session', e);
+    const cachedTrades = loadCachedSessionTrades();
+    if (cachedTrades && cachedTrades.length > 0) {
+      setAnalysis(analyzeSession(cachedTrades));
+    } else {
+      const lastJobId = getLastJobId();
+      if (lastJobId) {
+        void fetchTradesFromJob(lastJobId)
+          .then((rows) => {
+            if (cancelled || rows.length === 0) return;
+            saveCachedSessionTrades(rows);
+            setAnalysis(analyzeSession(rows));
+          })
+          .catch((error) => {
+            console.error('Failed to hydrate session from backend job', error);
+          });
       }
     }
 
@@ -132,6 +141,10 @@ export default function DashboardPage() {
         console.error('Failed to parse journal', e);
       }
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /* ---- GSAP entrance animations ---- */

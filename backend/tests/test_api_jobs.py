@@ -756,6 +756,130 @@ def test_coach_not_ready_returns_409_for_running_job() -> None:
         tmp.cleanup()
 
 
+def test_trade_coach_happy_path_writes_artifact_and_get_returns_payload() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    original_supabase_store = main_module._supabase_store
+    original_generate_trade_coach = main_module.generate_trade_coach_via_vertex
+    fake_supabase = _FakeSupabaseStore()
+    try:
+        main_module._supabase_store = lambda: fake_supabase
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("trade_coach_source.csv", csv, "text/csv")},
+            data={"user_id": "trade_coach_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        trade_id = 0
+        trade_response = client.get(f"/jobs/{job_id}/trade/{trade_id}")
+        assert trade_response.status_code == 200
+        trade_payload = trade_response.json()["data"]["trade"]
+        metric_refs = main_module._trade_metric_refs(trade_payload)
+        label = str(trade_payload["label"]).upper()
+
+        def _fake_trade_vertex(_: dict) -> dict:
+            return {
+                "version": 1,
+                "trade_id": trade_id,
+                "label": label,
+                "llm_explanation": "Size was adjusted to reduce emotional risk while preserving setup.",
+                "actionable_fix": "Use a fixed size cap after losses for the next 3 trades.",
+                "confidence_note": "Guidance is based on deterministic replay metrics only.",
+                "metric_refs": metric_refs,
+            }
+
+        main_module.generate_trade_coach_via_vertex = _fake_trade_vertex
+        post_response = client.post(f"/jobs/{job_id}/trade/{trade_id}/coach")
+        assert post_response.status_code == 200
+        post_payload = post_response.json()
+        assert post_payload["ok"] is True
+        assert post_payload["data"]["trade_coach"]["trade_id"] == trade_id
+        assert post_payload["data"]["trade_coach"]["label"] == label
+
+        coach_path = Path(tmp.name) / "outputs" / job_id / f"trade_coach_{trade_id}.json"
+        assert coach_path.exists()
+        assert "trade_coach_0_json" in fake_supabase.artifacts.get(job_id, {})
+
+        get_response = client.get(f"/jobs/{job_id}/trade/{trade_id}/coach")
+        assert get_response.status_code == 200
+        get_payload = get_response.json()
+        assert get_payload["ok"] is True
+        assert get_payload["data"]["trade_coach"]["trade_id"] == trade_id
+    finally:
+        main_module._supabase_store = original_supabase_store
+        main_module.generate_trade_coach_via_vertex = original_generate_trade_coach
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_trade_coach_failure_writes_error_artifact_and_get_returns_failed_state() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    original_generate_trade_coach = main_module.generate_trade_coach_via_vertex
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("trade_coach_failure_source.csv", csv, "text/csv")},
+            data={"user_id": "trade_coach_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        def _raise_trade_vertex(_: dict) -> dict:
+            raise RuntimeError("trade vertex timeout in test")
+
+        main_module.generate_trade_coach_via_vertex = _raise_trade_vertex
+        trade_id = 0
+        post_response = client.post(f"/jobs/{job_id}/trade/{trade_id}/coach")
+        assert post_response.status_code == 502
+        post_payload = post_response.json()
+        assert post_payload["ok"] is False
+        assert post_payload["error"]["code"] == "TRADE_COACH_GENERATION_FAILED"
+
+        error_path = Path(tmp.name) / "outputs" / job_id / f"trade_coach_error_{trade_id}.json"
+        assert error_path.exists()
+        get_response = client.get(f"/jobs/{job_id}/trade/{trade_id}/coach")
+        assert get_response.status_code == 409
+        get_payload = get_response.json()
+        assert get_payload["ok"] is False
+        assert get_payload["error"]["code"] == "TRADE_COACH_FAILED"
+    finally:
+        main_module.generate_trade_coach_via_vertex = original_generate_trade_coach
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_trade_coach_not_ready_returns_409_for_running_job() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    try:
+        out_dir = Path(tmp.name) / "outputs"
+        job_id = "running_trade_coach_job"
+        running_dir = out_dir / job_id
+        running_dir.mkdir(parents=True, exist_ok=True)
+        running_record = main_module._initial_job_record(
+            job_id,
+            user_id="trade_coach_user",
+            input_sha256="deadbeef",
+            status="RUNNING",
+        )
+        main_module._store().write(running_record, job_dir=running_dir)
+
+        response = client.post(f"/jobs/{job_id}/trade/0/coach")
+        assert response.status_code == 409
+        payload = response.json()
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "JOB_NOT_READY"
+    finally:
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
 def _metric_value_from_artifacts(
     *,
     name: str,
@@ -1159,5 +1283,219 @@ def test_trade_inspector_returns_one_trade_with_raw_row_flags_and_decision() -> 
         assert out_payload["ok"] is False
         assert out_payload["error"]["code"] == "TRADE_NOT_FOUND"
     finally:
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_trade_voice_happy_path_generates_audio_and_get_streams() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    original_generate_trade_coach = main_module.generate_trade_coach_via_vertex
+    original_synthesize = main_module.synthesize_with_elevenlabs
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("voice_source.csv", csv, "text/csv")},
+            data={"user_id": "voice_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        trade_id = 0
+        trade_response = client.get(f"/jobs/{job_id}/trade/{trade_id}")
+        assert trade_response.status_code == 200
+        trade_payload = trade_response.json()["data"]["trade"]
+        metric_refs = main_module._trade_metric_refs(trade_payload)
+        label = str(trade_payload["label"]).upper()
+
+        def _fake_trade_vertex(_: dict) -> dict:
+            return {
+                "version": 1,
+                "trade_id": trade_id,
+                "label": label,
+                "llm_explanation": "Hold discipline after emotionally charged losses.",
+                "actionable_fix": "Reduce size to your rolling median for next setup.",
+                "confidence_note": "Derived from deterministic replay metrics only.",
+                "metric_refs": metric_refs,
+            }
+
+        main_module.generate_trade_coach_via_vertex = _fake_trade_vertex
+        main_module.synthesize_with_elevenlabs = lambda _text: b"fake-mp3-bytes"
+
+        post = client.post(f"/jobs/{job_id}/trade/{trade_id}/voice?provider=elevenlabs")
+        assert post.status_code == 200
+        post_payload = post.json()
+        assert post_payload["ok"] is True
+        assert post_payload["data"]["voice"]["provider"] == "elevenlabs"
+
+        audio_path = Path(tmp.name) / "outputs" / job_id / f"trade_coach_voice_{trade_id}.mp3"
+        assert audio_path.exists()
+        assert audio_path.read_bytes() == b"fake-mp3-bytes"
+
+        get_audio = client.get(f"/jobs/{job_id}/trade/{trade_id}/voice")
+        assert get_audio.status_code == 200
+        assert get_audio.headers.get("content-type", "").startswith("audio/mpeg")
+        assert get_audio.content == b"fake-mp3-bytes"
+    finally:
+        main_module.generate_trade_coach_via_vertex = original_generate_trade_coach
+        main_module.synthesize_with_elevenlabs = original_synthesize
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_trade_voice_provider_failure_returns_502_and_error_artifact() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    original_generate_trade_coach = main_module.generate_trade_coach_via_vertex
+    original_synthesize = main_module.synthesize_with_elevenlabs
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("voice_failure_source.csv", csv, "text/csv")},
+            data={"user_id": "voice_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        trade_id = 0
+        trade_response = client.get(f"/jobs/{job_id}/trade/{trade_id}")
+        assert trade_response.status_code == 200
+        trade_payload = trade_response.json()["data"]["trade"]
+        metric_refs = main_module._trade_metric_refs(trade_payload)
+        label = str(trade_payload["label"]).upper()
+
+        def _fake_trade_vertex(_: dict) -> dict:
+            return {
+                "version": 1,
+                "trade_id": trade_id,
+                "label": label,
+                "llm_explanation": "Do not chase losses.",
+                "actionable_fix": "Use a strict cooldown after losses.",
+                "confidence_note": "Derived from deterministic replay metrics only.",
+                "metric_refs": metric_refs,
+            }
+
+        def _raise_synth(_: str) -> bytes:
+            raise main_module.VoiceProviderError("voice provider timeout")
+
+        main_module.generate_trade_coach_via_vertex = _fake_trade_vertex
+        main_module.synthesize_with_elevenlabs = _raise_synth
+
+        post = client.post(f"/jobs/{job_id}/trade/{trade_id}/voice?provider=elevenlabs")
+        assert post.status_code == 502
+        post_payload = post.json()
+        assert post_payload["ok"] is False
+        assert post_payload["error"]["code"] == "TRADE_VOICE_GENERATION_FAILED"
+
+        error_path = Path(tmp.name) / "outputs" / job_id / f"trade_coach_voice_error_{trade_id}.json"
+        assert error_path.exists()
+    finally:
+        main_module.generate_trade_coach_via_vertex = original_generate_trade_coach
+        main_module.synthesize_with_elevenlabs = original_synthesize
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_trade_voice_force_true_recovers_after_cached_trade_coach_failure() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    original_generate_trade_coach = main_module.generate_trade_coach_via_vertex
+    original_synthesize = main_module.synthesize_with_elevenlabs
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("voice_force_recovery_source.csv", csv, "text/csv")},
+            data={"user_id": "voice_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        trade_id = 0
+        trade_response = client.get(f"/jobs/{job_id}/trade/{trade_id}")
+        assert trade_response.status_code == 200
+        trade_payload = trade_response.json()["data"]["trade"]
+        metric_refs = main_module._trade_metric_refs(trade_payload)
+        label = str(trade_payload["label"]).upper()
+
+        calls = {"count": 0}
+
+        def _flaky_trade_vertex(_: dict) -> dict:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("forced first failure")
+            return {
+                "version": 1,
+                "trade_id": trade_id,
+                "label": label,
+                "llm_explanation": "Keep composure after losses.",
+                "actionable_fix": "Use your median size until momentum stabilizes.",
+                "confidence_note": "Derived from deterministic replay metrics only.",
+                "metric_refs": metric_refs,
+            }
+
+        main_module.generate_trade_coach_via_vertex = _flaky_trade_vertex
+        main_module.synthesize_with_elevenlabs = lambda _text: b"recovered-mp3-bytes"
+
+        first = client.post(f"/jobs/{job_id}/trade/{trade_id}/voice?provider=elevenlabs&force=false")
+        assert first.status_code == 502
+        assert first.json()["error"]["code"] == "TRADE_COACH_GENERATION_FAILED"
+
+        second = client.post(f"/jobs/{job_id}/trade/{trade_id}/voice?provider=elevenlabs&force=true")
+        assert second.status_code == 200
+        second_payload = second.json()
+        assert second_payload["ok"] is True
+        assert second_payload["data"]["voice"]["provider"] == "elevenlabs"
+
+        audio_path = Path(tmp.name) / "outputs" / job_id / f"trade_coach_voice_{trade_id}.mp3"
+        assert audio_path.exists()
+        assert audio_path.read_bytes() == b"recovered-mp3-bytes"
+    finally:
+        main_module.generate_trade_coach_via_vertex = original_generate_trade_coach
+        main_module.synthesize_with_elevenlabs = original_synthesize
+        main_module.OUTPUTS_DIR = original_outputs
+        tmp.cleanup()
+
+
+def test_journal_transcribe_happy_path_persists_transcript_artifact() -> None:
+    client, tmp, original_outputs = _client_with_temp_outputs()
+    original_transcribe = main_module.transcribe_with_gradium
+    try:
+        csv = _calm_csv_slice()
+        create = client.post(
+            "/jobs",
+            files={"file": ("journal_voice_source.csv", csv, "text/csv")},
+            data={"user_id": "journal_user"},
+        )
+        assert create.status_code == 202
+        job_id = create.json()["job"]["job_id"]
+        terminal = _wait_for_terminal(client, job_id)
+        assert terminal["job"]["execution_status"] == "COMPLETED"
+
+        main_module.transcribe_with_gradium = lambda _bytes, mime_type: {
+            "provider": "gradium",
+            "transcript": f"Transcript for {mime_type}",
+            "raw": {"ok": True},
+        }
+
+        response = client.post(
+            f"/jobs/{job_id}/journal/transcribe",
+            files={"audio": ("note.wav", b"riff-bytes", "audio/wav")},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is True
+        assert payload["data"]["provider"] == "gradium"
+        assert payload["data"]["transcript"] == "Transcript for audio/wav"
+
+        transcript_files = list((Path(tmp.name) / "outputs" / job_id).glob("journal_transcript_*.json"))
+        assert transcript_files, "expected at least one persisted transcript artifact"
+    finally:
+        main_module.transcribe_with_gradium = original_transcribe
         main_module.OUTPUTS_DIR = original_outputs
         tmp.cleanup()

@@ -5,6 +5,10 @@
   "type": "module",
   "description": "Behavioral trading journal and discipline coach for day traders",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",

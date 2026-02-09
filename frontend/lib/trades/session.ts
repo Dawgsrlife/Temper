@@ -107,10 +107,10 @@ export function buildSession(
   const grossWins = wins.reduce((sum, t) => sum + t.pnl, 0);
   const grossLosses = Math.abs(losses.reduce((sum, t) => sum + t.pnl, 0));
 
-  const maxDrawdown = Math.min(
-    ...trades.map((t) => t.drawdownFromPeak),
-    0,
-  );
+  let maxDrawdown = 0;
+  for (const t of trades) {
+    if (t.drawdownFromPeak < maxDrawdown) maxDrawdown = t.drawdownFromPeak;
+  }
 
   // Max runup: biggest positive move from a trough
   let minPnl = 0;
@@ -120,7 +120,10 @@ export function buildSession(
     maxRunup = Math.max(maxRunup, t.runningPnl - minPnl);
   }
 
-  const peakPnl = Math.max(...trades.map((t) => t.peakPnlAtTrade), 0);
+  let peakPnl = 0;
+  for (const t of trades) {
+    if (t.peakPnlAtTrade > peakPnl) peakPnl = t.peakPnlAtTrade;
+  }
 
   // Holding times: approximate via time between consecutive trades
   // In a real system, we'd track open/close pairs. For MVP, we use
@@ -164,9 +167,9 @@ export function buildSession(
     avgWin: wins.length > 0 ? grossWins / wins.length : 0,
     avgLoss: losses.length > 0 ? -(grossLosses / losses.length) : 0,
     profitFactor: grossLosses > 0 ? grossWins / grossLosses : Infinity,
-    largestWin: wins.length > 0 ? Math.max(...wins.map((t) => t.pnl)) : 0,
+    largestWin: wins.length > 0 ? wins.reduce((best, t) => (t.pnl > best ? t.pnl : best), wins[0].pnl) : 0,
     largestLoss:
-      losses.length > 0 ? Math.min(...losses.map((t) => t.pnl)) : 0,
+      losses.length > 0 ? losses.reduce((worst, t) => (t.pnl < worst ? t.pnl : worst), losses[0].pnl) : 0,
     avgHoldingTimeMs: avg(holdingTimes),
     avgWinHoldingTimeMs: avg(winHoldingTimes),
     avgLossHoldingTimeMs: avg(lossHoldingTimes),

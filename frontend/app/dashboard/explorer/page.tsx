@@ -5,6 +5,7 @@ import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Network,
   Eye,
@@ -21,10 +22,13 @@ import {
 } from 'lucide-react';
 import {
   analyzeSession,
+  BiasDetection,
   Trade,
   TradeWithAnalysis,
   SessionAnalysis,
 } from '@/lib/biasDetector';
+import { fetchTradesFromJob, getLastJobId } from '@/lib/backend-bridge';
+import { loadCachedSessionTrades, saveCachedSessionTrades } from '@/lib/session-cache';
 import type { TradeNode } from '@/components/charts/TradeScene3D';
 import type { GraphNode, GraphLink } from '@/components/charts/TradeGraph';
 
@@ -64,9 +68,98 @@ const demoTrades: Trade[] = [
 
 /* ──────────────────────────────────────────────────────────── */
 type ViewMode = '3d' | 'graph';
+const MAX_EXPLORER_RENDER_NODES = 30;
+const MAX_GRAPH_ASSET_NODES = 20;
+const MAX_GRAPH_RENDER_LINKS = 120;
+const OTHER_ASSETS_NODE_ID = 'asset-OTHER_ASSETS';
+
+const LABEL_SEVERITY_RANK: Record<string, number> = {
+  MEGABLUNDER: 100,
+  BLUNDER: 90,
+  MISS: 80,
+  MISTAKE: 70,
+  INACCURACY: 60,
+  GOOD: 50,
+  EXCELLENT: 40,
+  BEST: 30,
+  GREAT: 20,
+  BRILLIANT: 10,
+  BOOK: 45,
+  FORCED: 35,
+  INTERESTING: 55,
+  CHECKMATED: 95,
+  ABANDON: 85,
+  TIMEOUT: 75,
+  RESIGN: 65,
+  DRAW: 52,
+  WINNER: 25,
+};
+
+function pickClusterLabel(trades: TradeWithAnalysis[]): string {
+  let bestLabel = trades[0]?.label || 'GOOD';
+  let bestRank = LABEL_SEVERITY_RANK[bestLabel] ?? 50;
+  for (const trade of trades) {
+    const rank = LABEL_SEVERITY_RANK[trade.label] ?? 50;
+    if (rank > bestRank) {
+      bestRank = rank;
+      bestLabel = trade.label;
+    }
+  }
+  return bestLabel;
+}
+
+function aggregateExplorerTrades(
+  trades: TradeWithAnalysis[],
+  maxNodes: number,
+): TradeWithAnalysis[] {
+  if (trades.length <= maxNodes) return trades;
+  const chunkSize = Math.ceil(trades.length / maxNodes);
+  const aggregated: TradeWithAnalysis[] = [];
+
+  for (let start = 0; start < trades.length; start += chunkSize) {
+    const chunk = trades.slice(start, Math.min(trades.length, start + chunkSize));
+    if (chunk.length === 0) continue;
+    const mid = chunk[Math.floor(chunk.length / 2)];
+    const pnl = chunk.reduce((sum, trade) => sum + (trade.pnl ?? 0), 0);
+    const scoreContribution = chunk.reduce(
+      (sum, trade) => sum + (trade.scoreContribution ?? 0),
+      0,
+    );
+    const biasMap = new Map<string, BiasDetection>();
+    for (const trade of chunk) {
+      for (const bias of trade.biases) {
+        if (!biasMap.has(bias.type)) {
+          biasMap.set(bias.type, bias);
+        }
+      }
+    }
+    const buyCount = chunk.filter((trade) => trade.side === 'BUY').length;
+    const sellCount = chunk.length - buyCount;
+    const mergedReasons = Array.from(
+      new Set(chunk.flatMap((trade) => trade.reasons || [])),
+    ).slice(0, 6);
+    const rangeText = `Clustered ${chunk.length} trades`;
+
+    aggregated.push({
+      ...mid,
+      index: mid.index,
+      pnl,
+      sessionPnL: chunk[chunk.length - 1].sessionPnL,
+      label: pickClusterLabel(chunk) as TradeWithAnalysis['label'],
+      biases: Array.from(biasMap.values()),
+      side: buyCount >= sellCount ? 'BUY' : 'SELL',
+      annotation: `${rangeText} around ${mid.timestamp}`,
+      reasons: mergedReasons,
+      scoreContribution,
+    });
+  }
+
+  return aggregated;
+}
 
 export default function ExplorerPage() {
   const container = useRef<HTMLDivElement>(null);
+  const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const [mode, setMode] = useState<ViewMode>('3d');
   const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null);
@@ -75,20 +168,31 @@ export default function ExplorerPage() {
 
   /* Load data ------------------------------------------------ */
   useEffect(() => {
+    let cancelled = false;
     setMounted(true);
 
     let trades = demoTrades;
-    const savedSession = localStorage.getItem('temper_current_session');
-    if (savedSession) {
-      try {
-        const parsed: Trade[] = JSON.parse(savedSession);
-        if (Array.isArray(parsed) && parsed.length > 0) trades = parsed;
-      } catch {
-        /* fallback to demo */
-      }
-    }
+    const parsed = loadCachedSessionTrades();
+    if (parsed && parsed.length > 0) trades = parsed;
     setAnalysis(analyzeSession(trades));
-  }, []);
+
+    const jobId = searchParams.get('jobId') || getLastJobId();
+    if (jobId) {
+      void fetchTradesFromJob(jobId)
+        .then((rows) => {
+          if (cancelled || rows.length === 0) return;
+          saveCachedSessionTrades(rows);
+          setAnalysis(analyzeSession(rows));
+        })
+        .catch(() => {
+          // Keep local/demo fallback.
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
 
   /* Entrance animation --------------------------------------- */
   useGSAP(
@@ -105,9 +209,14 @@ export default function ExplorerPage() {
   );
 
   /* Build 3D nodes from analysis ----------------------------- */
+  const aggregatedTrades = useMemo(() => {
+    if (!analysis) return [] as TradeWithAnalysis[];
+    return aggregateExplorerTrades(analysis.trades, MAX_EXPLORER_RENDER_NODES);
+  }, [analysis]);
+
   const tradeNodes: TradeNode[] = useMemo(() => {
     if (!analysis) return [];
-    return analysis.trades.map((t, i) => ({
+    return aggregatedTrades.map((t, i) => ({
       id: `t-${i}`,
       timestamp: t.timestamp,
       asset: t.asset,
@@ -118,7 +227,7 @@ export default function ExplorerPage() {
       side: t.side,
       index: i,
     }));
-  }, [analysis]);
+  }, [aggregatedTrades, analysis]);
 
   /* Build graph nodes + links -------------------------------- */
   const { graphNodes, graphLinks } = useMemo(() => {
@@ -126,11 +235,25 @@ export default function ExplorerPage() {
 
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
+    const pushLink = (source: string, target: string) => {
+      if (links.length >= MAX_GRAPH_RENDER_LINKS) return;
+      links.push({ source, target });
+    };
     const assetSet = new Set<string>();
     const biasSet = new Set<string>();
+    const assetCounts = new Map<string, number>();
+    for (const trade of aggregatedTrades) {
+      assetCounts.set(trade.asset, (assetCounts.get(trade.asset) || 0) + 1);
+    }
+    const topAssets = new Set(
+      Array.from(assetCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, MAX_GRAPH_ASSET_NODES)
+        .map(([asset]) => asset),
+    );
 
     // Trade nodes
-    analysis.trades.forEach((t, i) => {
+    aggregatedTrades.forEach((t, i) => {
       const id = `trade-${i}`;
       nodes.push({
         id,
@@ -142,21 +265,23 @@ export default function ExplorerPage() {
       });
 
       // Consecutive links
-      if (i > 0) links.push({ source: `trade-${i - 1}`, target: id });
+      if (i > 0) pushLink(`trade-${i - 1}`, id);
 
       // Asset grouping
-      if (!assetSet.has(t.asset)) {
-        assetSet.add(t.asset);
+      const groupedAsset = topAssets.has(t.asset) ? t.asset : 'OTHER_ASSETS';
+      const assetNodeId = groupedAsset === 'OTHER_ASSETS' ? OTHER_ASSETS_NODE_ID : `asset-${groupedAsset}`;
+      if (!assetSet.has(groupedAsset)) {
+        assetSet.add(groupedAsset);
         nodes.push({
-          id: `asset-${t.asset}`,
-          label: t.asset,
+          id: assetNodeId,
+          label: groupedAsset === 'OTHER_ASSETS' ? 'Other Assets' : groupedAsset,
           group: 'asset',
-          value: 40,
+          value: groupedAsset === 'OTHER_ASSETS' ? 55 : 40,
           color: '#06d6a0',
           depth: 1,
         });
       }
-      links.push({ source: id, target: `asset-${t.asset}` });
+      pushLink(id, assetNodeId);
 
       // Bias grouping
       t.biases.forEach((b) => {
@@ -172,12 +297,12 @@ export default function ExplorerPage() {
             depth: 1,
           });
         }
-        links.push({ source: id, target: biasId });
+        pushLink(id, biasId);
       });
     });
 
     return { graphNodes: nodes, graphLinks: links };
-  }, [analysis]);
+  }, [analysis, aggregatedTrades]);
 
   /* Event handlers ------------------------------------------- */
   const handleNodeClick = (trade: TradeNode) => {
@@ -233,6 +358,11 @@ export default function ExplorerPage() {
                   ? `${stats.totalTrades} trades · ${stats.biases} biases · Score ${stats.score}`
                   : 'No data loaded'}
               </p>
+              {analysis && analysis.trades.length > tradeNodes.length && (
+                <p className="text-[10px] text-emerald-300/80">
+                  Rendering {tradeNodes.length} clustered nodes from {analysis.trades.length} trades
+                </p>
+              )}
             </div>
           </div>
         </div>

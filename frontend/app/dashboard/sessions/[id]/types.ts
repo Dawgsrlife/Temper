@@ -12,10 +12,12 @@ export type DecisionLabel =
     | 'BOOK'
     | 'FORCED'
     | 'INTERESTING'
+    | 'ABANDON'
     | 'CHECKMATED'
     | 'WINNER'
     | 'DRAW'
-    | 'RESIGN';
+    | 'RESIGN'
+    | 'TIMEOUT';
 
 export interface TradeEvent {
     id: string;

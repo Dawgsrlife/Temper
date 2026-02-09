@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useMemo, use } from 'react';
+import { useRouter } from 'next/navigation';
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import Link from 'next/link';
@@ -89,24 +90,36 @@ const labelStyles: Record<string, { bg: string; text: string; border: string }> 
   WINNER: { bg: 'bg-yellow-300/20', text: 'text-yellow-300', border: 'ring-yellow-300/30' },
   DRAW: { bg: 'bg-slate-400/10', text: 'text-slate-400', border: 'ring-slate-400/20' },
   RESIGN: { bg: 'bg-stone-500/15', text: 'text-stone-500', border: 'ring-stone-500/25' },
+  TIMEOUT: { bg: 'bg-red-500/15', text: 'text-red-500', border: 'ring-red-500/25' },
+  ABANDON: { bg: 'bg-zinc-500/15', text: 'text-zinc-400', border: 'ring-zinc-500/25' },
 };
 
 export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const sessionId = resolvedParams.id;
+  const router = useRouter();
 
   const container = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  const session = sessionData[sessionId] || sessionData['demo'];
-  const analysis = useMemo(() => analyzeSession(session.trades), [session.trades]);
-  const currentTrade = analysis.trades[currentIndex];
+  const hasLocalDemoSession = Boolean(sessionData[sessionId]);
+  const session = hasLocalDemoSession ? sessionData[sessionId] : null;
+  const analysis = useMemo(
+    () => (session ? analyzeSession(session.trades) : null),
+    [session],
+  );
+  const currentTrade = analysis?.trades[currentIndex];
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (hasLocalDemoSession) return;
+    router.replace(`/dashboard/analyze?jobId=${encodeURIComponent(sessionId)}`);
+  }, [hasLocalDemoSession, router, sessionId]);
 
   useGSAP(() => {
     if (!mounted) return;
@@ -124,6 +137,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   }, { dependencies: [currentIndex, mounted] });
 
   useEffect(() => {
+    if (!analysis) return;
     if (!isPlaying) return;
     const interval = setInterval(() => {
       setCurrentIndex(prev => {
@@ -135,9 +149,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       });
     }, 2500);
     return () => clearInterval(interval);
-  }, [isPlaying, analysis.trades.length]);
+  }, [analysis, isPlaying]);
 
   useEffect(() => {
+    if (!analysis) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') {
         setCurrentIndex(prev => Math.min(prev + 1, analysis.trades.length - 1));
@@ -150,9 +165,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [analysis.trades.length]);
+  }, [analysis]);
 
-  if (!currentTrade) {
+  if (!hasLocalDemoSession || !analysis || !currentTrade || !session) {
     return <div className="flex h-full items-center justify-center text-gray-400">Loading...</div>;
   }
 
