@@ -68,8 +68,9 @@ const demoTrades: Trade[] = [
 
 /* ──────────────────────────────────────────────────────────── */
 type ViewMode = '3d' | 'graph';
-const MAX_EXPLORER_RENDER_NODES = 72;
+const MAX_EXPLORER_RENDER_NODES = 30;
 const MAX_GRAPH_ASSET_NODES = 20;
+const MAX_GRAPH_RENDER_LINKS = 120;
 const OTHER_ASSETS_NODE_ID = 'asset-OTHER_ASSETS';
 
 const LABEL_SEVERITY_RANK: Record<string, number> = {
@@ -234,6 +235,10 @@ export default function ExplorerPage() {
 
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
+    const pushLink = (source: string, target: string) => {
+      if (links.length >= MAX_GRAPH_RENDER_LINKS) return;
+      links.push({ source, target });
+    };
     const assetSet = new Set<string>();
     const biasSet = new Set<string>();
     const assetCounts = new Map<string, number>();
@@ -260,7 +265,7 @@ export default function ExplorerPage() {
       });
 
       // Consecutive links
-      if (i > 0) links.push({ source: `trade-${i - 1}`, target: id });
+      if (i > 0) pushLink(`trade-${i - 1}`, id);
 
       // Asset grouping
       const groupedAsset = topAssets.has(t.asset) ? t.asset : 'OTHER_ASSETS';
@@ -276,7 +281,7 @@ export default function ExplorerPage() {
           depth: 1,
         });
       }
-      links.push({ source: id, target: assetNodeId });
+      pushLink(id, assetNodeId);
 
       // Bias grouping
       t.biases.forEach((b) => {
@@ -292,7 +297,7 @@ export default function ExplorerPage() {
             depth: 1,
           });
         }
-        links.push({ source: id, target: biasId });
+        pushLink(id, biasId);
       });
     });
 

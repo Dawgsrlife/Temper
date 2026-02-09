@@ -469,6 +469,120 @@ def _deterministic_trade_coach_fallback(
     }
 
 
+def _rate_to_percent(value: Any) -> float:
+    parsed = _safe_float(value)
+    if parsed is None:
+        return 0.0
+    if parsed <= 1.0:
+        parsed *= 100.0
+    return max(0.0, min(100.0, float(parsed)))
+
+
+def _severity_from_rate_percent(rate_percent: float) -> int:
+    if rate_percent >= 60.0:
+        return 5
+    if rate_percent >= 40.0:
+        return 4
+    if rate_percent >= 20.0:
+        return 3
+    if rate_percent >= 5.0:
+        return 2
+    return 1
+
+
+def _deterministic_coach_fallback(
+    *,
+    coach_input: dict[str, Any],
+    failure_reason: str,
+) -> dict[str, Any]:
+    outcome = str(coach_input.get("outcome") or "UNKNOWN").strip() or "UNKNOWN"
+    delta_pnl = _safe_float(coach_input.get("delta_pnl"))
+    cost_of_bias = _safe_float(coach_input.get("cost_of_bias"))
+    delta_txt = f"{delta_pnl:.2f}" if delta_pnl is not None else "N/A"
+    bias_rates = coach_input.get("bias_rates")
+    bias_rates = bias_rates if isinstance(bias_rates, dict) else {}
+
+    diagnosis: list[dict[str, Any]] = []
+    bias_specs = [
+        ("OVERTRADING", "overtrading_rate", "overtrading"),
+        ("LOSS_AVERSION", "loss_aversion_rate", "loss aversion"),
+        ("REVENGE_TRADING", "revenge_rate", "revenge trading"),
+    ]
+    for bias_name, rate_key, label_text in bias_specs:
+        rate_percent = _rate_to_percent(bias_rates.get(rate_key))
+        metric_refs: list[dict[str, Any]] = [
+            {"name": f"{rate_key}_pct", "value": float(rate_percent), "unit": "pct"}
+        ]
+        if cost_of_bias is not None:
+            metric_refs.append({"name": "cost_of_bias", "value": float(cost_of_bias), "unit": "USD"})
+        if delta_pnl is not None:
+            metric_refs.append({"name": "delta_pnl", "value": float(delta_pnl), "unit": "USD"})
+        diagnosis.append(
+            {
+                "bias": bias_name,
+                "severity": _severity_from_rate_percent(rate_percent),
+                "evidence": [
+                    f"{label_text.title()} rate measured at {rate_percent:.2f}%.",
+                    f"Session delta_pnl measured at {delta_txt} USD.",
+                ],
+                "metric_refs": metric_refs,
+            }
+        )
+
+    top_moments = coach_input.get("top_moments")
+    top_moments = top_moments if isinstance(top_moments, list) else []
+    top_categories: list[str] = []
+    for moment in top_moments:
+        if not isinstance(moment, dict):
+            continue
+        raw_category = str(moment.get("bias_category") or "").strip().upper()
+        if raw_category and raw_category not in top_categories:
+            top_categories.append(raw_category)
+        if len(top_categories) >= 3:
+            break
+    categories_text = ", ".join(top_categories) if top_categories else "mixed"
+
+    plan = [
+        {
+            "title": "Stop Escalation Loop",
+            "steps": [
+                "Set hard max position size before session start and lock edits mid-session.",
+                "Trigger a 10-minute cooldown after two bias-flagged entries in a row.",
+            ],
+            "time_horizon": "NEXT_SESSION",
+        },
+        {
+            "title": "Bias Audit Routine",
+            "steps": [
+                f"Review top moment categories ({categories_text}) against blocked_reason and delta metrics.",
+                "Write one pre-trade checklist sentence for each severe bias before next market open.",
+            ],
+            "time_horizon": "THIS_WEEK",
+        },
+    ]
+
+    move_review = coach_input.get("move_review")
+    if not isinstance(move_review, list):
+        move_review = []
+
+    return {
+        "version": 1,
+        "headline": f"Fallback coach: outcome {outcome}, session delta {delta_txt} USD.",
+        "diagnosis": diagnosis,
+        "plan": plan,
+        "do_next_session": [
+            "Load this report before trading and read the first plan step aloud.",
+            "Abort any setup that violates pre-committed size and cooldown rules.",
+            "Tag first three trades with emotional state and compare against deterministic labels.",
+        ],
+        "disclaimer": (
+            "Deterministic fallback coach generated because LLM output was unavailable or invalid. "
+            f"Provider error: {failure_reason}"
+        ),
+        "move_review": move_review,
+    }
+
+
 class CoachGenerationError(Exception):
     def __init__(self, message: str, *, vertex_request_id: str | None = None) -> None:
         super().__init__(message)
@@ -551,9 +665,51 @@ def _gemini_model_name() -> str:
 def _coach_generation_target() -> tuple[str, str, dict[str, str]]:
     provider_override = os.getenv("LLM_PROVIDER", "").strip().lower()
     openrouter_key = _openrouter_api_key()
+    if provider_override and provider_override not in {"auto"}:
+        if provider_override in {"openrouter"}:
+            if not openrouter_key:
+                raise CoachGenerationError(
+                    "LLM_PROVIDER=openrouter but OPENROUTER_API_KEY/OPENROUTER_KEY/OPENAI_API_KEY is missing"
+                )
+            headers = {
+                "Authorization": f"Bearer {openrouter_key}",
+                "Content-Type": "application/json",
+            }
+            referer = os.getenv("OPENROUTER_HTTP_REFERER", "").strip()
+            app_title = os.getenv("OPENROUTER_APP_TITLE", "Temper").strip()
+            if referer:
+                headers["HTTP-Referer"] = referer
+            if app_title:
+                headers["X-Title"] = app_title
+            return "openrouter", "https://openrouter.ai/api/v1/chat/completions", headers
 
-    # Favor OpenRouter whenever a key is present unless vertex is explicitly forced.
-    if openrouter_key and provider_override not in {"vertex", "vertex_only"}:
+        if provider_override in {"gemini", "gemini_api", "gemini_only"}:
+            api_key = _gemini_api_key()
+            if not api_key:
+                raise CoachGenerationError(
+                    "LLM_PROVIDER=gemini but GEMINI_API_KEY/GOOGLE_API_KEY/VERTEX_API_KEY is missing"
+                )
+            model = _gemini_model_name()
+            endpoint = (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model}:generateContent?key={quote_plus(api_key)}"
+            )
+            return "gemini_api", endpoint, {"Content-Type": "application/json"}
+
+        if provider_override in {"vertex", "vertex_only"}:
+            endpoint = _vertex_endpoint()
+            token = _vertex_access_token()
+            return "vertex", endpoint, {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+
+        raise CoachGenerationError(
+            "LLM_PROVIDER must be one of auto|openrouter|gemini|gemini_api|vertex"
+        )
+
+    # Auto mode: prefer OpenRouter when key exists.
+    if openrouter_key:
         headers = {
             "Authorization": f"Bearer {openrouter_key}",
             "Content-Type": "application/json",
@@ -565,32 +721,6 @@ def _coach_generation_target() -> tuple[str, str, dict[str, str]]:
         if app_title:
             headers["X-Title"] = app_title
         return "openrouter", "https://openrouter.ai/api/v1/chat/completions", headers
-
-    if provider_override == "openrouter":
-        raise CoachGenerationError(
-            "LLM_PROVIDER=openrouter but OPENROUTER_API_KEY/OPENROUTER_KEY/OPENAI_API_KEY is missing"
-        )
-
-    if provider_override in {"gemini", "gemini_api", "gemini_only"}:
-        api_key = _gemini_api_key()
-        if not api_key:
-            raise CoachGenerationError(
-                "LLM_PROVIDER=gemini but GEMINI_API_KEY/GOOGLE_API_KEY/VERTEX_API_KEY is missing"
-            )
-        model = _gemini_model_name()
-        endpoint = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={quote_plus(api_key)}"
-        )
-        return "gemini_api", endpoint, {"Content-Type": "application/json"}
-
-    if provider_override in {"vertex", "vertex_only"}:
-        endpoint = _vertex_endpoint()
-        token = _vertex_access_token()
-        return "vertex", endpoint, {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
 
     api_key = _gemini_api_key()
     if api_key:
@@ -728,8 +858,9 @@ def _coach_request_payload(*, provider: str, prompt: str, max_tokens: int) -> di
             "temperature": 0.1,
             "max_tokens": max_tokens,
         }
-        # Some OpenRouter-backed models reject strict response_format; enable only when explicitly requested.
-        if os.getenv("OPENROUTER_STRICT_JSON", "").strip().lower() in {"1", "true", "yes"}:
+        strict_override = os.getenv("OPENROUTER_STRICT_JSON", "").strip().lower()
+        # Default to strict JSON unless explicitly disabled.
+        if strict_override not in {"0", "false", "no"}:
             payload["response_format"] = {"type": "json_object"}
         return payload
 
@@ -738,6 +869,7 @@ def _coach_request_payload(*, provider: str, prompt: str, max_tokens: int) -> di
         "generationConfig": {
             "temperature": 0.1,
             "maxOutputTokens": max_tokens,
+            "responseMimeType": "application/json",
         },
     }
 
@@ -977,6 +1109,19 @@ def _validate_coach_schema(
         raise CoachGenerationError(f"coach JSON missing required keys: {sorted(missing)}")
 
     version = payload.get("version")
+    if isinstance(version, bool):
+        raise CoachGenerationError("coach version must be 1")
+    if isinstance(version, str):
+        stripped = version.strip()
+        if stripped:
+            try:
+                parsed = float(stripped)
+            except ValueError:
+                parsed = None
+            if parsed is not None and math.isfinite(parsed) and parsed.is_integer():
+                version = int(parsed)
+    elif isinstance(version, float) and math.isfinite(version) and version.is_integer():
+        version = int(version)
     if version != 1:
         raise CoachGenerationError("coach version must be 1")
 
@@ -1140,10 +1285,17 @@ def generate_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
             return result
         except HTTPError as exc:
             last_error = exc
+            request_id = None
+            headers = getattr(exc, "headers", None)
+            if headers is not None:
+                request_id = headers.get("x-request-id") or headers.get("x-goog-request-id")
             if exc.code >= 500 or exc.code == 429:
                 if attempt == 0:
                     continue
-            raise CoachGenerationError(f"{provider} http error {exc.code}: {exc.reason}") from exc
+            raise CoachGenerationError(
+                f"{provider} http error {exc.code}: {exc.reason}",
+                vertex_request_id=request_id,
+            ) from exc
         except (URLError, TimeoutError, OSError) as exc:
             last_error = exc
             if attempt == 0:
@@ -1215,10 +1367,17 @@ def generate_trade_coach_via_vertex(payload: dict[str, Any]) -> dict[str, Any]:
             return result
         except HTTPError as exc:
             last_error = exc
+            request_id = None
+            headers = getattr(exc, "headers", None)
+            if headers is not None:
+                request_id = headers.get("x-request-id") or headers.get("x-goog-request-id")
             if exc.code >= 500 or exc.code == 429:
                 if attempt == 0:
                     continue
-            raise CoachGenerationError(f"{provider} http error {exc.code}: {exc.reason}") from exc
+            raise CoachGenerationError(
+                f"{provider} http error {exc.code}: {exc.reason}",
+                vertex_request_id=request_id,
+            ) from exc
         except (URLError, TimeoutError, OSError) as exc:
             last_error = exc
             if attempt == 0:
@@ -1244,21 +1403,69 @@ def _trade_voice_script(trade_coach_payload: dict[str, Any]) -> str:
     return " ".join(script_parts)
 
 
+def _voice_provider_diagnostics(exc: Exception, *, requested_provider: str) -> dict[str, Any]:
+    details: dict[str, Any] = {
+        "requested_provider": requested_provider,
+        "message": str(exc),
+    }
+    provider_details = getattr(exc, "details", None)
+    if isinstance(provider_details, dict):
+        details.update(provider_details)
+    else:
+        message = str(exc)
+        if "ElevenLabs HTTP " in message:
+            match = re.search(r"ElevenLabs HTTP (\d+)", message)
+            status_code = int(match.group(1)) if match else None
+            details["provider"] = "elevenlabs"
+            if status_code is not None:
+                details["status_code"] = status_code
+                if status_code == 402:
+                    details["category"] = "billing_or_voice_entitlement"
+                    details["retryable"] = False
+                elif status_code == 429:
+                    details["category"] = "rate_limited"
+                    details["retryable"] = True
+                elif status_code >= 500:
+                    details["category"] = "provider_unavailable"
+                    details["retryable"] = True
+    return details
+
+
 def _synthesize_trade_voice(text: str, provider: str) -> tuple[str, bytes, str, str]:
     normalized = provider.strip().lower()
     if normalized not in {"auto", "elevenlabs", "gradium"}:
         raise VoiceProviderError("provider must be one of: auto, elevenlabs, gradium")
 
+    gradium_error: VoiceProviderError | None = None
+    if normalized in {"auto", "gradium"}:
+        try:
+            audio_bytes, mime_type, extension = synthesize_with_gradium_tts(text)
+            return "gradium", audio_bytes, mime_type, extension
+        except VoiceProviderError as exc:
+            if normalized == "gradium":
+                raise
+            gradium_error = exc
+
     if normalized in {"auto", "elevenlabs"}:
         try:
             return "elevenlabs", synthesize_with_elevenlabs(text), "audio/mpeg", "mp3"
-        except VoiceProviderError:
+        except VoiceProviderError as elevenlabs_error:
             if normalized == "elevenlabs":
                 raise
+            if gradium_error is not None:
+                raise VoiceProviderError(
+                    "auto provider failed for gradium and elevenlabs",
+                    details={
+                        "provider": "auto",
+                        "attempt_order": ["gradium", "elevenlabs"],
+                        "gradium_error": str(gradium_error),
+                        "elevenlabs_error": str(elevenlabs_error),
+                    },
+                ) from elevenlabs_error
+            raise
 
-    if normalized in {"auto", "gradium"}:
-        audio_bytes, mime_type, extension = synthesize_with_gradium_tts(text)
-        return "gradium", audio_bytes, mime_type, extension
+    if gradium_error is not None:
+        raise gradium_error
 
     raise VoiceProviderError("failed to synthesize voice with available providers")
 
@@ -4046,10 +4253,22 @@ async def generate_coach(job_id: str, force: bool = False) -> JSONResponse:
                 error_message=f"Stored coach artifact is unreadable: {exc}",
                 status_code=409,
             )
+        provider_error: dict[str, Any] | None = None
+        if coach_error_path.exists():
+            try:
+                provider_error = _load_json_file(coach_error_path)
+            except Exception:
+                provider_error = None
+        is_fallback = bool((job.summary or {}).get("coach_status") == "COMPLETED_FALLBACK" or provider_error)
         return _envelope(
             ok=True,
             job=job,
-            data={"coach": existing, "cached": True},
+            data={
+                "coach": existing,
+                "cached": True,
+                "fallback": is_fallback,
+                "provider_error": provider_error,
+            },
             status_code=200,
         )
 
@@ -4117,14 +4336,23 @@ async def generate_coach(job_id: str, force: bool = False) -> JSONResponse:
             "when": utc_now_iso(),
             "vertex_request_id": request_id,
         }
+        fallback_payload = _deterministic_coach_fallback(
+            coach_input=coach_input,
+            failure_reason=error_payload["error_message"],
+        )
+        coach_payload = _validate_coach_schema(
+            fallback_payload,
+            expected_move_review=deterministic_move_review,
+        )
+        coach_path.write_text(json.dumps(coach_payload, indent=2, sort_keys=True) + "\n")
         coach_error_path.write_text(json.dumps(error_payload, indent=2, sort_keys=True) + "\n")
         updated_summary = dict(job.summary or {})
-        updated_summary["coach_status"] = "FAILED"
+        updated_summary["coach_status"] = "COMPLETED_FALLBACK"
         updated_summary["coach_error_type"] = error_payload["error_type"]
         updated_summary["coach_error_message"] = error_payload["error_message"]
         updated_artifacts = dict(job.artifacts)
+        updated_artifacts["coach_json"] = str(coach_path)
         updated_artifacts["coach_error_json"] = str(coach_error_path)
-        updated_artifacts.pop("coach_json", None)
         updated_job = JobRecord(
             job_id=job.job_id,
             user_id=job.user_id,
@@ -4138,13 +4366,15 @@ async def generate_coach(job_id: str, force: bool = False) -> JSONResponse:
         )
         _persist_job_record(updated_job, include_artifacts_sync=True)
         return _envelope(
-            ok=False,
+            ok=True,
             job=updated_job,
-            data={"coach_error": error_payload},
-            error_code="COACH_GENERATION_FAILED",
-            error_message="Vertex coach generation failed.",
-            error_details=error_payload,
-            status_code=502,
+            data={
+                "coach": coach_payload,
+                "cached": False,
+                "fallback": True,
+                "provider_error": error_payload,
+            },
+            status_code=200,
         )
 
     coach_path.write_text(json.dumps(coach_payload, indent=2, sort_keys=True) + "\n")
@@ -4172,7 +4402,7 @@ async def generate_coach(job_id: str, force: bool = False) -> JSONResponse:
     return _envelope(
         ok=True,
         job=updated_job,
-        data={"coach": coach_payload, "cached": False},
+        data={"coach": coach_payload, "cached": False, "fallback": False},
         status_code=200,
     )
 
@@ -4212,7 +4442,21 @@ async def get_coach(job_id: str) -> JSONResponse:
                 error_message=f"Stored coach artifact is unreadable: {exc}",
                 status_code=409,
             )
-        return _envelope(ok=True, job=job, data={"coach": coach_payload})
+        provider_error: dict[str, Any] | None = None
+        if coach_error_path.exists():
+            try:
+                provider_error = _load_json_file(coach_error_path)
+            except Exception:
+                provider_error = None
+        return _envelope(
+            ok=True,
+            job=job,
+            data={
+                "coach": coach_payload,
+                "fallback": bool(provider_error or (job.summary or {}).get("coach_status") == "COMPLETED_FALLBACK"),
+                "provider_error": provider_error,
+            },
+        )
 
     if coach_error_path.exists():
         try:
@@ -4740,12 +4984,14 @@ async def generate_trade_voice(
             status_code=200,
         )
     except Exception as exc:
+        provider_diagnostics = _voice_provider_diagnostics(exc, requested_provider=provider)
         error_payload = {
             "error_type": type(exc).__name__,
             "error_message": str(exc),
             "when": utc_now_iso(),
             "trade_id": trade_id,
             "provider": provider,
+            "provider_details": provider_diagnostics,
         }
         error_path.write_text(json.dumps(error_payload, indent=2, sort_keys=True) + "\n")
         updated_artifacts = dict(job.artifacts)

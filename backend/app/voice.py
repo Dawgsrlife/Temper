@@ -21,7 +21,9 @@ FALLBACK_GRADIUM_STT_URLS = (
 
 
 class VoiceProviderError(Exception):
-    pass
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.details = dict(details or {})
 
 
 def _is_cert_verify_error(exc: Exception) -> bool:
@@ -63,6 +65,66 @@ def _candidate_urls(primary: str | None, fallbacks: tuple[str, ...]) -> list[str
         if url and url not in ordered:
             ordered.append(url)
     return ordered
+
+
+def _extract_json_message(payload: Any) -> str | None:
+    if isinstance(payload, dict):
+        for key in ("message", "detail", "error", "description"):
+            value = payload.get(key)
+            nested = _extract_json_message(value)
+            if nested:
+                return nested
+        return None
+    if isinstance(payload, list):
+        for item in payload:
+            nested = _extract_json_message(item)
+            if nested:
+                return nested
+        return None
+    if isinstance(payload, str):
+        text = payload.strip()
+        return text or None
+    return None
+
+
+def _parse_elevenlabs_error(code: int, detail_text: str) -> tuple[str, dict[str, Any]]:
+    stripped = detail_text.strip()
+    payload: Any = None
+    if stripped:
+        try:
+            payload = json.loads(stripped)
+        except Exception:
+            payload = None
+
+    details: dict[str, Any] = {
+        "provider": "elevenlabs",
+        "status_code": int(code),
+        "raw_response": stripped[:4000] if stripped else "",
+    }
+    if isinstance(payload, (dict, list)):
+        details["provider_payload"] = payload
+    message = _extract_json_message(payload) if payload is not None else None
+    if not message:
+        message = stripped or "request failed"
+    details["provider_message"] = message
+
+    if code == 402:
+        details["category"] = "billing_or_voice_entitlement"
+        details["retryable"] = False
+    elif code == 401:
+        details["category"] = "auth"
+        details["retryable"] = False
+    elif code == 429:
+        details["category"] = "rate_limited"
+        details["retryable"] = True
+    elif code >= 500:
+        details["category"] = "provider_unavailable"
+        details["retryable"] = True
+    else:
+        details["category"] = "provider_error"
+        details["retryable"] = False
+
+    return f"ElevenLabs HTTP {code}: {message}", details
 
 
 def _extract_gradium_audio_bytes(payload_json: dict[str, Any]) -> bytes:
@@ -173,7 +235,8 @@ def synthesize_with_elevenlabs(
             audio_bytes = response.read()
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise VoiceProviderError(f"ElevenLabs HTTP {exc.code}: {detail or exc.reason}") from exc
+        message, details = _parse_elevenlabs_error(exc.code, detail or str(exc.reason))
+        raise VoiceProviderError(message, details=details) from exc
     except (URLError, TimeoutError, OSError) as exc:
         raise VoiceProviderError(f"ElevenLabs request failed: {exc}") from exc
 
@@ -248,7 +311,7 @@ def synthesize_with_gradium_tts(
         except HTTPError as exc:
             last_error = exc
             detail = exc.read().decode("utf-8", errors="replace")
-            if exc.code in {404, 405} and idx < len(candidates) - 1:
+            if (exc.code in {404, 405, 429} or exc.code >= 500) and idx < len(candidates) - 1:
                 continue
             raise VoiceProviderError(
                 f"Gradium TTS HTTP {exc.code} ({target_url}): {detail or exc.reason}"
@@ -328,7 +391,7 @@ def transcribe_with_gradium(
         except HTTPError as exc:
             last_error = exc
             detail = exc.read().decode("utf-8", errors="replace")
-            if exc.code in {404, 405} and idx < len(candidates) - 1:
+            if (exc.code in {404, 405, 429} or exc.code >= 500) and idx < len(candidates) - 1:
                 continue
             raise VoiceProviderError(
                 f"Gradium STT HTTP {exc.code} ({target_url}): {detail or exc.reason}"
